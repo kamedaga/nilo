@@ -1,0 +1,82 @@
+flow {
+    start: TestControlFlow
+    TestControlFlow -> [TestControlFlow]
+}
+
+timeline TestControlFlow {
+    Text("🔄 Control Flow Test")
+
+    // foreach文のテスト
+    Text("📋 Foreach Test:")
+    foreach item in ["Apple", "Banana", "Cherry", "Apple", "Banana", "Cherry", "Apple", "Banana", "Cherry"] {
+        Text("🍎 Item: {}", item, style: {
+            padding: 10px,
+            margin: 5px,
+            background: "#f0f0f0",
+            rounded: 5px
+        })
+    }
+
+    Spacing(20)
+
+    // if文のテスト（静的条件）
+    Text("🎯 If Test (Static):")
+    if true {
+        Text("✅ True condition works!", style: {
+            color: "green",
+            padding: 10px
+        })
+    } else {
+        Text("❌ This should not show")
+    }
+
+    if false {
+        Text("❌ This should not show")
+    } else {
+        Text("✅ False condition with else works!", style: {
+            color: "blue",
+            padding: 10px
+        })
+    }
+
+    Spacing(20)
+
+    // 数値配列でのforeach
+    Text("🔢 Foreach with Numbers:")
+    foreach num in [1, 2, 3, 4, 5] {
+        Text("Number: {}", num, style: {
+            padding: 5px,
+            background: "#e0e0e0",
+            margin: 2px
+        })
+        Text("Number: {}", num, style: {
+            padding: 5px,
+            background: "#e0e0e0",
+            margin: 2px
+        })
+    }
+
+    Spacing(20)
+
+    // if文でスタイル付き
+    Text("🎨 If with Style:")
+    if true (style: { background: "#ffeeaa", padding: 15px, rounded: 8px }) {
+        Text("If block with style applied!", style: { color: "purple" })
+        Text("Multiple elements in if block")
+    }
+
+    Spacing(20)
+
+    // foreach文でスタイル付き
+    Text("🌈 Foreach with Style:")
+    foreach color in ["red", "green", "blue"] (style: { margin: 10px }) {
+        Text("Color: {}", color, style: {
+            color: color,
+            padding: 8px,
+            border_color: color,
+            rounded: 4px
+        })
+    }
+
+    Text("✅ Control Flow Test Completed!", style: { color: "green", padding: 10px } )
+}

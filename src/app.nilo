@@ -1,0 +1,171 @@
+flow {
+    start: main
+    main -> [main]
+}
+
+timeline main {
+    VStack(style: {
+        background: "#282c34",
+        padding: 20px,
+        align: "center",
+        min_height: "100vh",
+        width: "100vw",
+        rounded: 4px
+    }) {
+        Spacing(60)
+
+        // Niloロゴ（アイコン風）
+        Text("⚡", style: {
+            font_size: 80px,
+            color: "#61dafb",
+            padding: 5px
+        })
+
+        Spacing(20)
+
+        Text("Welcome to Nilo", style: {
+            color: "#61dafb",
+            font_size: 48px,
+            font_weight: "bold",
+            right: 10px
+        })
+
+        Text("{}", state.name, style: {
+            color: "#ffffff",
+            font_size: 24px,
+            margin_top: 10px
+        })
+
+        Spacing(10)
+
+        Text("A modern UI framework for building fast applications", style: {
+            color: "#ffffff",
+            font_size: 18px,
+            text_align: "center",
+            max_width: 400px
+        })
+
+        Spacing(40)
+
+        HStack(style: {
+            gap: 20px
+        }) {
+            Button(
+                id: learn_btn,
+                label: "Get Started",
+                style: {
+                    background: "#61dafb",
+                    color: "#282c34",
+                    padding: "14px 28px",
+                    rounded: 8px,
+                    font_weight: "bold",
+                    border: "none",
+                    font_size: 16px
+                }
+            )
+
+            Button(
+                id: docs_btn,
+                label: "Learn More",
+                style: {
+                    background: "transparent",
+                    color: "#61dafb",
+                    padding: "14px 28px",
+                    rounded: 8px,
+                    border: "2px solid #61dafb",
+                    font_size: 16px
+                }
+            )
+        }
+
+        Spacing(60)
+
+        // 機能紹介セクション
+        VStack(style: {
+            gap: 30px,
+            max_width: 600px
+        }) {
+            HStack(style: {
+                gap: 20px,
+                align: "center"
+            }) {
+                Text("🚀", style: {
+                    font_size: 24px
+                })
+                VStack(style: {
+                    align: "start"
+                }) {
+                    Text("Fast Development", style: {
+                        color: "#ffffff",
+                        font_size: 18px,
+                        font_weight: "bold"
+                    })
+                    Text("Hot reload and instant feedback", style: {
+                        color: "#aaaaaa",
+                        font_size: 14px
+                    })
+                }
+            }
+
+            HStack(style: {
+                gap: 20px,
+                align: "center"
+            }) {
+                Text("⚡", style: {
+                    font_size: 24px
+                })
+                VStack(style: {
+                    align: "start"
+                }) {
+                    Text("High Performance", style: {
+                        color: "#ffffff",
+                        font_size: 18px,
+                        font_weight: "bold"
+                    })
+                    Text("Built with Rust for maximum speed", style: {
+                        color: "#aaaaaa",
+                        font_size: 14px
+                    })
+                }
+            }
+
+            HStack(style: {
+                gap: 20px,
+                align: "center"
+            }) {
+                Text("🎨", style: {
+                    font_size: 24px
+                })
+                VStack(style: {
+                    align: "start"
+                }) {
+                    Text("Beautiful UI", style: {
+                        color: "#ffffff",
+                        font_size: 18px,
+                        font_weight: "bold"
+                    })
+                    Text("Modern design system included", style: {
+                        color: "#aaaaaa",
+                        font_size: 14px
+                    })
+                }
+            }
+        }
+
+        Spacing(60)
+
+        Text("Edit src/app.nilo to get started", style: {
+            color: "#1E93AB",
+            font_size: 16px,
+            font_family: "monospace",
+            background: "#1e1e1e",
+            padding: "8px 16px",
+            rounded: 6px,
+            border: "1px solid #444"
+        })
+
+        Spacing(40)
+
+        Text("")
+    }
+}

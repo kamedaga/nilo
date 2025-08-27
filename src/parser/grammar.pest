@@ -1,0 +1,137 @@
+WHITESPACE = _{ " " | "\t" | NEWLINE | COMMENT }
+NEWLINE    = _{ "\r\n" | "\n" }
+COMMENT    = _{ "//" ~ (!NEWLINE ~ ANY)* ~ NEWLINE? }
+
+ident = @{ (ASCII_ALPHANUMERIC | "_" | "-")+ }
+
+// 置換後（ASCII と “ ” の両対応・簡易エスケープ付）
+string           = @{ dq_string | fancy_dq_string }
+dq_string        = @{ "\"" ~ ( "\\\"" | "\\\\" | (!"\""  ~ ANY) )* ~ "\"" }
+fancy_dq_string  = @{ "“"  ~ ( "\\”"  | "\\\\" | (!"”"   ~ ANY) )* ~ "”"  }
+
+number  = @{ "-"? ~ ASCII_DIGIT+ ~ ("." ~ ASCII_DIGIT+)? }
+bool    = { "true" | "false" }
+
+// 相対単位対応の新しい値型
+dimension_value = { number ~ unit_suffix? }
+unit_suffix = { "px" | "vw" | "vh" | "%" | "rem" | "em" }
+
+array   = { "[" ~ (expr ~ ("," ~ expr)*)? ~ "]" }
+object  = { "{" ~ (object_entry ~ ("," ~ object_entry)*)? ~ "}" }
+object_entry = { ident ~ ":" ~ expr }
+
+expr    = { match_expr | string | dimension_value | number | bool | path | ident | array | object }
+
+style_arg = { "style" ~ ":" ~ expr }
+
+file       = { SOI ~ (flow_def | timeline_def | component_def)* ~ EOI }
+
+flow_def   = { "flow" ~ "{" ~ start_def ~ transition_def+ ~ "}" }
+start_def  = { "start" ~ ":" ~ ident }
+transition_def = { ident ~ "->" ~ "[" ~ (ident ~ ("," ~ ident)*)? ~ "]" }
+
+
+timeline_def = { "timeline" ~ ident ~ "{" ~ view_nodes? ~ "}" }
+component_def = { "component" ~ ident ~ param_list? ~ "{" ~ view_nodes? ~ "}" }
+param_list = { "(" ~ (ident ~ ("," ~ ident)*)? ~ ")" }
+
+view_nodes = { view_node* }
+
+view_node = _{
+      vstack_node
+    | hstack_node
+    | text
+    | button
+    | image
+    | dynamic_section
+    | match_block
+    | foreach_node
+    | if_node
+    | navigate_action
+    | spacing_node
+    | rust_call
+    | component_call
+    | stencil_call
+    | state_set
+    | state_toggle
+    | list_append
+    | list_remove
+    | when_block
+}
+
+vstack_node = { "VStack" ~ "(" ~ style_arg? ~ ")" ~ "{" ~ view_nodes? ~ "}" }
+hstack_node = { "HStack" ~ "(" ~ style_arg? ~ ")" ~ "{" ~ view_nodes? ~ "}" }
+
+arg_item = { style_arg | expr }
+
+
+text = { "Text" ~ "(" ~ expr ~ ("," ~ arg_item)* ~ ")" }
+
+
+button = { "Button" ~ "("
+    ~ "id" ~ ":" ~ ident
+    ~ "," ~ "label" ~ ":" ~ string
+    ~ ("," ~ "onclick" ~ ":" ~ rust_call)?
+    ~ ("," ~ style_arg)?
+    ~ ")"
+}
+
+image = { "Image" ~ "(" ~ string ~ ("," ~ arg_item)* ~ ")" }
+
+dynamic_section = { "dynamic_section" ~ ident ~ "(" ~ style_arg? ~ ")" ~ "{" ~ view_nodes? ~ "}" }
+
+match_expr = {
+    "match" ~ expr ~ "{"
+    ~ expr_match_arm* ~ expr_default_arm? ~ "}"
+}
+
+match_block = {
+    "match" ~ expr ~ ("(" ~ style_arg? ~ ")")? ~ "{"
+    ~ match_arm* ~ default_arm? ~ "}"
+}
+match_arm = { "case" ~ expr ~ "{" ~ view_nodes? ~ "}" }
+default_arm = { "default" ~ "{" ~ view_nodes? ~ "}" }
+
+// 式用のmatch arm（文字列値を返す）
+expr_match_arm = { "case" ~ expr ~ "{" ~ expr ~ "}" }
+expr_default_arm = { "default" ~ "{" ~ expr ~ "}" }
+
+navigate_action = { "navigate_to" ~ "(" ~ ident ~ ")" }
+
+spacing_node = { "Spacing" ~ "(" ~ number? ~ ")" | "SpacingAuto" }
+
+rust_call = { ident ~ "!" ~ "(" ~ (arg_item ~ ("," ~ arg_item)*)? ~ ")" }
+
+component_call = { ident ~ "(" ~ (arg_item ~ ("," ~ arg_item)*)? ~ ")" }
+
+
+state_set    = { "set" ~ ident ~ "=" ~ expr }
+state_toggle = { ident ~ "=" ~ "!" ~ ident }
+list_append  = { ident ~ ".append" ~ "(" ~ expr ~ ")" }
+list_remove  = { ident ~ ".remove" ~ "(" ~ number ~ ")" }
+
+stencil_call = { ident ~ "(" ~ stencil_args? ~ ")" }
+stencil_args = { (stencil_arg ~ ("," ~ stencil_arg)*)? }
+stencil_arg  = { ident ~ ":" ~ stencil_value }
+stencil_value = { number | string | bool }
+
+when_block = { "when" ~ event_expr ~ "{" ~ view_nodes? ~ "}" }
+event_expr = { user_event }
+user_event = { "user" ~ "." ~ event_kind ~ "(" ~ ident ~ ")" }
+event_kind = { "click" }
+
+button_id = { "id" ~ ":" ~ ident }
+button_label = { "label" ~ ":" ~ string }
+
+path_arg = { "path" ~ ":" ~ string }
+size_arg = { "size" ~ ":" ~ number ~ "," ~ number }
+
+arg_list = { "(" ~ (expr ~ ("," ~ expr)*)? ~ ")" }
+
+path = @{ ident ~ ("." ~ ident)* }
+
+// ★ 新規追加: foreach制御の構文規則
+foreach_node = { "foreach" ~ ident ~ "in" ~ expr ~ ("(" ~ style_arg? ~ ")")? ~ "{" ~ view_nodes? ~ "}" }
+
+// ★ 新規追加: if制御の構文規則
+if_node = { "if" ~ expr ~ ("(" ~ style_arg? ~ ")")? ~ "{" ~ view_nodes? ~ "}" ~ ("else" ~ "{" ~ view_nodes? ~ "}")? }

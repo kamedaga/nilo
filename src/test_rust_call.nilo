@@ -1,0 +1,14 @@
+flow {
+    start: TestRustCall
+    TestRustCall -> [TestRustCall]
+}
+
+timeline TestRustCall {
+
+    Text("🚀 HOT RELOAD FIXED! 🎉")
+    Button(id: test_button, label: "✅ Hot Reload Working!", onclick: test!(), style: {
+        background: "#32CD32",
+        padding: 20px,
+        rounded: 12px
+    })
+}
