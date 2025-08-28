@@ -1,171 +1,120 @@
 flow {
-    start: main
-    main -> [main]
+    start: UserForm
+    CheckDimensions -> [CheckDimensions]
 }
 
-timeline main {
+timeline CheckDimensions {
+    test!()
+}
+
+timeline UserForm {
     VStack(style: {
-        background: "#282c34",
-        padding: 20px,
-        align: "center",
-        min_height: "100vh",
-        width: "100vw",
-        rounded: 4px
+        width: 90vw,
+        max_width: 600px,
+        padding: 2rem,
+        background: "#ffffff",
+        rounded: 1rem,
+        shadow: true,
+        align: "center"
     }) {
-        Spacing(60)
-
-        // Niloロゴ（アイコン風）
-        Text("⚡", style: {
-            font_size: 80px,
-            color: "#61dafb",
-            padding: 5px
-        })
-
-        Spacing(20)
-
-        Text("Welcome to Nilo", style: {
-            color: "#61dafb",
-            font_size: 48px,
+        Text("ユーザー登録", style: {
+            font_size: 2rem,
             font_weight: "bold",
-            right: 10px
+            margin_bottom: 2rem,
+            color: "#343a40"
         })
 
-        Text("{}", state.name, style: {
-            color: "#ffffff",
-            font_size: 24px,
-            margin_top: 10px
-        })
-
-        Spacing(10)
-
-        Text("A modern UI framework for building fast applications", style: {
-            color: "#ffffff",
-            font_size: 18px,
-            text_align: "center",
-            max_width: 400px
-        })
-
-        Spacing(40)
-
-        HStack(style: {
-            gap: 20px
-        }) {
-            Button(
-                id: learn_btn,
-                label: "Get Started",
-                style: {
-                    background: "#61dafb",
-                    color: "#282c34",
-                    padding: "14px 28px",
-                    rounded: 8px,
+        VStack(style: { gap: 1.5rem, width: 100% }) {
+            VStack(style: { gap: 0.5rem, width: 100% }) {
+                Text("ユーザー名", style: {
                     font_weight: "bold",
-                    border: "none",
-                    font_size: 16px
+                    color: "#495057",
+                    text_align: "left",
+                    width: 100%
+                })
+                TextInput(state.username, style: {
+                    width: 100%,
+                    padding: 0.8rem,
+                    border: "1px solid #ced4da",
+                    rounded: 0.5rem,
+                    font_size: 1rem
+                })
+            }
+
+            VStack(style: { gap: 0.5rem, width: 100% }) {
+                Text("メールアドレス", style: {
+                    font_weight: "bold",
+                    color: "#495057",
+                    text_align: "left",
+                    width: 100%
+                })
+                TextInput(state.email, style: {
+                    width: 100%,
+                    padding: 0.8rem,
+                    border: "1px solid #ced4da",
+                    rounded: 0.5rem,
+                    font_size: 1rem
+                })
+            }
+
+            VStack(style: { gap: 0.5rem, width: 100% }) {
+                Text("パスワード", style: {
+                    font_weight: "bold",
+                    color: "#495057",
+                    text_align: "left",
+                    width: 100%
+                })
+                TextInput(state.password, style: {
+                    width: 100%,
+                    padding: 0.8rem,
+                    border: "1px solid #ced4da",
+                    rounded: 0.5rem,
+                    font_size: 1rem
+                })
+            }
+        }
+
+        Spacing(2rem)
+
+        HStack(style: { gap: 1rem, width: 100%, justify_content: "center" }) {
+            Button(
+                id: submit_btn,
+                label: "登録",
+                onclick: register_user!(),
+                style: {
+                    background: "#28a745",
+                    color: "white",
+                    padding: "0.8rem 2rem",
+                    rounded: 0.5rem,
+                    font_size: 1rem,
+                    font_weight: "bold"
                 }
             )
 
             Button(
-                id: docs_btn,
-                label: "Learn More",
+                id: cancel_btn,
+                label: "キャンセル",
                 style: {
-                    background: "transparent",
-                    color: "#61dafb",
-                    padding: "14px 28px",
-                    rounded: 8px,
-                    border: "2px solid #61dafb",
-                    font_size: 16px
+                    background: "#6c757d",
+                    color: "white",
+                    padding: "0.8rem 2rem",
+                    rounded: 0.5rem,
+                    font_size: 1rem
                 }
             )
         }
 
-        Spacing(60)
-
-        // 機能紹介セクション
-        VStack(style: {
-            gap: 30px,
-            max_width: 600px
-        }) {
-            HStack(style: {
-                gap: 20px,
-                align: "center"
-            }) {
-                Text("🚀", style: {
-                    font_size: 24px
-                })
-                VStack(style: {
-                    align: "start"
-                }) {
-                    Text("Fast Development", style: {
-                        color: "#ffffff",
-                        font_size: 18px,
-                        font_weight: "bold"
-                    })
-                    Text("Hot reload and instant feedback", style: {
-                        color: "#aaaaaa",
-                        font_size: 14px
-                    })
-                }
-            }
-
-            HStack(style: {
-                gap: 20px,
-                align: "center"
-            }) {
-                Text("⚡", style: {
-                    font_size: 24px
-                })
-                VStack(style: {
-                    align: "start"
-                }) {
-                    Text("High Performance", style: {
-                        color: "#ffffff",
-                        font_size: 18px,
-                        font_weight: "bold"
-                    })
-                    Text("Built with Rust for maximum speed", style: {
-                        color: "#aaaaaa",
-                        font_size: 14px
-                    })
-                }
-            }
-
-            HStack(style: {
-                gap: 20px,
-                align: "center"
-            }) {
-                Text("🎨", style: {
-                    font_size: 24px
-                })
-                VStack(style: {
-                    align: "start"
-                }) {
-                    Text("Beautiful UI", style: {
-                        color: "#ffffff",
-                        font_size: 18px,
-                        font_weight: "bold"
-                    })
-                    Text("Modern design system included", style: {
-                        color: "#aaaaaa",
-                        font_size: 14px
-                    })
-                }
-            }
+        if state.validation_error {
+            Text(state.error_message, style: {
+                color: "#dc3545",
+                font_size: 0.9rem,
+                margin_top: 1rem,
+                text_align: "center"
+            })
         }
+    }
 
-        Spacing(60)
-
-        Text("Edit src/app.nilo to get started", style: {
-            color: "#1E93AB",
-            font_size: 16px,
-            font_family: "monospace",
-            background: "#1e1e1e",
-            padding: "8px 16px",
-            rounded: 6px,
-            border: "1px solid #444"
-        })
-
-        Spacing(40)
-
-        Text("")
+    when user.click(cancel_btn) {
+        navigate_to(MainMenu)
     }
 }

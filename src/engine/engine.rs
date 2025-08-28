@@ -24,6 +24,16 @@ impl Engine {
         S: crate::engine::state::StateAccess + 'static,
     {
         // ホバー状態を正確に反映するため、キャッシュを無効化して毎フレーム再描画
+
+        // ★ 追加: 現在のタイムラインのフォント設定を取得
+        let default_font = if let Some(tl) = state.current_timeline(app) {
+            // ★ デバッグ出力: フォント設定の確認
+            tl.font.clone().unwrap_or_else(|| "default".to_string())
+        } else {
+            "default".to_string()
+        };
+
+
         let params = LayoutParams {
             start: [20.0, 20.0],
             spacing: 12.0,
@@ -31,6 +41,7 @@ impl Engine {
             parent_size: window_size,
             root_font_size: 16.0,
             font_size: 16.0,
+            default_font: default_font.clone(), // ★ cloneしてから使用
         };
 
         // 毎回新しく計算して   バー状態を正確に反映
@@ -57,6 +68,15 @@ impl Engine {
         let mut stencils = Vec::new();
         let mut buttons = Vec::new();
 
+        // ★ 追加: 現在のタイムラインのフォント設定を取得
+        let default_font = if let Some(tl) = state.current_timeline(app) {
+            // ★ デバッグ出力: フォント設定の確認
+            tl.font.clone().unwrap_or_else(|| "default".to_string())
+        } else {
+            "default".to_string()
+        };
+
+
         let params = LayoutParams {
             start: [20.0, 20.0],
             spacing: 12.0,
@@ -64,9 +84,10 @@ impl Engine {
             parent_size: window_size,
             root_font_size: 16.0,
             font_size: 16.0,
+            default_font: default_font.clone(), // ★ cloneしてから使用
         };
 
-        // 軽量化：DynamicSectionのみを対象とした高速処理
+        // 軽量化：DynamicSectionのみを対象とした高速���������������理
         let eval_fn = |e: &Expr| state.eval_expr_from_ast(e);
         let get_img_size = |path: &str| state.get_image_size(path);
         let layouted_all = layout_vstack(nodes, params, app, &eval_fn, &get_img_size);
@@ -80,6 +101,7 @@ impl Engine {
                     parent_size: lnode.size,
                     root_font_size: 16.0,
                     font_size: 16.0,
+                    default_font: default_font.clone(), // ★ フォント設定を継承
                 };
 
                 let (inner_stencils, inner_buttons) = Self::layout_nodes_lightweight(
@@ -115,13 +137,13 @@ impl Engine {
         let eval_fn = |e: &Expr| state.eval_expr_from_ast(e);
         let get_img_size = |path: &str| state.get_image_size(path);
 
-        // 軽量化：レイアウト計算を一度だけ実行
-        let layouted = layout_vstack(nodes, params, app, &eval_fn, &get_img_size);
+        // 軽量化：レイアウト計算を一��だけ実行
+        let layouted = layout_vstack(nodes, params.clone(), app, &eval_fn, &get_img_size);
 
         // 軽量化：バッチ処理でstencil変換
         for lnode in &layouted {
             match &lnode.node.node {
-                ViewNode::DynamicSection { .. } => continue, // 静的処理では無視
+                ViewNode::DynamicSection { .. } => continue, // 静的��理では無視
                 ViewNode::Button { id, onclick, .. } => {
                     // ボタン境界を記録（デバッグ出力付き
                     buttons.push((id.clone(), lnode.position, lnode.size));
@@ -131,12 +153,19 @@ impl Engine {
                         state.button_onclick_map.insert(id.clone(), onclick_expr.clone());
                     }
 
-                    // ホバー状態のチェックを最  限に
+                    // ホバー状態のチェックを最小限に
                     let is_hover = Self::is_point_in_rect(mouse_pos, lnode.position, lnode.size);
-                    Self::render_button_lightweight(lnode, &mut stencils, &mut depth_counter, is_hover);
+                    Self::render_button_lightweight(lnode, &mut stencils, &mut depth_counter, is_hover, &params.default_font);
+                }
+                ViewNode::TextInput { id, placeholder: _, value: _, on_change: _, multiline: _, max_length: _, ime_enabled: _ } => {
+                    // テキスト入力フィールドを記録
+                    buttons.push((id.clone(), lnode.position, lnode.size));
+
+                    // テキ��ト入力フィールドの描画
+                    Self::render_text_input_lightweight(lnode, state, &mut stencils, &mut depth_counter, mouse_pos);
                 }
                 ViewNode::Text { .. } => {
-                    Self::render_text_lightweight(lnode, state, &mut stencils, &mut depth_counter, params.window_size);
+                    Self::render_text_lightweight(lnode, state, &mut stencils, &mut depth_counter, params.window_size, &params.default_font);
                 }
                 ViewNode::Image { .. } => {
                     Self::render_image_lightweight(lnode, &mut stencils, &mut depth_counter);
@@ -147,11 +176,14 @@ impl Engine {
                     stencils.push(offset_st);
                 }
                 ViewNode::RustCall { name, args } => {
-                    // Rustコールを実行（レイアウト時）
+                    // Rustコールを実行（レイアウト時��
                     state.handle_rust_call_viewnode(name, args);
                 }
                 ViewNode::ForEach { var, iterable, body } => {
-                    Self::render_foreach_optimized(lnode, var, iterable, body, app, state, &mut stencils, &mut depth_counter, params.window_size, params.spacing);
+                    // ★ 修正: params.window_sizeとparams.spacingを事前に取得
+                    let window_size = params.window_size;
+                    let spacing = params.spacing;
+                    Self::render_foreach_optimized(lnode, var, iterable, body, app, state, &mut stencils, &mut depth_counter, window_size, spacing);
                 }
                 ViewNode::If { condition, then_body, else_body } => {
                     Self::render_if_optimized(lnode, condition, then_body, else_body, state, &mut stencils, &mut depth_counter);
@@ -167,12 +199,179 @@ impl Engine {
         (stencils, buttons)
     }
 
+    /// 軽量化されたテキスト入力フィールド描画（IME対応）
+    fn render_text_input_lightweight<S>(
+        lnode: &crate::ui::LayoutedNode<'_>,
+        state: &AppState<S>,
+        stencils: &mut Vec<Stencil>,
+        depth_counter: &mut f32,
+        mouse_pos: [f32; 2],
+    ) where
+        S: crate::engine::state::StateAccess + 'static,
+    {
+        if let ViewNode::TextInput { id, placeholder, value, on_change, multiline, max_length, ime_enabled } = &lnode.node.node {
+            let style = lnode.node.style.clone().unwrap_or_default();
+
+            // スタイル設定
+            let bg_color = style.background.as_ref()
+                .map(|c| Self::convert_to_rgba(c))
+                .unwrap_or([1.0, 1.0, 1.0, 1.0]); // デフォルト白色
+
+            let border_color = style.border_color.as_ref()
+                .map(|c| Self::convert_to_rgba(c))
+                .unwrap_or([0.8, 0.8, 0.8, 1.0]); // デフォルトグレー
+
+            let text_color = style.color.as_ref()
+                .map(|c| Self::convert_to_rgba(c))
+                .unwrap_or([0.0, 0.0, 0.0, 1.0]); // デフ��ルト黒色
+
+            let font_size = style.font_size.unwrap_or(16.0);
+            let radius = style.rounded
+                .map(|r| match r {
+                    crate::parser::ast::Rounded::On => 8.0,
+                    crate::parser::ast::Rounded::Px(v) => v,
+                })
+                .unwrap_or(4.0);
+
+            // フォーカス状態をチェック
+            let is_focused = state.get_focused_text_input()
+                .map(|focused_id| focused_id == id)
+                .unwrap_or(false);
+
+            // ホバー状態をチェック
+            let is_hover = Self::is_point_in_rect(mouse_pos, lnode.position, lnode.size);
+
+            // フォーカス時のボーダー色調整
+            let effective_border_color = if is_focused {
+                [0.3, 0.6, 1.0, 1.0] // フォーカス時は青色
+            } else if is_hover {
+                [0.6, 0.6, 0.6, 1.0] // ホバー時は少し濃いグレー
+            } else {
+                border_color
+            };
+
+            // 影の追加（フォーカス時とホバー時）
+            if is_focused || is_hover {
+                let shadow_color = if is_focused {
+                    [0.2, 0.6, 1.0, 0.3] // フォーカス時: 青い影
+                } else {
+                    [0.0, 0.0, 0.0, 0.1] // ホバー時: 薄い黒い影
+                };
+
+                let shadow_offset = if is_focused { [0.0, 2.0] } else { [0.0, 1.0] };
+                let shadow_blur = if is_focused { 8.0 } else { 4.0 };
+
+                *depth_counter += 0.001;
+                stencils.push(Stencil::RoundedRect {
+                    position: [lnode.position[0] + shadow_offset[0], lnode.position[1] + shadow_offset[1]],
+                    width: lnode.size[0],
+                    height: lnode.size[1],
+                    radius,
+                    color: shadow_color,
+                    scroll: true,
+                    depth: (1.0 - *depth_counter).max(0.0),
+                });
+            }
+
+            // 背景
+            if bg_color[3] > 0.0 {
+                *depth_counter += 0.001;
+                stencils.push(Stencil::RoundedRect {
+                    position: lnode.position,
+                    width: lnode.size[0],
+                    height: lnode.size[1],
+                    radius,
+                    color: bg_color,
+                    scroll: true,
+                    depth: (1.0 - *depth_counter).max(0.0),
+                });
+            }
+
+            // ボーダー（より洗練されたスタイル）
+            if effective_border_color[3] > 0.0 {
+                let border_width = if is_focused { 2.0 } else { 1.0 };
+
+                // 外側のボーダー
+                *depth_counter += 0.001;
+                stencils.push(Stencil::RoundedRect {
+                    position: [lnode.position[0] - border_width / 2.0, lnode.position[1] - border_width / 2.0],
+                    width: lnode.size[0] + border_width,
+                    height: lnode.size[1] + border_width,
+                    radius: radius + border_width / 2.0,
+                    color: border_color,
+                    scroll: true,
+                    depth: (1.0 - *depth_counter).max(0.0),
+                });
+
+                // 内側の背景（ボーダー効果を作るため）
+                *depth_counter += 0.001;
+                stencils.push(Stencil::RoundedRect {
+                    position: lnode.position,
+                    width: lnode.size[0],
+                    height: lnode.size[1],
+                    radius,
+                    color: bg_color,
+                    scroll: true,
+                    depth: (1.0 - *depth_counter).max(0.0),
+                });
+            }
+
+            // テキスト描画（プレースホルダー考慮）
+            let default_text_color = [0.2, 0.2, 0.2, 1.0]; // より濃いグレー
+            let text_color = style.color.as_ref().map(|c| Self::convert_to_rgba(c)).unwrap_or(default_text_color);
+            let current_value = state.get_text_input_value(id);
+            let placeholder_text = placeholder.as_deref().unwrap_or("");
+            let display_text = if current_value.is_empty() { placeholder_text.to_string() } else { current_value.clone() };
+
+            // プレースホルダー表示時の色調整（より洗練された色）
+            let effective_text_color = if current_value.is_empty() {
+                [0.6, 0.6, 0.6, 1.0] // プレースホルダー用のミディアムグレー
+            } else {
+                text_color
+            };
+
+            // パディングを調整してより美しく
+            let padding_x = 16.0;
+            let padding_y = (lnode.size[1] - font_size * 1.2) / 2.0;
+
+            *depth_counter += 0.001;
+            stencils.push(Stencil::Text {
+                content: display_text,
+                position: [lnode.position[0] + padding_x, lnode.position[1] + padding_y],
+                size: font_size,
+                color: effective_text_color,
+                font: style.font.unwrap_or_else(|| "default".to_string()),
+                scroll: true,
+                depth: (1.0 - *depth_counter).max(0.0),
+            });
+
+            // フォーカス時のカーソル描画
+            if is_focused {
+                let cursor_pos = state.get_text_cursor_position(id);
+                // 簡易的なカーソル位置計算（実際の実装では文字幅を正確に計算する必要がある）
+                let char_width = font_size * 0.6;
+                let cursor_x = lnode.position[0] + padding_x + (cursor_pos as f32 * char_width);
+
+                *depth_counter += 0.001;
+                stencils.push(Stencil::Rect {
+                    position: [cursor_x, lnode.position[1] + padding_y],
+                    width: 2.0,
+                    height: font_size * 1.2,
+                    color: [0.2, 0.6, 1.0, 0.8], // 青いカーソル
+                    scroll: true,
+                    depth: (1.0 - *depth_counter).max(0.0),
+                });
+            }
+        }
+    }
+
     /// 軽量化されたボタン描画
     fn render_button_lightweight(
         lnode: &crate::ui::LayoutedNode<'_>,
         stencils: &mut Vec<Stencil>,
         depth_counter: &mut f32,
         is_hover: bool,
+        default_font: &str, // ★ 追加: デフォルトフォントパラメータ
     ) {
         if let ViewNode::Button { label, .. } = &lnode.node.node {
             let style = lnode.node.style.clone().unwrap_or_default();
@@ -232,11 +431,16 @@ impl Engine {
                 });
             }
 
-            // テキスト   簡略化された中央寄せ計算
-            let text_w = (label.chars().count() as f32) * font_size * 0.55;
+            // ★ 修正: 正確なテキスト幅計算を使用（layout.rsと同じ計算式）
+            let text_w = Self::calculate_text_width_accurate(label, font_size);
             let text_h = font_size * 1.2;
             let tx = lnode.position[0] + (lnode.size[0] - text_w) * 0.5;
             let ty = lnode.position[1] + (lnode.size[1] - text_h) * 0.5;
+
+            // ★ 修正: フォント選択の優先順位を正しく設定
+            let font = style.font.as_ref()
+                .map(|f| f.clone())
+                .unwrap_or_else(|| default_font.to_string());
 
             *depth_counter += 0.001;
             stencils.push(Stencil::Text {
@@ -244,27 +448,28 @@ impl Engine {
                 position: [tx, ty],
                 size: font_size,
                 color: text_color,
-                font: style.font.unwrap_or_else(|| "default".to_string()),
+                font,
                 scroll: true,
                 depth: (1.0 - *depth_counter).max(0.0),
             });
         }
     }
 
-    /// 軽量化されたテキスト����画
+    /// 軽量化されたテキスト描画
     fn render_text_lightweight<S>(
         lnode: &crate::ui::LayoutedNode<'_>,
         state: &AppState<S>,
         stencils: &mut Vec<Stencil>,
         depth_counter: &mut f32,
         window_size: [f32; 2],
+        default_font: &str, // ★ 追加: デフォルトフォントパラメータ
     ) where
         S: crate::engine::state::StateAccess + 'static,
     {
         if let ViewNode::Text { format, args } = &lnode.node.node {
             let style = lnode.node.style.clone().unwrap_or_default();
 
-            // 軽   化：評価を最小限に
+            // 軽量化：評価を最小限に
             let values: Vec<String> = args.iter().map(|e| state.eval_expr_from_ast(e)).collect();
             let content = Self::format_text_fast(format.as_str(), &values[..]);
 
@@ -284,20 +489,25 @@ impl Engine {
 
             let padding = style.padding.unwrap_or_default();
 
+            // ★ 修正: フォント選択の優先順位を正しく設定
+            let font = style.font.as_ref()
+                .map(|f| f.clone())
+                .unwrap_or_else(|| default_font.to_string());
+
             *depth_counter += 0.001;
             stencils.push(Stencil::Text {
                 content,
                 position: [lnode.position[0] + padding.left, lnode.position[1] + padding.top],
                 size: font_size,
                 color: text_color,
-                font: style.font.unwrap_or_else(|| "default".to_string()),
+                font,
                 scroll: true,
                 depth: (1.0 - *depth_counter).max(0.0),
             });
         }
     }
 
-    /// 軽量化���れた画像描画
+    /// 軽量化された画像描画
     fn render_image_lightweight(
         lnode: &crate::ui::LayoutedNode<'_>,
         stencils: &mut Vec<Stencil>,
@@ -371,6 +581,7 @@ impl Engine {
                 parent_size: [lnode.size[0], window_size[1]],
                 root_font_size: 16.0,
                 font_size: 16.0,
+                default_font: "default".to_string(), // ★ 不足していたフィールドを追加
             };
             let layouted = crate::ui::layout_vstack(body, item_params, app, &eval_fn, &get_img_size);
 
@@ -450,6 +661,65 @@ impl Engine {
                 *depth_counter += 0.001;
                 stencils.push(Stencil::Text { content: label.clone(), position:[lnode.position[0]+10.0, lnode.position[1]+5.0], size: font_size, color: text_color, font: style.font.unwrap_or_else(||"default".into()), scroll: true, depth:(1.0-*depth_counter).max(0.0)});
             }
+            ViewNode::TextInput { id, placeholder, value, on_change, multiline, max_length, ime_enabled } => {
+                let style = lnode.node.style.clone().unwrap_or_default();
+                let bg = style.background.as_ref().map(|c| Self::convert_to_rgba(c)).unwrap_or([1.0, 1.0, 1.0, 1.0]);
+                let border_color = style.border_color.as_ref().map(|c| Self::convert_to_rgba(c)).unwrap_or([0.8, 0.8, 0.8, 1.0]);
+                let font_size = style.font_size.unwrap_or(16.0);
+                let radius = style.rounded.map(|r| match r { crate::parser::ast::Rounded::On=>8.0, crate::parser::ast::Rounded::Px(v)=>v }).unwrap_or(6.0);
+
+                // 背景
+                if bg[3] > 0.0 {
+                    *depth_counter += 0.001;
+                    stencils.push(Stencil::RoundedRect {
+                        position: lnode.position,
+                        width: lnode.size[0],
+                        height: lnode.size[1],
+                        radius,
+                        color: bg,
+                        scroll: true,
+                        depth: (1.0 - *depth_counter).max(0.0),
+                    });
+                }
+
+                // ボーダー
+                if border_color[3] > 0.0 {
+                    *depth_counter += 0.001;
+                    stencils.push(Stencil::RoundedRect {
+                        position: lnode.position,
+                        width: lnode.size[0],
+                        height: lnode.size[1],
+                        radius,
+                        color: border_color,
+                        scroll: true,
+                        depth: (1.0 - *depth_counter).max(0.0),
+                    });
+                }
+
+                // テキスト描画（プレースホルダー考慮）
+                let text_color = style.color.as_ref().map(|c| Self::convert_to_rgba(c)).unwrap_or([0.0, 0.0, 0.0, 1.0]);
+                let current_value = state.get_text_input_value(id);
+                let placeholder_text = placeholder.as_deref().unwrap_or("");
+                let display_text = if current_value.is_empty() { placeholder_text.to_string() } else { current_value.clone() };
+
+                // ★ 修正: プレースホルダー表示時の色調整
+                let effective_text_color = if current_value.is_empty() {
+                    [text_color[0] * 0.7, text_color[1] * 0.7, text_color[2] * 0.7, text_color[3]]
+                } else {
+                    text_color
+                };
+
+                *depth_counter += 0.001;
+                stencils.push(Stencil::Text {
+                    content: display_text,
+                    position: [lnode.position[0] + 8.0, lnode.position[1] + 8.0],
+                    size: font_size,
+                    color: effective_text_color,
+                    font: style.font.unwrap_or_else(|| "default".to_string()),
+                    scroll: true,
+                    depth: (1.0 - *depth_counter).max(0.0),
+                });
+            }
             ViewNode::VStack(children) | ViewNode::HStack(children) => {
                 for child in children {
                     let child_l = crate::ui::LayoutedNode { node: child, position: lnode.position, size: lnode.size };
@@ -516,43 +786,74 @@ impl Engine {
                 let style = lnode.node.style.clone().unwrap_or_default();
                 let bg = style.background.as_ref().map(|c| Self::convert_to_rgba(c)).unwrap_or([0.13,0.59,0.95,1.0]);
                 let font_size = style.font_size.unwrap_or(16.0);
-                let radius = style.rounded.map(|r| match r { 
-                    crate::parser::ast::Rounded::On => 8.0, 
-                    crate::parser::ast::Rounded::Px(v) => v 
-                }).unwrap_or(6.0);
-                
-                if bg[3] > 0.0 { 
-                    *depth_counter += 0.001; 
-                    stencils.push(Stencil::RoundedRect { 
-                        position: lnode.position, 
-                        width: lnode.size[0], 
-                        height: lnode.size[1], 
-                        radius, 
-                        color: bg, 
-                        scroll: true, 
-                        depth: (1.0 - *depth_counter).max(0.0)
-                    }); 
-                }
-                
+                let radius = style.rounded.map(|r| match r { crate::parser::ast::Rounded::On=>8.0, crate::parser::ast::Rounded::Px(v)=>v }).unwrap_or(6.0);
+                if bg[3] > 0.0 { *depth_counter += 0.001; stencils.push(Stencil::RoundedRect { position: lnode.position, width: lnode.size[0], height: lnode.size[1], radius, color: bg, scroll: true, depth:(1.0-*depth_counter).max(0.0)}); }
                 let text_color = style.color.as_ref().map(|c| Self::convert_to_rgba(c)).unwrap_or([1.0,1.0,1.0,1.0]);
                 *depth_counter += 0.001;
-                stencils.push(Stencil::Text { 
-                    content: label.clone(), 
-                    position: [lnode.position[0] + 10.0, lnode.position[1] + 5.0], 
-                    size: font_size, 
-                    color: text_color, 
-                    font: style.font.unwrap_or_else(||"default".into()), 
-                    scroll: true, 
-                    depth: (1.0 - *depth_counter).max(0.0)
+                stencils.push(Stencil::Text { content: label.clone(), position: [lnode.position[0] + 10.0, lnode.position[1] + 5.0], size: font_size, color: text_color, font: style.font.unwrap_or_else(||"default".into()), scroll: true, depth: (1.0-*depth_counter).max(0.0)});
+            }
+            ViewNode::TextInput { id, placeholder, value, on_change, multiline, max_length, ime_enabled } => {
+                let style = lnode.node.style.clone().unwrap_or_default();
+                let bg = style.background.as_ref().map(|c| Self::convert_to_rgba(c)).unwrap_or([1.0, 1.0, 1.0, 1.0]);
+                let border_color = style.border_color.as_ref().map(|c| Self::convert_to_rgba(c)).unwrap_or([0.8, 0.8, 0.8, 1.0]);
+                let font_size = style.font_size.unwrap_or(16.0);
+                let radius = style.rounded.map(|r| match r { crate::parser::ast::Rounded::On=>8.0, crate::parser::ast::Rounded::Px(v)=>v }).unwrap_or(6.0);
+
+                // 背景
+                if bg[3] > 0.0 {
+                    *depth_counter += 0.001;
+                    stencils.push(Stencil::RoundedRect {
+                        position: lnode.position,
+                        width: lnode.size[0],
+                        height: lnode.size[1],
+                        radius,
+                        color: bg,
+                        scroll: true,
+                        depth: (1.0 - *depth_counter).max(0.0),
+                    });
+                }
+
+                // ボーダー
+                if border_color[3] > 0.0 {
+                    *depth_counter += 0.001;
+                    stencils.push(Stencil::RoundedRect {
+                        position: lnode.position,
+                        width: lnode.size[0],
+                        height: lnode.size[1],
+                        radius,
+                        color: border_color,
+                        scroll: true,
+                        depth: (1.0 - *depth_counter).max(0.0),
+                    });
+                }
+
+                // テキスト描画（プレースホルダー考慮）
+                let text_color = style.color.as_ref().map(|c| Self::convert_to_rgba(c)).unwrap_or([0.0, 0.0, 0.0, 1.0]);
+                let current_value = state.get_text_input_value(id);
+                let placeholder_text = placeholder.as_deref().unwrap_or("");
+                let display_text = if current_value.is_empty() { placeholder_text.to_string() } else { current_value.clone() };
+
+                // ★ 修正: プレースホルダー表示時の色調整
+                let effective_text_color = if current_value.is_empty() {
+                    [text_color[0] * 0.7, text_color[1] * 0.7, text_color[2] * 0.7, text_color[3]]
+                } else {
+                    text_color
+                };
+
+                *depth_counter += 0.001;
+                stencils.push(Stencil::Text {
+                    content: display_text,
+                    position: [lnode.position[0] + 8.0, lnode.position[1] + 8.0],
+                    size: font_size,
+                    color: effective_text_color,
+                    font: style.font.unwrap_or_else(|| "default".to_string()),
+                    scroll: true,
+                    depth: (1.0 - *depth_counter).max(0.0),
                 });
             }
             ViewNode::VStack(children) | ViewNode::HStack(children) => {
                 for child in children {
-                    let child_l = crate::ui::LayoutedNode { 
-                        node: child, 
-                        position: lnode.position, 
-                        size: lnode.size 
-                    };
+                    let child_l = crate::ui::LayoutedNode { node: child, position: lnode.position, size: lnode.size };
                     Self::render_substituted_node_to_stencil_with_context(&child_l, stencils, depth_counter, state);
                 }
             }
@@ -563,7 +864,7 @@ impl Engine {
         }
     }
 
-    /// メインのレイアウト＆ステンシル変換（最��化版��
+    /// メインのレイアウト＆ステンシ���変換（最��化版��
     pub fn layout_and_stencil<S>(
         app: &App,
         state: &mut AppState<S>,
@@ -593,7 +894,7 @@ impl Engine {
             state.cached_window_size = Some(window_size);
         }
 
-        // 軽量化：コ  ポーネン  展開のキャッシュ
+        // 軽量化���コ  ポーネン  展開のキャッシュ
         if state.expanded_body.is_none() {
             state.expanded_body = Some(expand_component_calls_lightweight(&tl.body, app, state));
         }
@@ -679,9 +980,9 @@ impl Engine {
             }
         }
 
-        // 前回記録されたホ  ー状態と比較（簡易   装）
-        // 実際のアプリケーションでは   り詳細な状���追跡が必要
-        false //    回は常に再描画���確実にホバー状態を反��
+        // 前回記録されたホ  ���状態と比較（簡易   装）
+        // 実際のアプリケーションでは   り詳細な状況追跡が必要
+        false //    回は常に再描画���確実にホバー���態を反���
     }
 
     /// ボタンのonclick属性を処理
@@ -701,11 +1002,27 @@ impl Engine {
         }
     }
 
-    /// 軽量化されたユー    ィリティ関数群
+    /// 軽���化されたユー    ィリティ関数群
     #[inline]
     fn is_point_in_rect(point: [f32; 2], pos: [f32; 2], size: [f32; 2]) -> bool {
         point[0] >= pos[0] && point[0] <= pos[0] + size[0] &&
             point[1] >= pos[1] && point[1] <= pos[1] + size[1]
+    }
+
+    /// テキストの幅を正確に計算する関数（layout.rsと同じロジック）
+    #[inline]
+    fn calculate_text_width_accurate(text: &str, font_size: f32) -> f32 {
+        let mut width = 0.0;
+        for ch in text.chars() {
+            if ch.is_ascii() {
+                // 英数字・記号
+                width += font_size * 0.6;
+            } else {
+                // 日本語文字（ひらがな、カタカナ、漢字）
+                width += font_size * 1.0;
+            }
+        }
+        width
     }
 
     #[inline]
@@ -825,7 +1142,7 @@ impl Engine {
             .collect();
 
         if !clicked.is_empty() {
-            // ★ onclick属性の処理を追加
+            // ★ onclick��性の処理を追加
             Self::handle_button_onclick(app, state, &clicked);
         }
 
@@ -904,7 +1221,7 @@ impl Engine {
     }
 }
 
-/// 軽量化されたコンポーネント   開
+/// 軽��化されたコンポーネント   開
 fn expand_component_calls_lightweight<S>(
     nodes: &[WithSpan<ViewNode>],
     app: &App,

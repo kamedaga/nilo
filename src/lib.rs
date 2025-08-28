@@ -15,6 +15,44 @@ pub use engine::exec::{AppState, StateAccess}; // 互換 re-export
 pub use engine::runtime::run; // runtimeを外から使えるようにする
 
 // ========================================
+// NiloState用のマクロ
+// ========================================
+
+/// Nilo用のStateを簡潔に定義するためのマクロ
+/// 
+/// 使用例:
+/// ```rust
+/// nilo::nilo_state! {
+///     struct MyState {
+///         name: String,
+///         counter: u32,
+///     }
+/// }
+/// ```
+#[macro_export]
+macro_rules! nilo_state {
+    (
+        $(#[$meta:meta])*
+        struct $name:ident {
+            $(
+                $(#[$field_meta:meta])*
+                $field:ident: $ty:ty
+            ),* $(,)?
+        }
+    ) => {
+        $(#[$meta])*
+        #[derive(Debug, Clone, serde::Serialize, nilo_state_access_derive::StateAccess)]
+        #[state_access(trait_path = "::nilo::engine::state::StateAccess")]
+        struct $name {
+            $(
+                $(#[$field_meta])*
+                $field: $ty,
+            )*
+        }
+    };
+}
+
+// ========================================
 // コマンドライン引数構造体
 // ========================================
 
@@ -106,6 +144,7 @@ pub fn show_help() {
     println!();
     println!("NOTE:");
     println!("    Debug mode automatically enables hot reload for development convenience.");
+    println!("    xxx.nilo path cannot be specified from command line")
 }
 
 /// lint機能を有効にしてアプリケーションをロード
@@ -128,6 +167,8 @@ pub fn load_nilo_app<P: AsRef<std::path::Path>>(
     }
 
     let app = parse_nilo_file(&path)?;
+
+    println!("app: {:#?}", app);
 
     if enable_debug {
         print_debug_info(&app);
@@ -241,11 +282,11 @@ fn count_nodes_recursive(node: &parser::ast::ViewNode) -> usize {
     }
 }
 
-/// アプリ全体のRust関数呼び出し数をカウント
+/// アプリ全体のRust関数呼び出し数を���ウント
 fn count_rust_calls_in_app(app: &App) -> usize {
     let mut count = 0;
 
-    // コンポーネント内のRust呼び出しをカウント
+    // コ��ポーネント内のRust呼び出しをカウント
     for component in &app.components {
         count += count_rust_calls_in_nodes(&component.body);
     }
@@ -292,7 +333,7 @@ fn count_rust_calls_recursive(node: &parser::ast::ViewNode) -> usize {
 // アプリケーション実行機能
 // ========================================
 
-/// アプリケーションを実行する
+/// アプリケーショ���を実行する
 /// デバッグモードの場合はホットリロード機能��自動的に有効化
 pub fn run_application<S, P>(
     file_path: P,
@@ -349,7 +390,7 @@ pub fn run_with_hotreload<S, P>(
     let should_restart = Arc::new(Mutex::new(false));
     let current_app = Arc::new(Mutex::new(None));
 
-    // 初期アプリケーションのロード
+    // 初期アプリケーシ��ンのロード
     let app = match load_nilo_app(&file_path, enable_lint, enable_debug) {
         Ok(app) => {
             println!("{}", "✅ Initial application loaded successfully!".green());

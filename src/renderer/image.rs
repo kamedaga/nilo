@@ -4,6 +4,7 @@ use image::GenericImageView;
 use wgpu::util::DeviceExt;
 use winit::dpi::PhysicalSize;
 use crate::renderer::command::{DrawCommand, DrawList};
+use std::path::Path;
 
 #[repr(C)]
 #[derive(Copy, Clone, bytemuck::Pod, bytemuck::Zeroable, Debug)]
@@ -116,9 +117,36 @@ impl ImageRenderer {
             return;
         }
 
-        let img = image::open(path).expect("Image open failed").to_rgba8();
-        let (width, height) = img.dimensions();
-        let raw = img.as_raw();
+        // ファイル拡張子をチェックしてSVGかどうか判定
+        let path_obj = Path::new(path);
+        let extension = path_obj.extension()
+            .and_then(|ext| ext.to_str())
+            .unwrap_or("")
+            .to_lowercase();
+
+        let (width, height, raw) = if extension == "svg" {
+            // SVGファイルの処理
+            self.load_svg_as_rgba(path)
+                .unwrap_or_else(|e| {
+                    eprintln!("Failed to load SVG {}: {}", path, e);
+                    // フォールバック: 1x1の透明画像
+                    (1, 1, vec![0, 0, 0, 0])
+                })
+        } else {
+            // 通常の画像ファイルの処理
+            match image::open(path) {
+                Ok(img) => {
+                    let rgba_img = img.to_rgba8();
+                    let (w, h) = rgba_img.dimensions();
+                    (w, h, rgba_img.into_raw())
+                }
+                Err(e) => {
+                    eprintln!("Failed to load image {}: {}", path, e);
+                    // フォールバック: 1x1の透明画像
+                    (1, 1, vec![0, 0, 0, 0])
+                }
+            }
+        };
 
         let texture = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("Image Texture"),
@@ -164,6 +192,28 @@ impl ImageRenderer {
             sampler,
             bind_group,
         });
+    }
+
+    // SVGファイルをRGBAバイト配列に変換するヘルパーメソッド
+    fn load_svg_as_rgba(&self, path: &str) -> Result<(u32, u32, Vec<u8>), Box<dyn std::error::Error>> {
+        let svg_data = std::fs::read(path)?;
+
+        let rtree = resvg::usvg::Tree::from_data(&svg_data, &resvg::usvg::Options::default())?;
+        let size = rtree.size();
+
+        // SVGのサイズを取得、デフォルトサイズが小さすぎる場合は調整
+        let width = if size.width() > 0.0 { size.width() as u32 } else { 256 };
+        let height = if size.height() > 0.0 { size.height() as u32 } else { 256 };
+
+        let mut pixmap = tiny_skia::Pixmap::new(width, height)
+            .ok_or("Failed to create pixmap")?;
+
+        resvg::render(&rtree, tiny_skia::Transform::default(), &mut pixmap.as_mut());
+
+        // tiny-skiaのピクセルデータ（RGBA）を取得
+        let pixels = pixmap.take();
+
+        Ok((width, height, pixels))
     }
 
     // ★ Z値を指定できる描画メソッド

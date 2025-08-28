@@ -1,4 +1,4 @@
-use crate::parser::ast::App;
+use crate::parser::ast::{App, ViewNode};
 use crate::stencil::stencil::stencil_to_wgpu_draw_list;
 use crate::ui::event::{UIEvent, EventQueue};
 use crate::renderer::wgpu::WgpuRenderer;
@@ -7,10 +7,11 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use colored::Colorize;
 use winit::{
-    event::{WindowEvent, MouseScrollDelta, ElementState, MouseButton},
+    event::{WindowEvent, MouseScrollDelta, ElementState, MouseButton, KeyEvent, Ime},
     event_loop::{EventLoop, ActiveEventLoop, ControlFlow},
     window::{Window, WindowId, WindowAttributes},
     application::ApplicationHandler,
+    keyboard::{KeyCode, PhysicalKey},
 };
 use super::state::{AppState, StateAccess};
 use super::engine::Engine;
@@ -72,6 +73,10 @@ where
             let window_attributes = WindowAttributes::default()
                 .with_title(&self.window_title);
             let window = Arc::new(event_loop.create_window(window_attributes).unwrap());
+
+            // ★ IME対応: ウィンドウでIMEを有効化
+            window.set_ime_allowed(true);
+
             self.renderer = Some(pollster::block_on(WgpuRenderer::new(window.clone())));
             self.window = Some(window);
         }
@@ -92,6 +97,11 @@ where
         match event {
             WindowEvent::CloseRequested => event_loop.exit(),
             WindowEvent::Resized(size) => {
+                // ウィンドウサイズが0の場合は何もしない（最小化時など）
+                if size.width == 0 || size.height == 0 {
+                    return;
+                }
+
                 let viewport_height = size.height as f32 / scale_factor;
                 let max_scroll = (self.content_length - viewport_height).max(0.0);
                 renderer.resize(size);
@@ -138,16 +148,217 @@ where
             }
             WindowEvent::MouseInput { state: ElementState::Released, button: MouseButton::Left, .. } => {
                 self.mouse_down = false;
+
+                // テキスト入力フィールドのクリック処理
+                let mut text_input_clicked = None;
+                for (id, pos, size) in &self.state.all_buttons {
+                    let is_text_input = self.app.timelines.iter()
+                        .flat_map(|tl| &tl.body)
+                        .any(|node| matches!(&node.node, ViewNode::TextInput { id: field_id, .. } if field_id == id));
+
+                    if is_text_input {
+                        let hover = {
+                            let x = self.mouse_pos[0];
+                            let y = self.mouse_pos[1];
+                            x >= pos[0] && x <= pos[0] + size[0] && y >= pos[1] && y <= pos[1] + size[1]
+                        };
+
+                        if hover {
+                            text_input_clicked = Some(id.clone());
+                            break;
+                        }
+                    }
+                }
+
+                // テキスト入力フィールドがクリックされた場合
+                if let Some(field_id) = text_input_clicked {
+                    self.state.focus_text_input(field_id.clone());
+                    self.event_queue.push(UIEvent::TextFocused { field_id });
+                } else {
+                    // 他の場所がクリックされた場合はフォーカスを解除
+                    if self.state.get_focused_text_input().is_some() {
+                        if let Some(prev_focused) = self.state.get_focused_text_input().cloned() {
+                            self.state.blur_text_input();
+                            self.event_queue.push(UIEvent::TextBlurred { field_id: prev_focused });
+                        }
+                    }
+                }
+
                 window.request_redraw(); // マウス離し時も再描画
             }
+            // ★ IME対応: キーボード入力とIME関連のイベント処理を追加
+            WindowEvent::KeyboardInput {
+                event: KeyEvent {
+                    physical_key,
+                    state: ElementState::Pressed,
+                    text,
+                    ..
+                },
+                ..
+            } => {
+                if let Some(focused_field) = self.state.get_focused_text_input().cloned() {
+                    match physical_key {
+                        PhysicalKey::Code(KeyCode::Backspace) => {
+                            // バックスペース処理
+                            let current_value = self.state.get_text_input_value(&focused_field);
+                            if !current_value.is_empty() {
+                                let cursor_pos = self.state.get_text_cursor_position(&focused_field);
+                                if cursor_pos > 0 {
+                                    let mut chars: Vec<char> = current_value.chars().collect();
+                                    chars.remove(cursor_pos - 1);
+                                    let new_value: String = chars.into_iter().collect();
+                                    self.state.set_text_input_value(focused_field.clone(), new_value.clone());
+                                    self.state.set_text_cursor_position(&focused_field, cursor_pos - 1);
+                                    self.event_queue.push(UIEvent::TextChanged {
+                                        field_id: focused_field,
+                                        new_value
+                                    });
+                                }
+                            }
+                        }
+                        PhysicalKey::Code(KeyCode::Delete) => {
+                            // Delete処理
+                            let current_value = self.state.get_text_input_value(&focused_field);
+                            let cursor_pos = self.state.get_text_cursor_position(&focused_field);
+                            let chars: Vec<char> = current_value.chars().collect();
+                            if cursor_pos < chars.len() {
+                                let mut new_chars = chars;
+                                new_chars.remove(cursor_pos);
+                                let new_value: String = new_chars.into_iter().collect();
+                                self.state.set_text_input_value(focused_field.clone(), new_value.clone());
+                                self.event_queue.push(UIEvent::TextChanged {
+                                    field_id: focused_field,
+                                    new_value
+                                });
+                            }
+                        }
+                        PhysicalKey::Code(KeyCode::Enter) => {
+                            // エンター押下時の処理
+                            self.event_queue.push(UIEvent::TextSubmitted { field_id: focused_field });
+                        }
+                        PhysicalKey::Code(KeyCode::Escape) => {
+                            // エスケープでフォーカス解除
+                            self.state.blur_text_input();
+                            self.event_queue.push(UIEvent::TextBlurred { field_id: focused_field });
+                        }
+                        PhysicalKey::Code(KeyCode::ArrowLeft) => {
+                            // カーソル移動（左）
+                            let current_pos = self.state.get_text_cursor_position(&focused_field);
+                            if current_pos > 0 {
+                                self.state.set_text_cursor_position(&focused_field, current_pos - 1);
+                            }
+                        }
+                        PhysicalKey::Code(KeyCode::ArrowRight) => {
+                            // カーソル移動（右）
+                            let current_value = self.state.get_text_input_value(&focused_field);
+                            let current_pos = self.state.get_text_cursor_position(&focused_field);
+                            let max_pos = current_value.chars().count();
+                            if current_pos < max_pos {
+                                self.state.set_text_cursor_position(&focused_field, current_pos + 1);
+                            }
+                        }
+                        PhysicalKey::Code(KeyCode::Home) => {
+                            // 行の先頭に移動
+                            self.state.set_text_cursor_position(&focused_field, 0);
+                        }
+                        PhysicalKey::Code(KeyCode::End) => {
+                            // 行の末尾に移動
+                            let current_value = self.state.get_text_input_value(&focused_field);
+                            let max_pos = current_value.chars().count();
+                            self.state.set_text_cursor_position(&focused_field, max_pos);
+                        }
+                        _ => {
+                            // 通常の文字入力（textがある場合）
+                            if let Some(text) = text {
+                                if !text.is_empty() && text.chars().all(|c| !c.is_control()) {
+                                    let current_value = self.state.get_text_input_value(&focused_field);
+                                    let cursor_pos = self.state.get_text_cursor_position(&focused_field);
+
+                                    // カーソル位置に文字を挿入
+                                    let mut chars: Vec<char> = current_value.chars().collect();
+                                    for (i, c) in text.chars().enumerate() {
+                                        chars.insert(cursor_pos + i, c);
+                                    }
+
+                                    let new_value: String = chars.into_iter().collect();
+                                    let new_cursor_pos = cursor_pos + text.chars().count();
+
+                                    self.state.set_text_input_value(focused_field.clone(), new_value.clone());
+                                    self.state.set_text_cursor_position(&focused_field, new_cursor_pos);
+                                    self.event_queue.push(UIEvent::TextChanged {
+                                        field_id: focused_field,
+                                        new_value
+                                    });
+                                }
+                            }
+                        }
+                    }
+                    window.request_redraw(); // テキスト入力時は再描画
+                }
+            }
+            // ★ IME対応: IME関連のイベント処理
+            WindowEvent::Ime(ime_event) => {
+                if let Some(focused_field) = self.state.get_focused_text_input().cloned() {
+                    match ime_event {
+                        Ime::Preedit(preedit_text, cursor_range) => {
+                            // IME変換中のテキスト（下線付きテキスト）
+                            self.state.set_ime_composition_text(&focused_field, preedit_text.clone());
+                            self.event_queue.push(UIEvent::ImeComposition {
+                                field_id: focused_field,
+                                composition_text: preedit_text,
+                                cursor_range: cursor_range.map(|(start, end)| (start, end))
+                            });
+                        }
+                        Ime::Commit(committed_text) => {
+                            // IME確定テキスト - カーソル位置に挿入
+                            self.state.clear_ime_composition_text(&focused_field);
+                            let current_value = self.state.get_text_input_value(&focused_field);
+                            let cursor_pos = self.state.get_text_cursor_position(&focused_field);
+
+                            // カーソル位置に確定テキストを挿入
+                            let mut chars: Vec<char> = current_value.chars().collect();
+                            for (i, c) in committed_text.chars().enumerate() {
+                                chars.insert(cursor_pos + i, c);
+                            }
+
+                            let new_value: String = chars.into_iter().collect();
+                            let new_cursor_pos = cursor_pos + committed_text.chars().count();
+
+                            self.state.set_text_input_value(focused_field.clone(), new_value.clone());
+                            self.state.set_text_cursor_position(&focused_field, new_cursor_pos);
+
+                            self.event_queue.push(UIEvent::ImeCommit {
+                                field_id: focused_field.clone(),
+                                committed_text: committed_text.clone()
+                            });
+                            self.event_queue.push(UIEvent::TextChanged {
+                                field_id: focused_field,
+                                new_value
+                            });
+                        }
+                        Ime::Enabled => {
+                            // IME有効化
+                            self.event_queue.push(UIEvent::ImeEnabled { field_id: focused_field });
+                        }
+                        Ime::Disabled => {
+                            // IME無効化
+                            self.state.clear_ime_composition_text(&focused_field);
+                            self.event_queue.push(UIEvent::ImeDisabled { field_id: focused_field });
+                        }
+                    }
+                    window.request_redraw(); // IME状態変化時は再描画
+                }
+            }
             WindowEvent::RedrawRequested => {
+                // ウィンドウサイズを正しく取得
+                let size = renderer.size();
+                let window_size = [
+                    size.width as f32 / scale_factor,
+                    size.height as f32 / scale_factor
+                ];
+
                 // スクロール補正
                 self.scroll_offset[1] += (self.target_scroll_offset[1] - self.scroll_offset[1]) * self.smoothing;
-
-                let window_size = [
-                    window.inner_size().width as f32 / scale_factor,
-                    window.inner_size().height as f32 / scale_factor
-                ];
 
                 // マウス座標の正確な計算（スクロールオフセット考慮）
                 let adjusted_mouse_pos = [
@@ -532,6 +743,10 @@ where
             let window_attributes = WindowAttributes::default()
                 .with_title("Nilo Application - Hot Reload Enabled");
             let window = Arc::new(event_loop.create_window(window_attributes).unwrap());
+
+            // ★ IME対応: ウィンドウでIMEを有効化
+            window.set_ime_allowed(true);
+
             self.renderer = Some(pollster::block_on(WgpuRenderer::new(window.clone())));
             self.window = Some(window);
         }
@@ -555,6 +770,11 @@ where
         match event {
             WindowEvent::CloseRequested => event_loop.exit(),
             WindowEvent::Resized(size) => {
+                // ウィンドウサイズが0の場合は何もしない（最小化時など）
+                if size.width == 0 || size.height == 0 {
+                    return;
+                }
+
                 let viewport_height = size.height as f32 / scale_factor;
                 let max_scroll = (self.content_length - viewport_height).max(0.0);
                 renderer.resize(size);
@@ -599,23 +819,226 @@ where
             }
             WindowEvent::MouseInput { state: ElementState::Released, button: MouseButton::Left, .. } => {
                 self.mouse_down = false;
-                window.request_redraw();
+
+                // テキスト入力フィールドのクリック処理
+                let mut text_input_clicked = None;
+                for (id, pos, size) in &self.state.all_buttons {
+                    let is_text_input = self.current_app.timelines.iter()
+                        .flat_map(|tl| &tl.body)
+                        .any(|node| matches!(&node.node, ViewNode::TextInput { id: field_id, .. } if field_id == id));
+
+                    if is_text_input {
+                        let hover = {
+                            let x = self.mouse_pos[0];
+                            let y = self.mouse_pos[1];
+                            x >= pos[0] && x <= pos[0] + size[0] && y >= pos[1] && y <= pos[1] + size[1]
+                        };
+
+                        if hover {
+                            text_input_clicked = Some(id.clone());
+                            break;
+                        }
+                    }
+                }
+
+                // テキスト入力フィールドがクリックされた場合
+                if let Some(field_id) = text_input_clicked {
+                    self.state.focus_text_input(field_id.clone());
+                    self.event_queue.push(UIEvent::TextFocused { field_id });
+                } else {
+                    // 他の場所がクリックされた場合はフォーカスを解除
+                    if self.state.get_focused_text_input().is_some() {
+                        if let Some(prev_focused) = self.state.get_focused_text_input().cloned() {
+                            self.state.blur_text_input();
+                            self.event_queue.push(UIEvent::TextBlurred { field_id: prev_focused });
+                        }
+                    }
+                }
+
+                window.request_redraw(); // マウス離し時も再描画
+            }
+            // ★ IME対応: キーボード入力とIME関連のイベント処理を追加
+            WindowEvent::KeyboardInput {
+                event: KeyEvent {
+                    physical_key,
+                    state: ElementState::Pressed,
+                    text,
+                    ..
+                },
+                ..
+            } => {
+                if let Some(focused_field) = self.state.get_focused_text_input().cloned() {
+                    match physical_key {
+                        PhysicalKey::Code(KeyCode::Backspace) => {
+                            // バックスペース処理
+                            let current_value = self.state.get_text_input_value(&focused_field);
+                            if !current_value.is_empty() {
+                                let cursor_pos = self.state.get_text_cursor_position(&focused_field);
+                                if cursor_pos > 0 {
+                                    let mut chars: Vec<char> = current_value.chars().collect();
+                                    chars.remove(cursor_pos - 1);
+                                    let new_value: String = chars.into_iter().collect();
+                                    self.state.set_text_input_value(focused_field.clone(), new_value.clone());
+                                    self.state.set_text_cursor_position(&focused_field, cursor_pos - 1);
+                                    self.event_queue.push(UIEvent::TextChanged {
+                                        field_id: focused_field,
+                                        new_value
+                                    });
+                                }
+                            }
+                        }
+                        PhysicalKey::Code(KeyCode::Delete) => {
+                            // Delete処理
+                            let current_value = self.state.get_text_input_value(&focused_field);
+                            let cursor_pos = self.state.get_text_cursor_position(&focused_field);
+                            let chars: Vec<char> = current_value.chars().collect();
+                            if cursor_pos < chars.len() {
+                                let mut new_chars = chars;
+                                new_chars.remove(cursor_pos);
+                                let new_value: String = new_chars.into_iter().collect();
+                                self.state.set_text_input_value(focused_field.clone(), new_value.clone());
+                                self.event_queue.push(UIEvent::TextChanged {
+                                    field_id: focused_field,
+                                    new_value
+                                });
+                            }
+                        }
+                        PhysicalKey::Code(KeyCode::Enter) => {
+                            // エンター押下時の処理
+                            self.event_queue.push(UIEvent::TextSubmitted { field_id: focused_field });
+                        }
+                        PhysicalKey::Code(KeyCode::Escape) => {
+                            // エスケープでフォーカス解除
+                            self.state.blur_text_input();
+                            self.event_queue.push(UIEvent::TextBlurred { field_id: focused_field });
+                        }
+                        PhysicalKey::Code(KeyCode::ArrowLeft) => {
+                            // カーソル移動（左）
+                            let current_pos = self.state.get_text_cursor_position(&focused_field);
+                            if current_pos > 0 {
+                                self.state.set_text_cursor_position(&focused_field, current_pos - 1);
+                            }
+                        }
+                        PhysicalKey::Code(KeyCode::ArrowRight) => {
+                            // カーソル移動（右）
+                            let current_value = self.state.get_text_input_value(&focused_field);
+                            let current_pos = self.state.get_text_cursor_position(&focused_field);
+                            let max_pos = current_value.chars().count();
+                            if current_pos < max_pos {
+                                self.state.set_text_cursor_position(&focused_field, current_pos + 1);
+                            }
+                        }
+                        PhysicalKey::Code(KeyCode::Home) => {
+                            // 行の先頭に移動
+                            self.state.set_text_cursor_position(&focused_field, 0);
+                        }
+                        PhysicalKey::Code(KeyCode::End) => {
+                            // 行の末尾に移動
+                            let current_value = self.state.get_text_input_value(&focused_field);
+                            let max_pos = current_value.chars().count();
+                            self.state.set_text_cursor_position(&focused_field, max_pos);
+                        }
+                        _ => {
+                            // 通常の文字入力（textがある場合）
+                            if let Some(text) = text {
+                                if !text.is_empty() && text.chars().all(|c| !c.is_control()) {
+                                    let current_value = self.state.get_text_input_value(&focused_field);
+                                    let cursor_pos = self.state.get_text_cursor_position(&focused_field);
+
+                                    // カーソル位置に文字を挿入
+                                    let mut chars: Vec<char> = current_value.chars().collect();
+                                    for (i, c) in text.chars().enumerate() {
+                                        chars.insert(cursor_pos + i, c);
+                                    }
+
+                                    let new_value: String = chars.into_iter().collect();
+                                    let new_cursor_pos = cursor_pos + text.chars().count();
+
+                                    self.state.set_text_input_value(focused_field.clone(), new_value.clone());
+                                    self.state.set_text_cursor_position(&focused_field, new_cursor_pos);
+                                    self.event_queue.push(UIEvent::TextChanged {
+                                        field_id: focused_field,
+                                        new_value
+                                    });
+                                }
+                            }
+                        }
+                    }
+                    window.request_redraw(); // テキスト入力時は再描画
+                }
+            }
+            // ★ IME対応: IME関連のイベント処理
+            WindowEvent::Ime(ime_event) => {
+                if let Some(focused_field) = self.state.get_focused_text_input().cloned() {
+                    match ime_event {
+                        Ime::Preedit(preedit_text, cursor_range) => {
+                            // IME変換中のテキスト（下線付きテキスト）
+                            self.state.set_ime_composition_text(&focused_field, preedit_text.clone());
+                            self.event_queue.push(UIEvent::ImeComposition {
+                                field_id: focused_field,
+                                composition_text: preedit_text,
+                                cursor_range: cursor_range.map(|(start, end)| (start, end))
+                            });
+                        }
+                        Ime::Commit(committed_text) => {
+                            // IME確定テキスト - カーソル位置に挿入
+                            self.state.clear_ime_composition_text(&focused_field);
+                            let current_value = self.state.get_text_input_value(&focused_field);
+                            let cursor_pos = self.state.get_text_cursor_position(&focused_field);
+
+                            // カーソル位置に確定テキストを挿入
+                            let mut chars: Vec<char> = current_value.chars().collect();
+                            for (i, c) in committed_text.chars().enumerate() {
+                                chars.insert(cursor_pos + i, c);
+                            }
+
+                            let new_value: String = chars.into_iter().collect();
+                            let new_cursor_pos = cursor_pos + committed_text.chars().count();
+
+                            self.state.set_text_input_value(focused_field.clone(), new_value.clone());
+                            self.state.set_text_cursor_position(&focused_field, new_cursor_pos);
+
+                            self.event_queue.push(UIEvent::ImeCommit {
+                                field_id: focused_field.clone(),
+                                committed_text: committed_text.clone()
+                            });
+                            self.event_queue.push(UIEvent::TextChanged {
+                                field_id: focused_field,
+                                new_value
+                            });
+                        }
+                        Ime::Enabled => {
+                            // IME有効化
+                            self.event_queue.push(UIEvent::ImeEnabled { field_id: focused_field });
+                        }
+                        Ime::Disabled => {
+                            // IME無効化
+                            self.state.clear_ime_composition_text(&focused_field);
+                            self.event_queue.push(UIEvent::ImeDisabled { field_id: focused_field });
+                        }
+                    }
+                    window.request_redraw(); // IME状態変化時は再描画
+                }
             }
             WindowEvent::RedrawRequested => {
-                self.scroll_offset[1] += (self.target_scroll_offset[1] - self.scroll_offset[1]) * self.smoothing;
-
+                // ウィンドウサイズを正しく取得
+                let size = renderer.size();
                 let window_size = [
-                    window.inner_size().width as f32 / scale_factor,
-                    window.inner_size().height as f32 / scale_factor
+                    size.width as f32 / scale_factor,
+                    size.height as f32 / scale_factor
                 ];
 
+                // スクロール補正
+                self.scroll_offset[1] += (self.target_scroll_offset[1] - self.scroll_offset[1]) * self.smoothing;
+
+                // マウス座標の正確な計算（スクロールオフセット考慮）
                 let adjusted_mouse_pos = [
                     self.mouse_pos_raw[0] / scale_factor,
                     (self.mouse_pos_raw[1] / scale_factor) - self.scroll_offset[1]
                 ];
                 self.mouse_pos = adjusted_mouse_pos;
 
-                // 現在のアプリケーションでレイアウ���実行
+                // ホバー状態を確実に反映するため、毎フレーム新しくレイアウト
                 let (stencils, buttons) = Engine::layout_and_stencil(
                     &self.current_app, &mut self.state,
                     self.mouse_pos, self.mouse_down, self.prev_mouse_down,
@@ -726,7 +1149,7 @@ where
     }
 }
 
-/// ウィンドウタイトルを指定してアプリケーションを実行
+/// ウィンドウタイトルを指定してアプリケーション��実行
 pub fn run_with_window_title<S: StateAccess + 'static + Clone + std::fmt::Debug>(
     app: App, 
     custom_state: S, 
@@ -791,7 +1214,7 @@ where
     last_hovered_button: Option<String>,
     window_title: String,
 
-    // ホットリロード用
+    // ホットリ���ード用
     restart_flag: Arc<Mutex<bool>>,
     updated_app: Arc<Mutex<Option<App>>>,
 }
@@ -876,8 +1299,12 @@ where
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         if self.window.is_none() {
             let window_attributes = WindowAttributes::default()
-                .with_title(&self.window_title);
+                .with_title("Nilo Application - Hot Reload Enabled");
             let window = Arc::new(event_loop.create_window(window_attributes).unwrap());
+
+            // ★ IME対応: ウィンドウでIMEを有効化
+            window.set_ime_allowed(true);
+
             self.renderer = Some(pollster::block_on(WgpuRenderer::new(window.clone())));
             self.window = Some(window);
         }
@@ -901,6 +1328,11 @@ where
         match event {
             WindowEvent::CloseRequested => event_loop.exit(),
             WindowEvent::Resized(size) => {
+                // ウィンドウサイズが0の場合は何もしない（最小化時など）
+                if size.width == 0 || size.height == 0 {
+                    return;
+                }
+
                 let viewport_height = size.height as f32 / scale_factor;
                 let max_scroll = (self.content_length - viewport_height).max(0.0);
                 renderer.resize(size);
@@ -945,23 +1377,226 @@ where
             }
             WindowEvent::MouseInput { state: ElementState::Released, button: MouseButton::Left, .. } => {
                 self.mouse_down = false;
-                window.request_redraw();
+
+                // テキス��入力フィールドのクリック処理
+                let mut text_input_clicked = None;
+                for (id, pos, size) in &self.state.all_buttons {
+                    let is_text_input = self.current_app.timelines.iter()
+                        .flat_map(|tl| &tl.body)
+                        .any(|node| matches!(&node.node, ViewNode::TextInput { id: field_id, .. } if field_id == id));
+
+                    if is_text_input {
+                        let hover = {
+                            let x = self.mouse_pos[0];
+                            let y = self.mouse_pos[1];
+                            x >= pos[0] && x <= pos[0] + size[0] && y >= pos[1] && y <= pos[1] + size[1]
+                        };
+
+                        if hover {
+                            text_input_clicked = Some(id.clone());
+                            break;
+                        }
+                    }
+                }
+
+                // テキスト入力フィールドがクリックされた場合
+                if let Some(field_id) = text_input_clicked {
+                    self.state.focus_text_input(field_id.clone());
+                    self.event_queue.push(UIEvent::TextFocused { field_id });
+                } else {
+                    // 他の場所がクリックされた場合はフォーカスを解除
+                    if self.state.get_focused_text_input().is_some() {
+                        if let Some(prev_focused) = self.state.get_focused_text_input().cloned() {
+                            self.state.blur_text_input();
+                            self.event_queue.push(UIEvent::TextBlurred { field_id: prev_focused });
+                        }
+                    }
+                }
+
+                window.request_redraw(); // マウス離し時も再描画
+            }
+            // ★ IME対応: キーボード入力とIME関連のイベント処理を追加
+            WindowEvent::KeyboardInput {
+                event: KeyEvent {
+                    physical_key,
+                    state: ElementState::Pressed,
+                    text,
+                    ..
+                },
+                ..
+            } => {
+                if let Some(focused_field) = self.state.get_focused_text_input().cloned() {
+                    match physical_key {
+                        PhysicalKey::Code(KeyCode::Backspace) => {
+                            // バックスペース処理
+                            let current_value = self.state.get_text_input_value(&focused_field);
+                            if !current_value.is_empty() {
+                                let cursor_pos = self.state.get_text_cursor_position(&focused_field);
+                                if cursor_pos > 0 {
+                                    let mut chars: Vec<char> = current_value.chars().collect();
+                                    chars.remove(cursor_pos - 1);
+                                    let new_value: String = chars.into_iter().collect();
+                                    self.state.set_text_input_value(focused_field.clone(), new_value.clone());
+                                    self.state.set_text_cursor_position(&focused_field, cursor_pos - 1);
+                                    self.event_queue.push(UIEvent::TextChanged {
+                                        field_id: focused_field,
+                                        new_value
+                                    });
+                                }
+                            }
+                        }
+                        PhysicalKey::Code(KeyCode::Delete) => {
+                            // Delete処理
+                            let current_value = self.state.get_text_input_value(&focused_field);
+                            let cursor_pos = self.state.get_text_cursor_position(&focused_field);
+                            let chars: Vec<char> = current_value.chars().collect();
+                            if cursor_pos < chars.len() {
+                                let mut new_chars = chars;
+                                new_chars.remove(cursor_pos);
+                                let new_value: String = new_chars.into_iter().collect();
+                                self.state.set_text_input_value(focused_field.clone(), new_value.clone());
+                                self.event_queue.push(UIEvent::TextChanged {
+                                    field_id: focused_field,
+                                    new_value
+                                });
+                            }
+                        }
+                        PhysicalKey::Code(KeyCode::Enter) => {
+                            // エンター押下時の処理
+                            self.event_queue.push(UIEvent::TextSubmitted { field_id: focused_field });
+                        }
+                        PhysicalKey::Code(KeyCode::Escape) => {
+                            // エスケープでフォーカス解除
+                            self.state.blur_text_input();
+                            self.event_queue.push(UIEvent::TextBlurred { field_id: focused_field });
+                        }
+                        PhysicalKey::Code(KeyCode::ArrowLeft) => {
+                            // カーソル移動（左）
+                            let current_pos = self.state.get_text_cursor_position(&focused_field);
+                            if current_pos > 0 {
+                                self.state.set_text_cursor_position(&focused_field, current_pos - 1);
+                            }
+                        }
+                        PhysicalKey::Code(KeyCode::ArrowRight) => {
+                            // カーソル移動（右）
+                            let current_value = self.state.get_text_input_value(&focused_field);
+                            let current_pos = self.state.get_text_cursor_position(&focused_field);
+                            let max_pos = current_value.chars().count();
+                            if current_pos < max_pos {
+                                self.state.set_text_cursor_position(&focused_field, current_pos + 1);
+                            }
+                        }
+                        PhysicalKey::Code(KeyCode::Home) => {
+                            // 行の先頭に移動
+                            self.state.set_text_cursor_position(&focused_field, 0);
+                        }
+                        PhysicalKey::Code(KeyCode::End) => {
+                            // 行の末尾に移動
+                            let current_value = self.state.get_text_input_value(&focused_field);
+                            let max_pos = current_value.chars().count();
+                            self.state.set_text_cursor_position(&focused_field, max_pos);
+                        }
+                        _ => {
+                            // 通常の文字入力（textがある場合）
+                            if let Some(text) = text {
+                                if !text.is_empty() && text.chars().all(|c| !c.is_control()) {
+                                    let current_value = self.state.get_text_input_value(&focused_field);
+                                    let cursor_pos = self.state.get_text_cursor_position(&focused_field);
+
+                                    // カーソル位置に文字を挿入
+                                    let mut chars: Vec<char> = current_value.chars().collect();
+                                    for (i, c) in text.chars().enumerate() {
+                                        chars.insert(cursor_pos + i, c);
+                                    }
+
+                                    let new_value: String = chars.into_iter().collect();
+                                    let new_cursor_pos = cursor_pos + text.chars().count();
+
+                                    self.state.set_text_input_value(focused_field.clone(), new_value.clone());
+                                    self.state.set_text_cursor_position(&focused_field, new_cursor_pos);
+                                    self.event_queue.push(UIEvent::TextChanged {
+                                        field_id: focused_field,
+                                        new_value
+                                    });
+                                }
+                            }
+                        }
+                    }
+                    window.request_redraw(); // テキスト入力時は再描画
+                }
+            }
+            // ★ IME対応: IME関連のイベント処理
+            WindowEvent::Ime(ime_event) => {
+                if let Some(focused_field) = self.state.get_focused_text_input().cloned() {
+                    match ime_event {
+                        Ime::Preedit(preedit_text, cursor_range) => {
+                            // IME変換中のテキスト（下線付きテキスト）
+                            self.state.set_ime_composition_text(&focused_field, preedit_text.clone());
+                            self.event_queue.push(UIEvent::ImeComposition {
+                                field_id: focused_field,
+                                composition_text: preedit_text,
+                                cursor_range: cursor_range.map(|(start, end)| (start, end))
+                            });
+                        }
+                        Ime::Commit(committed_text) => {
+                            // IME確定テキスト - カーソル位置に挿入
+                            self.state.clear_ime_composition_text(&focused_field);
+                            let current_value = self.state.get_text_input_value(&focused_field);
+                            let cursor_pos = self.state.get_text_cursor_position(&focused_field);
+
+                            // カーソル位置に確定テキストを挿入
+                            let mut chars: Vec<char> = current_value.chars().collect();
+                            for (i, c) in committed_text.chars().enumerate() {
+                                chars.insert(cursor_pos + i, c);
+                            }
+
+                            let new_value: String = chars.into_iter().collect();
+                            let new_cursor_pos = cursor_pos + committed_text.chars().count();
+
+                            self.state.set_text_input_value(focused_field.clone(), new_value.clone());
+                            self.state.set_text_cursor_position(&focused_field, new_cursor_pos);
+
+                            self.event_queue.push(UIEvent::ImeCommit {
+                                field_id: focused_field.clone(),
+                                committed_text: committed_text.clone()
+                            });
+                            self.event_queue.push(UIEvent::TextChanged {
+                                field_id: focused_field,
+                                new_value
+                            });
+                        }
+                        Ime::Enabled => {
+                            // IME有効化
+                            self.event_queue.push(UIEvent::ImeEnabled { field_id: focused_field });
+                        }
+                        Ime::Disabled => {
+                            // IME無効化
+                            self.state.clear_ime_composition_text(&focused_field);
+                            self.event_queue.push(UIEvent::ImeDisabled { field_id: focused_field });
+                        }
+                    }
+                    window.request_redraw(); // IME状態変化時は再描画
+                }
             }
             WindowEvent::RedrawRequested => {
-                self.scroll_offset[1] += (self.target_scroll_offset[1] - self.scroll_offset[1]) * self.smoothing;
-
+                // ウィンドウサイズを正しく取得
+                let size = renderer.size();
                 let window_size = [
-                    window.inner_size().width as f32 / scale_factor,
-                    window.inner_size().height as f32 / scale_factor
+                    size.width as f32 / scale_factor,
+                    size.height as f32 / scale_factor
                 ];
 
+                // スクロール補正
+                self.scroll_offset[1] += (self.target_scroll_offset[1] - self.scroll_offset[1]) * self.smoothing;
+
+                // マウス座標の正確な計算（スクロールオフセット考慮）
                 let adjusted_mouse_pos = [
                     self.mouse_pos_raw[0] / scale_factor,
                     (self.mouse_pos_raw[1] / scale_factor) - self.scroll_offset[1]
                 ];
                 self.mouse_pos = adjusted_mouse_pos;
 
-                // 現在のアプリケーションでレイアウト実行
+                // ホバー状態を確実に反映するため、毎フレーム新しくレイアウト
                 let (stencils, buttons) = Engine::layout_and_stencil(
                     &self.current_app, &mut self.state,
                     self.mouse_pos, self.mouse_down, self.prev_mouse_down,

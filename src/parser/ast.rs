@@ -21,9 +21,22 @@ pub struct Flow {
     pub transitions: Vec<(String, Vec<String>)>,
 }
 
+// ========================================
+// 階層的フロー糖衣構文用の型定義
+// ========================================
+
+/// 階層的フロー定義の中間表現
+#[derive(Debug, Clone)]
+pub struct NamespacedFlow {
+    pub name: String,
+    pub start: String,
+    pub transitions: Vec<(String, Vec<String>)>,
+}
+
 #[derive(Debug, Clone)]
 pub struct Timeline {
     pub name: String,
+    pub font: Option<String>,  // ★ 追加: タイムライン全体で使用するフォント
     pub body: Vec<WithSpan<ViewNode>>,
     pub whens: Vec<When>,
 }
@@ -32,6 +45,7 @@ pub struct Timeline {
 pub struct Component {
     pub name: String,
     pub params: Vec<String>,
+    pub font: Option<String>,  // ★ 追加: コンポーネント全体で使用するフォント
     pub body: Vec<WithSpan<ViewNode>>,
     pub whens: Vec<When>,
 }
@@ -49,6 +63,14 @@ pub struct When {
 #[derive(Debug, Clone)]
 pub enum EventExpr {
     ButtonPressed(String),
+    
+    // ★ 新規追加: テキスト入力関連のイベント
+    TextChanged(String),          // テキスト入力フィールドの値が変更された
+    TextFocused(String),          // テキスト入力フィールドがフォーカスされた
+    TextBlurred(String),          // テキスト入力フィールドがフォーカスを失った
+    KeyPressed(String, String),   // キーが押された (field_id, key_name)
+    ImeComposition(String, String), // IME変換中のテキスト (field_id, composition_text)
+    ImeCommit(String, String),    // IME変換確定 (field_id, committed_text)
 }
 
 // ========================================
@@ -73,6 +95,17 @@ pub enum ViewNode {
     Text { format: String, args: Vec<Expr> },
     Button { id: String, label: String, onclick: Option<Expr> },
     Image { path: String },
+    
+    // ★ 新規追加: テキスト入力フィールド（IME対応）
+    TextInput { 
+        id: String,                    // 一意識別子
+        placeholder: Option<String>,   // プレースホルダーテキスト
+        value: Option<Expr>,          // 現在の値（state.field_nameなど）
+        on_change: Option<Expr>,      // 値変更時のコールバック
+        multiline: bool,              // 複数行入力対応
+        max_length: Option<usize>,    // 最大文字数
+        ime_enabled: bool,            // IME機能の有効/無効
+    },
     
     // レイアウト要素
     VStack(Vec<WithSpan<ViewNode>>),
@@ -118,7 +151,7 @@ pub enum ViewNode {
     // イベントハンドラー
     When { event: EventExpr, actions: Vec<WithSpan<ViewNode>> },
     
-    // ステンシル（低レベルグラフィック）
+    // ��テンシル（低レベルグラフィック）
     Stencil(crate::stencil::stencil::Stencil),
 }
 
@@ -162,15 +195,24 @@ impl DimensionValue {
     }
     
     pub fn to_px(&self, viewport_w: f32, viewport_h: f32, _parent_w: f32, _parent_h: f32, _root_font_size: f32, _font_size: f32) -> f32 {
-        match self.unit {
+        let result = match self.unit {
             Unit::Px => self.value,
-            Unit::Vw => (self.value / 100.0) * viewport_w,
-            Unit::Vh => (self.value / 100.0) * viewport_h,
+            Unit::Vw => {
+                let calculated = (self.value / 100.0) * viewport_w;
+                println!("🔍 VW DEBUG: {}vw with viewport_w:{} = {}px", self.value, viewport_w, calculated);
+                calculated
+            },
+            Unit::Vh => {
+                let calculated = (self.value / 100.0) * viewport_h;
+                println!("🔍 VH DEBUG: {}vh with viewport_h:{} = {}px", self.value, viewport_h, calculated);
+                calculated
+            },
             Unit::Percent => self.value, // 実装は親要素に依存
             Unit::PercentHeight => self.value,
-            Unit::Rem => self.value * 16.0, // 簡易実装
-            Unit::Em => self.value * 16.0,  // 簡易実装
-        }
+            Unit::Rem => self.value * _root_font_size, // ルートフォントサイズを使用
+            Unit::Em => self.value * _font_size,  // 現在のフォントサイズを使用
+        };
+        result
     }
 }
 

@@ -60,9 +60,9 @@ impl TextRenderer {
     pub fn render_multiple_texts(
         &mut self,
         pass: &mut RenderPass,
-        text_commands: &[(String, [f32; 2], f32, [f32; 4])],
+        text_commands: &[(String, [f32; 2], f32, [f32; 4], String)], // ★ フォント名を追加
         scroll_offset: [f32; 2],
-        scale_factor: f32, // ← 追加されたスケ���ル係数
+        scale_factor: f32,
         queue: &Queue,
         device: &Device,
         screen_width: u32,
@@ -71,7 +71,7 @@ impl TextRenderer {
         let mut buffers = Vec::new();
         let mut text_areas = Vec::new();
 
-        for (content, position, size, _color) in text_commands {
+        for (content, position, size, _color, font_name) in text_commands {
             let scaled_size = *size * scale_factor;
             let metrics = Metrics::new(scaled_size, scaled_size * 1.4);
             let mut buffer = Buffer::new(&mut self.font_system, metrics);
@@ -82,10 +82,18 @@ impl TextRenderer {
                 Some(screen_height as f32),
             );
 
+            // ★ 修正: 指定されたフォント名を使用
+            let family = if font_name == "default" || font_name.is_empty() {
+                Family::SansSerif
+            } else {
+                // ★ 特定のフォント名を指定
+                Family::Name(font_name)
+            };
+
             buffer.set_text(
                 &mut self.font_system,
                 content,
-                &Attrs::new().family(Family::SansSerif).weight(Weight::NORMAL),
+                &Attrs::new().family(family).weight(Weight::NORMAL),
                 Shaping::Advanced,
             );
 
@@ -93,7 +101,7 @@ impl TextRenderer {
             buffers.push((buffer, metrics));
         }
 
-        for (i, (_, position, _, color)) in text_commands.iter().enumerate() {
+        for (i, (_, position, _, color, _)) in text_commands.iter().enumerate() {
             let (buffer, metrics) = &buffers[i];
 
             // DPI対応: スクロールオフセットと位置にスケーリングを適用
@@ -155,6 +163,7 @@ impl TextRenderer {
         position: [f32; 2],
         size: f32,
         color: [f32; 4],
+        font: &str, // ★ フォント名パラメータを追加
         scroll_offset: [f32; 2],
         queue: &Queue,
         device: &Device,
@@ -170,10 +179,17 @@ impl TextRenderer {
             Some(screen_height as f32),
         );
 
+        // ★ 修正: 指定されたフォント名を使用
+        let family = if font == "default" || font.is_empty() {
+            Family::SansSerif
+        } else {
+            Family::Name(font)
+        };
+
         buffer.set_text(
             &mut self.font_system,
             content,
-            &Attrs::new().family(Family::SansSerif).weight(Weight::NORMAL),
+            &Attrs::new().family(family).weight(Weight::NORMAL),
             Shaping::Advanced,
         );
 
@@ -202,8 +218,6 @@ impl TextRenderer {
         };
 
         let text_areas = [text_area];
-
-        
 
         self.renderer
             .prepare(
@@ -297,16 +311,16 @@ impl TextRenderer {
     pub fn render_multiple_texts_with_depth(
         &mut self,
         pass: &mut RenderPass,
-        text_commands: &[(String, [f32; 2], f32, [f32; 4])],
+        text_commands: &[(String, [f32; 2], f32, [f32; 4], String)], // ★ フォント情報を追加
         scroll_offset: [f32; 2],
         scale_factor: f32,
         queue: &Queue,
         device: &Device,
         screen_width: u32,
         screen_height: u32,
-        depth: f32, // ★ Z値（0.0=最前面、1.0=最背面）
+        _depth: f32, // ★ Z値（0.0=最前面、1.0=最背面）
     ) {
-        // glyphonは内部的にdepth testingを���理するため、
+        // glyphonは内部的にdepth testingを処理するため、
         // 現在の実装では直接Z値を制御できないが、
         // 描画順序でZ値の効果を模擬できる
         self.render_multiple_texts(

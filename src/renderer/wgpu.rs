@@ -127,6 +127,11 @@ impl WgpuRenderer {
     }
 
     pub fn resize(&mut self, new_size: winit::dpi::PhysicalSize<u32>) {
+        // ウィンドウサイズが0の場合は何もしない（最小化時など）
+        if new_size.width == 0 || new_size.height == 0 {
+            return;
+        }
+
         self.size = new_size;
         let surface_config = SurfaceConfiguration {
             usage: TextureUsages::RENDER_ATTACHMENT,
@@ -244,8 +249,9 @@ impl WgpuRenderer {
                 DrawCommand::Circle { .. } => circle_commands.push(cmd.clone()),
                 DrawCommand::Triangle { .. } => triangle_commands.push(cmd.clone()),
                 DrawCommand::Image { .. } => image_commands.push(cmd.clone()),
-                DrawCommand::Text { content, position, size, color, .. } => {
-                    text_commands.push((content.clone(), *position, *size, *color));
+                DrawCommand::Text { content, position, size, color, font, .. } => {
+                    // ★ 修正: フォント情報も含める
+                    text_commands.push((content.clone(), *position, *size, *color, font.clone()));
                 }
             }
         }

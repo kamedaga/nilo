@@ -184,6 +184,18 @@ pub struct AppState<S> {
     
     /// 前回のホバーボタンID（ホバー状態変化の検出用）
     pub last_hovered_button: Option<String>,
+
+    // ★ 新規追加: テキスト入力とIME関連の状態管理
+    /// 現在フォーカスされているテキスト入力フィールドのID
+    pub focused_text_input: Option<String>,
+    /// テキスト入力フィールドの値を保存するマップ
+    pub text_input_values: HashMap<String, String>,
+    /// IME変換中のテキスト（フィールドごと）
+    pub ime_composition_text: HashMap<String, String>,
+    /// カーソル位置（フィールドごと）
+    pub text_cursor_positions: HashMap<String, usize>,
+    /// 選択範囲（フィールドごと、開始位置と終了位置）
+    pub text_selections: HashMap<String, (usize, usize)>,
 }
 
 impl<S> AppState<S> {
@@ -202,6 +214,11 @@ impl<S> AppState<S> {
             cached_window_size: None,
             component_context: ComponentContext::new(),
             last_hovered_button: None,
+            focused_text_input: None,
+            text_input_values: HashMap::new(),
+            ime_composition_text: HashMap::new(),
+            text_cursor_positions: HashMap::new(),
+            text_selections: HashMap::new(),
         }
     }
 
@@ -233,22 +250,84 @@ impl<S> AppState<S> {
 
     pub fn advance(&mut self) {
         self.position += 1;
-        // キャッシュクリア
-        self.static_stencils = None;
-        self.static_buttons.clear();
-        self.expanded_body = None;
     }
 
-    pub fn set_variable(&mut self, key: String, value: String) {
-        self.variables.insert(key, value);
-        // キャッシュクリア
-        self.static_stencils = None;
-        self.static_buttons.clear();
-        self.expanded_body = None;
+    // ★ 新規追加: テキスト入力とIME関連のメソッド
+
+    /// テキスト入力フィールドにフォーカスを設定
+    pub fn focus_text_input(&mut self, field_id: String) {
+        self.focused_text_input = Some(field_id.clone());
+        // フィールドが存在しない場合は初期化
+        if !self.text_input_values.contains_key(&field_id) {
+            self.text_input_values.insert(field_id.clone(), String::new());
+        }
+        if !self.text_cursor_positions.contains_key(&field_id) {
+            self.text_cursor_positions.insert(field_id.clone(), 0);
+        }
+        if !self.text_selections.contains_key(&field_id) {
+            self.text_selections.insert(field_id.clone(), (0, 0));
+        }
+    }
+
+    /// テキスト入力フィールドのフォーカスを解除
+    pub fn blur_text_input(&mut self) {
+        self.focused_text_input = None;
+    }
+
+    /// 現在フォーカスされているテキスト入力フィールドのIDを取得
+    pub fn get_focused_text_input(&self) -> Option<&String> {
+        self.focused_text_input.as_ref()
+    }
+
+    /// テキスト入力フィールドの値を設定
+    pub fn set_text_input_value(&mut self, field_id: String, value: String) {
+        self.text_input_values.insert(field_id.clone(), value.clone());
+        // カーソル位置を文字列の最後に設定
+        let cursor_pos = value.chars().count();
+        self.text_cursor_positions.insert(field_id, cursor_pos);
+    }
+
+    /// テキスト入力フィールドの値を取得
+    pub fn get_text_input_value(&self, field_id: &str) -> String {
+        self.text_input_values.get(field_id).cloned().unwrap_or_default()
+    }
+
+    /// IME変換中のテキストを設定
+    pub fn set_ime_composition_text(&mut self, field_id: &str, composition_text: String) {
+        self.ime_composition_text.insert(field_id.to_string(), composition_text);
+    }
+
+    /// IME変換中のテキストをクリア
+    pub fn clear_ime_composition_text(&mut self, field_id: &str) {
+        self.ime_composition_text.remove(field_id);
+    }
+
+    /// IME変換中のテキストを取得
+    pub fn get_ime_composition_text(&self, field_id: &str) -> Option<&String> {
+        self.ime_composition_text.get(field_id)
+    }
+
+    /// テキストカーソル位置を設定
+    pub fn set_text_cursor_position(&mut self, field_id: &str, position: usize) {
+        self.text_cursor_positions.insert(field_id.to_string(), position);
+    }
+
+    /// テキストカーソル位置を取得
+    pub fn get_text_cursor_position(&self, field_id: &str) -> usize {
+        self.text_cursor_positions.get(field_id).copied().unwrap_or(0)
+    }
+
+    /// テキスト選択範囲を設定
+    pub fn set_text_selection(&mut self, field_id: &str, start: usize, end: usize) {
+        self.text_selections.insert(field_id.to_string(), (start, end));
+    }
+
+    /// テキスト選択範囲を取得
+    pub fn get_text_selection(&self, field_id: &str) -> (usize, usize) {
+        self.text_selections.get(field_id).copied().unwrap_or((0, 0))
     }
 }
 
-// StateAccessトレイトが���要なメソッドのみ別のimplブロックに
 impl<S: StateAccess + 'static> AppState<S> {
     /// 値評価（軽量化版）
     pub fn eval_expr_from_ast(&self, e: &Expr) -> String {
@@ -372,7 +451,7 @@ impl<S: StateAccess + 'static> AppState<S> {
         }
     }
 
-    /// 軽量化されたステンシル変換メソッド（従来のAPIとの互換性維持）
+    /// 軽量化���れたステンシル変換メソッド（従来のAPIとの互換性維持）
     pub fn viewnode_layouted_to_stencil(
         &mut self,
         lnode: &crate::ui::LayoutedNode<'_>,
@@ -396,6 +475,16 @@ impl<S: StateAccess + 'static> AppState<S> {
     ) {
         let style = lnode.node.style.clone().unwrap_or_default();
         let is_hover = point_in_rect(mouse_pos, lnode.position, lnode.size);
+
+        // ★ デバッグ出力: レンダリング段階でのサイズ確認
+        if let Some(ref rel_width) = style.relative_width {
+            println!("🎨 Render DEBUG: position: {:?}, size: {:?}, rel_width: {:?}",
+                lnode.position, lnode.size, rel_width);
+        }
+        if let Some(ref rel_height) = style.relative_height {
+            println!("🎨 Render DEBUG: position: {:?}, size: {:?}, rel_height: {:?}",
+                lnode.position, lnode.size, rel_height);
+        }
 
         // 借用エラーを修正：hoverスタイルのマージを安全に��う
         let final_style = if is_hover {
@@ -587,7 +676,7 @@ impl<S: StateAccess + 'static> AppState<S> {
             });
         }
 
-        // ★ 重要: 透明色の場合は背景を描画しない
+        // ★ 重要: 透明色の場合は背景を描画し��い
         if bg[3] > 0.0 {
             // 背景
             *depth_counter += 0.001;
@@ -699,7 +788,7 @@ impl<S: StateAccess + 'static> AppState<S> {
             return true;
         }
 
-        // 従来の関数を試す
+        // ���来の関数を試す
         crate::engine::rust_call::execute_rust_call(name, args);
         true
     }

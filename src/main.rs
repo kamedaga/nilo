@@ -12,21 +12,18 @@ use colored::*;
 // ========================================
 
 /// アプリケーションの状態を管理する構造体
-/// StateAccessトレイトを自動実装するためのderive属性を使用
-#[derive(Debug, Clone, serde::Serialize, nilo_state_access_derive::StateAccess)]
-#[state_access(trait_path = "::nilo::engine::state::StateAccess")] // StateAccessトレイトの実際のパス
-struct State {
-    /// アプリケーション名
-    name: String,
-    /// 一意識別子
-    id: u32,
+/// nilo_state!マクロを使用して簡潔に定義
+nilo::nilo_state! {
+    struct State {
+        /// アプリケーション名
+        name: String,
+        /// 一意識別子
+        counter: u32,
+    }
 }
 
-fn test(args: &[Expr]) {
-    println!("test called with {} arguments", args.len());
-    for (i, arg) in args.iter().enumerate() {
-        println!("  arg[{}]: {:?}", i, arg);
-    }
+fn hello_world(args: &[Expr]) {
+    println!("Hello from Rust! Args: {:?}", args);
 }
 
 // ========================================
@@ -40,17 +37,21 @@ fn main() {
     // コマンドライン引数の解析
     let cli_args = nilo::parse_args();
 
-    // Rust関数の登録
-    register_rust_call("test", test);
+    register_rust_call("hello_rust", |args: &[Expr]| {
+        println!("Hello from Rust!");
+    });
+
+    register_rust_call("hello_world", hello_world);
+
 
     // 初期状態の作成
     let state = State {
-        name: "Nilo framework".to_string(),
-        id: 1,
+        name: "Nilo".to_string(),
+        counter: 1,
     };
 
-    let file_path = "src/test_control_flow.nilo";
+    let file_path = "src/tutorial.nilo";
 
     // アプリケーションの実行（lib.rsに移設した関数を使用）
-    nilo::run_application(file_path, state, &cli_args, Some("Nilo Demo Application"));
+    nilo::run_application(file_path, state, &cli_args, Some("Nilo Tutorial"));
 }
