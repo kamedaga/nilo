@@ -30,7 +30,7 @@ pub struct KeyModifiers {
     pub cmd: bool,  // Macのコマンドキー
 }
 
-use std::collections::{HashMap, VecDeque};
+use std::collections::VecDeque;
 
 pub struct EventQueue {
     pub queue: VecDeque<UIEvent>,

@@ -3,7 +3,6 @@ use quote::quote;
 use syn::{
     parse_macro_input, DeriveInput, Data, Fields, Type, PathArguments, GenericArgument, LitStr,
 };
-use syn::meta::ParseNestedMeta; // ★ syn v2 で必要
 
 #[proc_macro_derive(StateAccess, attributes(state_access))]
 pub fn derive_state_access(input: TokenStream) -> TokenStream {

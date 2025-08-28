@@ -287,7 +287,7 @@ impl<S> AppState<S> {
         self.text_cursor_positions.insert(field_id, cursor_pos);
     }
 
-    /// テキスト入力フィールドの値を取得
+    /// テキスト��力フィールドの値を取得
     pub fn get_text_input_value(&self, field_id: &str) -> String {
         self.text_input_values.get(field_id).cloned().unwrap_or_default()
     }
@@ -297,7 +297,7 @@ impl<S> AppState<S> {
         self.ime_composition_text.insert(field_id.to_string(), composition_text);
     }
 
-    /// IME変換中のテキストをクリア
+    /// IME変換中��テキストをクリア
     pub fn clear_ime_composition_text(&mut self, field_id: &str) {
         self.ime_composition_text.remove(field_id);
     }
@@ -423,12 +423,12 @@ impl<S: StateAccess + 'static> AppState<S> {
     /// 関数呼び���しの実行
     fn execute_function_call(&self, name: &str, args: &[Expr]) -> String {
         // 引数を評価
-        let arg_values: Vec<String> = args.iter().map(|arg| self.eval_expr_from_ast(arg)).collect();
+        let _arg_values: Vec<String> = args.iter().map(|arg| self.eval_expr_from_ast(arg)).collect();
 
         // まず登録さ��たRust関数を試す
         use crate::engine::rust_call::{execute_rust_call, has_rust_call};
 
-        // 登録された関数があるかチェック
+        // 登録された���数があるかチェック
         if has_rust_call(name) {
             execute_rust_call(name, args);
             return format!("{}_executed", name);
@@ -498,7 +498,7 @@ impl<S: StateAccess + 'static> AppState<S> {
         };
 
         // Card スタイルの適用
-        let mut final_style = if final_style.card.unwrap_or(false) {
+        let final_style = if final_style.card.unwrap_or(false) {
             let mut card_style = final_style;
             if card_style.background.is_none() { card_style.background = Some(ColorValue::Hex("#ffffff".into())); }
             if card_style.rounded.is_none()    { card_style.rounded    = Some(Rounded::Px(16.0)); }
@@ -519,7 +519,7 @@ impl<S: StateAccess + 'static> AppState<S> {
                 self.render_text_optimized(lnode, format, args, &final_style, out, depth_counter);
             }
 
-            ViewNode::Button { label, id, onclick } => {
+            ViewNode::Button { label, id, onclick: _ } => {
                 self.render_button_optimized(lnode, label, id, &final_style, is_hover, out, depth_counter);
             }
 
@@ -636,7 +636,7 @@ impl<S: StateAccess + 'static> AppState<S> {
         &mut self,
         lnode: &crate::ui::LayoutedNode<'_>,
         label: &str,
-        id: &str,
+        _id: &str,
         style: &Style,
         is_hover: bool,
         out: &mut Vec<Stencil>,
@@ -782,7 +782,7 @@ impl<S: StateAccess + 'static> AppState<S> {
 
     /// Rustコール実行メソッド
     pub fn execute_rust_call(&mut self, name: &str, args: &[Expr]) -> bool {
-        // まずstateアクセス可能な関数を試す
+        // ���ずstateアクセス可能な関数を試す
         let result = crate::engine::rust_call::execute_state_accessible_call(name, self, args);
         if result {
             return true;

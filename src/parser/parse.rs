@@ -310,11 +310,11 @@ fn parse_transition_targets(pair: Pair<Rule>) -> Result<Vec<String>, String> {
 
 /// タイムライン��義を解析してTimelineASTを生成
 ///
-/// タイムラインは名前付きのビューノ����ド集合����イベントハンドラーを定義します
+/// タイムラインは名前付きのビューノ����ド集合���������イベントハンドラーを���義します
 pub fn parse_timeline_def(pair: Pair<Rule>) -> Timeline {
     let mut inner = pair.into_inner();
     let name = inner.next().unwrap().as_str().to_string();
-    let mut font: Option<String> = None;
+    let font: Option<String> = None;
     let mut body: Vec<WithSpan<ViewNode>> = Vec::new();
     let whens = Vec::new(); // 空のまま保持（when_blockは通常のview_nodeとして処理）
 
@@ -337,9 +337,9 @@ pub fn parse_timeline_def(pair: Pair<Rule>) -> Timeline {
     Timeline { name, font, body, whens }
 }
 
-/// コンポーネント定義を解析してComponentASTを生��
+/// コンポーネント定義を解析してComponentAST������
 ///
-/// コンポーネントは再利用可能なビュー要素を定義します
+/// コンポーネ��トは再利用可能なビュー���素を定義します
 pub fn parse_component_def(pair: Pair<Rule>) -> Component {
     let mut inner = pair.into_inner();
     let name = inner.next().unwrap().as_str().to_string();
@@ -572,7 +572,7 @@ fn parse_button(pair: Pair<Rule>) -> WithSpan<ViewNode> {
 
     // 必須フィールド���検証
     let id = id.expect("ボタンにはid:が必要です");
-    let label = label.expect("ボタンにはlabel:が必要です");
+    let label = label.expect("ボタンにはlabel:が必要���す");
     WithSpan { node: ViewNode::Button { id, label, onclick }, line, column: col, style }
 }
 
@@ -841,7 +841,7 @@ fn parse_event_expr(pair: Pair<Rule>) -> EventExpr {
     let user_event = inner.next().expect("event_exprにuser_eventがありません");
     let mut ev_inner = user_event.into_inner();
     let kind = ev_inner.next().expect("user_eventにevent_kindがありません").as_str();
-    let target = ev_inner.next().expect("user_eventにidentがありません").as_str().to_string();
+    let target = ev_inner.next().expect("user_eventにidentが��りません").as_str().to_string();
     match kind {
         "click" => EventExpr::ButtonPressed(target),
         _ => panic!("不明なevent_kind: {:?}", kind),
@@ -890,7 +890,7 @@ fn parse_expr(pair: Pair<Rule>) -> Expr {
                 println!("🔍 PARSER DEBUG: Created DimensionValue: {:?}", result);
                 result
             } else {
-                // 単位��しの場合はpxとして扱う
+                // 単位��し���場���はpxとし��扱う
                 Expr::Dimension(DimensionValue::px(value))
             }
         }
@@ -961,7 +961,7 @@ fn parse_stencil_call(pair: Pair<Rule>) -> Stencil {
 
     let mut map = std::collections::HashMap::new();
 
-    // 引数の解析
+    // 引��の解析
     if let Some(stencil_args) = inner.next() {
         for arg in stencil_args.into_inner() {
             let mut arg_inner = arg.into_inner();
@@ -978,12 +978,12 @@ fn parse_stencil_call(pair: Pair<Rule>) -> Stencil {
                         Rule::string => StencilArg::String(unquote(actual_value.as_str())),
                         Rule::bool => StencilArg::Bool(actual_value.as_str() == "true"),
                         Rule::ident => {
-                            panic!("ステンシル引数に変数名は使用できません: key={}, value={}", key, actual_value.as_str());
+                            panic!("ステンシル引数���変数名は使���できません: key={}, value={}", key, actual_value.as_str());
                         }
                         _ => panic!("不明な引数タイプ"),
                     }
                 } else {
-                    panic!("key: {} にstencil_valueの値が見つかりません", key);
+                    panic!("key: {} ���stencil_valueの値が見つかりません", key);
                 }
             } else {
                 match val_pair.as_rule() {
@@ -1110,7 +1110,7 @@ fn parse_state_set(pair: Pair<Rule>) -> WithSpan<ViewNode> {
     WithSpan { node: ViewNode::Set { path, value }, line, column: col, style: None }
 }
 
-/// リスト追加ノード��解析
+/// リスト追��ノード��解析
 fn parse_list_append(pair: Pair<Rule>) -> WithSpan<ViewNode> {
     let span = pair.as_span();
     let (line, col) = span.start_pos().line_col();
@@ -1120,7 +1120,7 @@ fn parse_list_append(pair: Pair<Rule>) -> WithSpan<ViewNode> {
     WithSpan { node: ViewNode::ListAppend { path, value }, line, column: col, style: None }
 }
 
-/// ��スト削除ノードの解析
+/// ��スト削除ノード��解析
 fn parse_list_remove(pair: Pair<Rule>) -> WithSpan<ViewNode> {
     let span = pair.as_span();
     let (line, col) = span.start_pos().line_col();
@@ -1223,7 +1223,7 @@ fn style_from_expr(expr: Expr) -> Style {
                         s.rounded = Some(match v {
                             Expr::Bool(true)  => Rounded::On,
                             Expr::Number(n)   => Rounded::Px(n),
-                            Expr::Dimension(d) => Rounded::Px(d.value), // 相対単����も受���付��る
+                            Expr::Dimension(d) => Rounded::Px(d.value), // 相対単����も受���付����
                             _ => Rounded::Px(8.0),
                         });
                     }
@@ -1464,7 +1464,7 @@ fn parse_foreach_node(pair: Pair<Rule>) -> WithSpan<ViewNode> {
 
     WithSpan {
         node: ViewNode::ForEach {
-            var: var.expect("foreach には変数名が必����です"),
+            var: var.expect("foreach には変数名が必�����です"),
             iterable: iterable.expect("foreach には繰り返し対象が���要です"),
             body,
         },
@@ -1537,15 +1537,15 @@ fn parse_text_input(pair: Pair<Rule>) -> WithSpan<ViewNode> {
 
     let mut id: Option<String> = None;
     let mut placeholder: Option<String> = None;
-    let mut value: Option<Expr> = None;
-    let mut on_change: Option<Expr> = None;
-    let mut multiline = false;
-    let mut max_length: Option<usize> = None;
-    let mut ime_enabled = true; // デフ���ルト���IME有効
+    let value: Option<Expr> = None;
+    let on_change: Option<Expr> = None;
+    let multiline = false;
+    let max_length: Option<usize> = None;
+    let ime_enabled = true; // デフォルトでIME有効
     let mut style: Option<Style> = None;
 
-    // パ���メータを順次解析
-    let mut inner = pair.into_inner();
+    // パラメータを順次解析
+    let inner = pair.into_inner();
     let mut param_index = 0;
 
     for p in inner {
@@ -1561,7 +1561,7 @@ fn parse_text_input(pair: Pair<Rule>) -> WithSpan<ViewNode> {
                                 if let Expr::String(s) = parse_expr(inner_item) {
                                     id = Some(s);
                                 } else {
-                                    panic!("TextInputの第1引数（id）は文字列である��要があります");
+                                    panic!("TextInputの第1引数（id）は文字列である��要���あります");
                                 }
                             }
                             1 => {
@@ -1609,7 +1609,7 @@ fn parse_text_input(pair: Pair<Rule>) -> WithSpan<ViewNode> {
     }
 
     // 必須パラメ��タの検証
-    let id = id.expect("TextInputにはidが必要です");
+    let id = id.expect("TextInputにはidが必���です");
 
     WithSpan {
         node: ViewNode::TextInput {
@@ -1628,7 +1628,7 @@ fn parse_text_input(pair: Pair<Rule>) -> WithSpan<ViewNode> {
 }
 
 // ========================================
-// 階層的フロー糖衣��文の解析
+// 階層的フ���ー糖衣��文の解析
 // ========================================
 
 /// 階層的フロー定義を解析
@@ -1636,17 +1636,17 @@ pub fn parse_namespaced_flow_def(pair: Pair<Rule>) -> Result<NamespacedFlow, Str
     assert_eq!(pair.as_rule(), Rule::namespaced_flow_def);
 
     let mut inner = pair.into_inner();
-    
+
     // フロー名を取得
     let name = inner.next().unwrap().as_str().to_string();
-    
+
     let mut start = None;
     let mut transitions = Vec::new();
 
     for flow_inner in inner {
         match flow_inner.as_rule() {
             Rule::namespaced_start_def => {
-                // 開始状態の定義を取得（修飾なしの識別子）
+                // 開始��態の定義を取得（修飾なしの識別子）
                 let ident = flow_inner.into_inner().next().unwrap(); // ident
                 start = Some(ident.as_str().to_string());
             }
@@ -1664,7 +1664,7 @@ pub fn parse_namespaced_flow_def(pair: Pair<Rule>) -> Result<NamespacedFlow, Str
     if transitions.is_empty() {
         return Err("階層的フロー定義には少なくとも1つの遷移が必要です".to_string());
     }
-    
+
     Ok(NamespacedFlow { name, start, transitions })
 }
 
@@ -1675,7 +1675,7 @@ fn parse_namespaced_transition_def(pair: Pair<Rule>) -> Result<(String, Vec<Stri
     let mut inner = pair.into_inner();
 
     // 遷移元の���析
-    let source_pair = inner.next().ok_or("階層的遷移定義に遷移元がありません")?;
+    let source_pair = inner.next().ok_or("階層的遷���定義に遷移元がありません")?;
     let source = parse_namespaced_transition_source(source_pair)?;
 
     // 遷移先の解析
@@ -1739,24 +1739,24 @@ fn parse_namespaced_transition_targets(pair: Pair<Rule>) -> Result<Vec<String>, 
     }
 }
 
-/// 階層的フローを平坦なフローとタイムラインに展開する
+/// 階層的フローを平坦なフローと��イムライン��展開する
 fn expand_namespaced_flow(
     namespaced_flow: NamespacedFlow,
-    mut existing_timelines: Vec<Timeline>
+    existing_timelines: Vec<Timeline>
 ) -> Result<(Flow, Vec<Timeline>), String> {
     let namespace = &namespaced_flow.name;
-    
+
     // 新しい開始状態は namespace::start の形式
     let expanded_start = format!("{}::{}", namespace, namespaced_flow.start);
-    
+
     // 遷移を展開
     let mut expanded_transitions = Vec::new();
-    
+
     for (source, targets) in namespaced_flow.transitions {
         // 遷移元を修飾
         let qualified_source = format!("{}::{}", namespace, source);
-        
-        // 遷移先を修飾（既に修飾されているものはそのまま）
+
+        // 遷移先���修飾（既に修飾さ��ているものはそのまま）
         let qualified_targets: Vec<String> = targets.into_iter()
             .map(|target| {
                 if target.contains("::") {
@@ -1768,18 +1768,18 @@ fn expand_namespaced_flow(
                 }
             })
             .collect();
-        
+
         expanded_transitions.push((qualified_source, qualified_targets));
     }
-    
+
     // 必要に応じてタイムラインを追加生成
     // 例：階層化されたタイムラインが見つからない場合のデフォルト処理
     // この実装では��存のタイムラインをそのまま使用
-    
+
     let expanded_flow = Flow {
         start: expanded_start,
         transitions: expanded_transitions,
     };
-    
+
     Ok((expanded_flow, existing_timelines))
 }

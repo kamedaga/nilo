@@ -145,7 +145,7 @@ impl Engine {
             match &lnode.node.node {
                 ViewNode::DynamicSection { .. } => continue, // 静的��理では無視
                 ViewNode::Button { id, onclick, .. } => {
-                    // ボタン境界を記録（デバッグ出力付き
+                    // ボタ��境界を記録（デバッグ出力付き
                     buttons.push((id.clone(), lnode.position, lnode.size));
 
                     // onclickがある場合はstateに保存
@@ -221,9 +221,9 @@ impl Engine {
                 .map(|c| Self::convert_to_rgba(c))
                 .unwrap_or([0.8, 0.8, 0.8, 1.0]); // デフォルトグレー
 
-            let text_color = style.color.as_ref()
+            let _text_color = style.color.as_ref()
                 .map(|c| Self::convert_to_rgba(c))
-                .unwrap_or([0.0, 0.0, 0.0, 1.0]); // デフ��ルト黒色
+                .unwrap_or([0.0, 0.0, 0.0, 1.0]); // デフォルト黒色
 
             let font_size = style.font_size.unwrap_or(16.0);
             let radius = style.rounded
@@ -259,7 +259,7 @@ impl Engine {
                 };
 
                 let shadow_offset = if is_focused { [0.0, 2.0] } else { [0.0, 1.0] };
-                let shadow_blur = if is_focused { 8.0 } else { 4.0 };
+                let _shadow_blur = if is_focused { 8.0 } else { 4.0 };
 
                 *depth_counter += 0.001;
                 stencils.push(Stencil::RoundedRect {
@@ -380,7 +380,7 @@ impl Engine {
             let bg_color = if let Some(ref bg) = style.background {
                 Self::convert_to_rgba(bg)
             } else {
-                // デフォルトの青色（スタイルが指定されていない場合のみ）
+                // ���フォルトの青色（スタイルが指定されていない場合のみ）
                 if is_hover {
                     [0.09, 0.46, 0.82, 1.0] // ホバー時の青
                 } else {
@@ -431,7 +431,7 @@ impl Engine {
                 });
             }
 
-            // ★ 修正: 正確なテキスト幅計算を使用（layout.rsと同じ計算式）
+            // ★ 修正: 正確なテキスト��計算を使用（layout.rsと同じ計算式）
             let text_w = Self::calculate_text_width_accurate(label, font_size);
             let text_h = font_size * 1.2;
             let tx = lnode.position[0] + (lnode.size[0] - text_w) * 0.5;
@@ -659,7 +659,7 @@ impl Engine {
                 if bg[3] > 0.0 { *depth_counter += 0.001; stencils.push(Stencil::RoundedRect { position: lnode.position, width: lnode.size[0], height: lnode.size[1], radius, color: bg, scroll: true, depth:(1.0-*depth_counter).max(0.0)}); }
                 let text_color = style.color.as_ref().map(|c| Self::convert_to_rgba(c)).unwrap_or([1.0,1.0,1.0,1.0]);
                 *depth_counter += 0.001;
-                stencils.push(Stencil::Text { content: label.clone(), position:[lnode.position[0]+10.0, lnode.position[1]+5.0], size: font_size, color: text_color, font: style.font.unwrap_or_else(||"default".into()), scroll: true, depth:(1.0-*depth_counter).max(0.0)});
+                stencils.push(Stencil::Text { content: label.clone(), position:[lnode.position[0]+10.0, lnode.position[1]+5.0], size: font_size, color: text_color, font: style.font.unwrap_or_else(||"default".into()), scroll: true, depth: (1.0-*depth_counter).max(0.0)});
             }
             ViewNode::TextInput { id, placeholder, value, on_change, multiline, max_length, ime_enabled } => {
                 let style = lnode.node.style.clone().unwrap_or_default();
@@ -745,7 +745,7 @@ impl Engine {
                     Expr::Number(n) => n.to_string(),
                     Expr::Bool(b) => b.to_string(),
                     Expr::Ident(name) => {
-                        // foreach変数を最優先でチェック
+                        // foreach変数を最優先でチ���ック
                         if let Some(value) = state.component_context.get_foreach_var(name) {
                             value.clone()
                         } else {
@@ -858,7 +858,7 @@ impl Engine {
                 }
             }
             _ => {
-                // 他の要素は通常の関数で処理
+                // 他の要素は通常の関数で処��
                 Self::render_substituted_node_to_stencil(lnode, stencils, depth_counter, state);
             }
         }
@@ -996,7 +996,7 @@ impl Engine {
         // clickedに含まれるボタンIDに対  するonclick属��を実行
         for id in clicked {
             if let Some(onclick_expr) = state.button_onclick_map.get(*id) {
-                // onclick属性の   を評価して実行
+                // onclick属性の   を評価��て実行
                 state.eval_expr_from_ast(onclick_expr);
             }
         }

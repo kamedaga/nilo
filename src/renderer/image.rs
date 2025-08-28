@@ -1,6 +1,5 @@
 use std::collections::HashMap;
 use wgpu::*;
-use image::GenericImageView;
 use wgpu::util::DeviceExt;
 use winit::dpi::PhysicalSize;
 use crate::renderer::command::{DrawCommand, DrawList};

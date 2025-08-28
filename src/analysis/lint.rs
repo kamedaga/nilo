@@ -22,6 +22,9 @@ pub fn run_lints(app: &App) -> Vec<super::error::Diagnostic> {
         }
     }
 
+    // Flow解析：timeline内のnavigate_toとflowの整合性チェック
+    check_flow_consistency(app, &mut diags);
+
     // コンポーネント使用チェック
     let defined_components: std::collections::HashSet<_> =
         app.components.iter().map(|c| c.name.as_str()).collect();
@@ -109,7 +112,7 @@ pub fn run_lints(app: &App) -> Vec<super::error::Diagnostic> {
         }
     }
 
-    // コンポーネント内のボタ���IDチェック
+    // コンポーネント内のボタンIDチェック
     for component in &app.components {
         let mut button_ids = std::collections::HashMap::<String, usize>::new();
         collect_button_ids(&component.body, &mut button_ids);
@@ -136,6 +139,89 @@ pub fn run_lints(app: &App) -> Vec<super::error::Diagnostic> {
     }
 
     diags
+}
+
+fn check_flow_consistency(app: &App, diags: &mut Vec<super::error::Diagnostic>) {
+    let timeline_names: std::collections::HashSet<_> =
+        app.timelines.iter().map(|t| t.name.as_str()).collect();
+
+    // flow定義から遷移マップを作成
+    let mut flow_transitions: std::collections::HashMap<String, std::collections::HashSet<String>> =
+        std::collections::HashMap::new();
+
+    for (from, to_list) in &app.flow.transitions {
+        flow_transitions.insert(from.clone(), to_list.iter().cloned().collect());
+    }
+
+    // 各timelineでnavigate_toの使用をチェック
+    for timeline in &app.timelines {
+        let mut used_navigations: std::collections::HashSet<String> = std::collections::HashSet::new();
+        collect_navigations(&timeline.body, &mut used_navigations);
+        collect_navigations_from_whens(&timeline.whens, &mut used_navigations);
+
+        // timeline内のnavigate_toがflowに定義されているかチェック
+        for target in &used_navigations {
+            // まずtargetが存在するtimelineかチェック
+            if !timeline_names.contains(target.as_str()) {
+                diags.push(super::error::Diagnostic::error(
+                    format!("Timeline '{}' is referenced in navigate_to but not defined", target),
+                ));
+                continue;
+            }
+
+            // flowでこのtimelineからの遷移が定義されているかチェック
+            if let Some(allowed_targets) = flow_transitions.get(&timeline.name) {
+                if !allowed_targets.contains(target) {
+                    diags.push(super::error::Diagnostic::error(
+                        format!(
+                            "Timeline '{}' navigates to '{}' but this transition is not defined in flow",
+                            timeline.name, target
+                        ),
+                    ));
+                }
+            } else {
+                // このtimelineからの遷移がflowに全く定義されていない
+                diags.push(super::error::Diagnostic::error(
+                    format!(
+                        "Timeline '{}' navigates to '{}' but no transitions from '{}' are defined in flow",
+                        timeline.name, target, timeline.name
+                    ),
+                ));
+            }
+        }
+
+        // flowに定義された遷移にnavigate_toが実装されているかチェック
+        if let Some(flow_targets) = flow_transitions.get(&timeline.name) {
+            for flow_target in flow_targets {
+                if !used_navigations.contains(flow_target) {
+                    diags.push(super::error::Diagnostic::warning(
+                        format!(
+                            "Flow defines transition from '{}' to '{}' but no navigate_to('{}') found in timeline",
+                            timeline.name, flow_target, flow_target
+                        ),
+                    ));
+                }
+            }
+        }
+    }
+
+    // 同様にcomponent内のnavigate_toもチェック
+    for component in &app.components {
+        let mut used_navigations: std::collections::HashSet<String> = std::collections::HashSet::new();
+        collect_navigations(&component.body, &mut used_navigations);
+        collect_navigations_from_whens(&component.whens, &mut used_navigations);
+
+        for target in &used_navigations {
+            if !timeline_names.contains(target.as_str()) {
+                diags.push(super::error::Diagnostic::error(
+                    format!(
+                        "Timeline '{}' is referenced in navigate_to in component '{}' but not defined",
+                        target, component.name
+                    ),
+                ));
+            }
+        }
+    }
 }
 
 fn collect_button_ids(
@@ -261,5 +347,54 @@ Use `Text(\"{}\", variable)` instead to display variable values."
             }
             _ => {}
         }
+    }
+}
+
+fn collect_navigations(
+    nodes: &[WithSpan<ViewNode>],
+    navigations: &mut std::collections::HashSet<String>,
+) {
+    for node in nodes {
+        match &node.node {
+            ViewNode::NavigateTo { target } => {
+                navigations.insert(target.clone());
+            }
+            ViewNode::VStack(children) | ViewNode::HStack(children) => {
+                collect_navigations(children, navigations);
+            }
+            ViewNode::DynamicSection { body, .. } => {
+                collect_navigations(body, navigations);
+            }
+            ViewNode::Match { arms, default, .. } => {
+                for (_, nodes) in arms {
+                    collect_navigations(nodes, navigations);
+                }
+                if let Some(default_nodes) = default {
+                    collect_navigations(default_nodes, navigations);
+                }
+            }
+            ViewNode::When { actions, .. } => {
+                collect_navigations(actions, navigations);
+            }
+            ViewNode::ForEach { body, .. } => {
+                collect_navigations(body, navigations);
+            }
+            ViewNode::If { then_body, else_body, .. } => {
+                collect_navigations(then_body, navigations);
+                if let Some(else_nodes) = else_body {
+                    collect_navigations(else_nodes, navigations);
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
+fn collect_navigations_from_whens(
+    whens: &[When],
+    navigations: &mut std::collections::HashSet<String>,
+) {
+    for when in whens {
+        collect_navigations(&when.actions, navigations);
     }
 }

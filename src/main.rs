@@ -5,14 +5,13 @@
 use nilo;
 use nilo::engine::rust_call::register_rust_call;
 use nilo::parser::ast::Expr; // Exprをインポート
-use colored::*;
 
 // ========================================
 // アプリケーション状態の定義
 // ========================================
 
-/// アプリケーションの状態を管理する構造体
-/// nilo_state!マクロを使用して簡潔に定義
+// アプリケーションの状態を管理する構造体
+// nilo_state!マクロを使用して簡潔に定義
 nilo::nilo_state! {
     struct State {
         /// アプリケーション名
@@ -37,7 +36,7 @@ fn main() {
     // コマンドライン引数の解析
     let cli_args = nilo::parse_args();
 
-    register_rust_call("hello_rust", |args: &[Expr]| {
+    register_rust_call("hello_rust", |_args: &[Expr]| {
         println!("Hello from Rust!");
     });
 

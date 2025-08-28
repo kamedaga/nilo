@@ -106,7 +106,7 @@ impl TriangleRenderer {
         screen_size: PhysicalSize<u32>,
         scroll_offset: [f32; 2],
         scale_factor: f32,
-        depth: f32, // ★ Z値（0.0=最前面、1.0=最背面）
+        _depth: f32, // ★ Z値（0.0=最前面、1.0=最背面）
     ) {
         let mut vertices: Vec<TriangleVertex> = Vec::new();
 

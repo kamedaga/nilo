@@ -127,7 +127,7 @@ impl WgpuRenderer {
     }
 
     pub fn resize(&mut self, new_size: winit::dpi::PhysicalSize<u32>) {
-        // ウィンドウサイズが0の場合は何もしない（最小化時など）
+        // ウィンドウサイズが0の場合は何もしない（��小化時など）
         if new_size.width == 0 || new_size.height == 0 {
             return;
         }
@@ -264,7 +264,7 @@ impl WgpuRenderer {
 
         if !circle_commands.is_empty() {
             let list = DrawList(circle_commands);
-            self.circle_renderer.draw(rpass, &list, &self.queue, self.size, scroll_offset, scale_factor);
+            self.circle_renderer.draw(rpass, &list, &self.queue, self.size, scroll_offset, scale_factor, 0.0);
         }
 
         if !triangle_commands.is_empty() {

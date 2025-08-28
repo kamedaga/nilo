@@ -22,8 +22,8 @@ impl TextRenderer {
         format: TextureFormat,
         multisample: MultisampleState,
         depth_stencil: Option<DepthStencilState>,
-        width: u32,
-        height: u32,
+        _width: u32,
+        _height: u32,
     ) -> Self {
         let font_system = FontSystem::new();
         let swash_cache = SwashCache::new();
@@ -47,7 +47,7 @@ impl TextRenderer {
         }
     }
 
-    pub fn resize(&mut self, device: &Device, queue: &Queue, width: u32, height: u32) {
+    pub fn resize(&mut self, _device: &Device, queue: &Queue, width: u32, height: u32) {
         self.viewport.update(
             queue,
             Resolution {
@@ -71,7 +71,7 @@ impl TextRenderer {
         let mut buffers = Vec::new();
         let mut text_areas = Vec::new();
 
-        for (content, position, size, _color, font_name) in text_commands {
+        for (content, _position, size, _color, font_name) in text_commands {
             let scaled_size = *size * scale_factor;
             let metrics = Metrics::new(scaled_size, scaled_size * 1.4);
             let mut buffer = Buffer::new(&mut self.font_system, metrics);
@@ -334,4 +334,5 @@ impl TextRenderer {
             screen_height,
         );
     }
+
 }

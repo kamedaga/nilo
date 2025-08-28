@@ -8,11 +8,12 @@ use std::sync::{Arc, Mutex};
 use colored::Colorize;
 use winit::{
     event::{WindowEvent, MouseScrollDelta, ElementState, MouseButton, KeyEvent, Ime},
-    event_loop::{EventLoop, ActiveEventLoop, ControlFlow},
+    event_loop::{EventLoop, ActiveEventLoop},
     window::{Window, WindowId, WindowAttributes},
     application::ApplicationHandler,
     keyboard::{KeyCode, PhysicalKey},
 };
+
 use super::state::{AppState, StateAccess};
 use super::engine::Engine;
 
@@ -346,7 +347,7 @@ where
                             self.event_queue.push(UIEvent::ImeDisabled { field_id: focused_field });
                         }
                     }
-                    window.request_redraw(); // IME状態変化時は再描画
+                    window.request_redraw(); // IME状態変化��は再描画
                 }
             }
             WindowEvent::RedrawRequested => {
@@ -514,7 +515,7 @@ pub fn run_with_restart_flag<S: StateAccess + 'static + Clone + std::fmt::Debug>
     run_internal_with_restart_flag(Arc::clone(&app), state, restart_flag);
 }
 
-/// 再起動フラグを監視しながらアプリケーション���実行する内部関数
+/// 再起動フラグを監視しながらアプリケーションを実行する内部関数
 pub fn run_internal_with_restart_flag<S>(
     app: Arc<App>,
     state: AppState<S>,
@@ -561,7 +562,7 @@ where
     }
 
     fn window_event(&mut self, event_loop: &ActiveEventLoop, window_id: WindowId, event: WindowEvent) {
-        // 再起�����フラグをチェック
+        // 再起動フラグをチェック
         if let Ok(flag) = self.restart_flag.try_lock() {
             if *flag {
                 // 再起動が要求されている場合はイベントループを終了
@@ -608,7 +609,7 @@ where
         // 再起動フラグをチェック（ノンブロッキング）
         if let Ok(flag) = self.restart_flag.try_lock() {
             if *flag {
-                // 再起動が要求されている場合はイベントループを終了
+                // 再起動が要求されている場合はイ��ントループを終了
                 event_loop.exit();
                 return;
             }
@@ -1179,7 +1180,7 @@ pub fn run_with_hotreload_support_and_title<S: StateAccess + 'static + Clone + s
     // 単一のイベントループを作成（一度だけ）
     let event_loop = EventLoop::new().unwrap();
 
-    // ホットリロード対応のAppHandlerを作成（ウィンドウタイトル付き）
+    // ホットリロ��ド対応のAppHandlerを作成（ウィンドウタイトル付き）
     let mut app_handler = AppHandlerWithDynamicReloadAndTitle::new(
         initial_app,
         initial_state,
@@ -1378,7 +1379,7 @@ where
             WindowEvent::MouseInput { state: ElementState::Released, button: MouseButton::Left, .. } => {
                 self.mouse_down = false;
 
-                // テキス��入力フィールドのクリック処理
+                // テキスト入力フィールドのクリック処理
                 let mut text_input_clicked = None;
                 for (id, pos, size) in &self.state.all_buttons {
                     let is_text_input = self.current_app.timelines.iter()

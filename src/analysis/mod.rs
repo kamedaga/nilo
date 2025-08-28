@@ -1,9 +1,10 @@
 pub mod lint;
 pub mod error;
 
-use crate::parser::ast::App;
+use crate::parser::ast::{App};
+
 use lint::{run_lints, LintWarning};
-use error::{AnalysisError, Diagnostic};
+use error::Diagnostic;
 
 pub struct AnalysisResult {
     pub diagnostics: Vec<Diagnostic>,
@@ -12,7 +13,7 @@ pub struct AnalysisResult {
 
 pub fn analyze_app(app: &App) -> AnalysisResult {
     let mut diagnostics = Vec::new();
-    let mut warnings = Vec::new();
+    let warnings = Vec::new();
 
     // 1. 必須Lint/診断
     diagnostics.extend(run_lints(app));

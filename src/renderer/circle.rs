@@ -158,13 +158,13 @@ impl CircleRenderer {
         screen_size: PhysicalSize<u32>,
         scroll_offset: [f32; 2],
         scale_factor: f32,
-        depth: f32, // ★ Z値（0.0=最前面、1.0=最背面）
+        _depth: f32, // ★ Z値（0.0=最前面、1.0=最背面）
     ) {
         let mut vertices: Vec<CircleVertex> = Vec::new();
         let w = screen_size.width as f32;
         let h = screen_size.height as f32;
 
-        // Screen uniform を更新
+        // Screen uniform を更���
         let screen_uniform = ScreenUniform {
             screen_size: [w, h],
             _padding: [0.0, 0.0],
@@ -179,7 +179,7 @@ impl CircleRenderer {
         }
 
         for cmd in &draw_list.0 {
-            if let DrawCommand::Circle { center, radius, color, segments, scroll, depth } = cmd {
+            if let DrawCommand::Circle { center, radius, color, segments: _, scroll, depth } = cmd {
                 // DPI対応: 座標とサイズをスケールファクターで調整
                 let scaled_center = [center[0] * scale_factor, center[1] * scale_factor];
                 let scaled_radius = radius * scale_factor;
@@ -227,6 +227,7 @@ impl CircleRenderer {
         screen_size: PhysicalSize<u32>,
         scroll_offset: [f32; 2],
         scale_factor: f32,
+        _depth: f32, // ★ Z値（0.0=最前面、1.0=最背面）
     ) {
         let mut vertices: Vec<CircleVertex> = Vec::new();
         let w = screen_size.width as f32;
@@ -247,7 +248,7 @@ impl CircleRenderer {
         }
 
         for cmd in &draw_list.0 {
-            if let DrawCommand::Circle { center, radius, color, segments, scroll, depth } = cmd {
+            if let DrawCommand::Circle { center, radius, color, segments: _, scroll, depth } = cmd {
                 // DPI対応: 座標とサイズをスケールファクターで調整
                 let scaled_center = [center[0] * scale_factor, center[1] * scale_factor];
                 let scaled_radius = radius * scale_factor;
