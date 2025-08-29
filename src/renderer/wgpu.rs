@@ -127,7 +127,7 @@ impl WgpuRenderer {
     }
 
     pub fn resize(&mut self, new_size: winit::dpi::PhysicalSize<u32>) {
-        // ウィンドウサイズが0の場合は何もしない（��小化時など）
+        // ウィンドウサイズが0の場合は何もしない）
         if new_size.width == 0 || new_size.height == 0 {
             return;
         }

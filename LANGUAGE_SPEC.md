@@ -1,5 +1,4 @@
 # Nilo言語仕様 (Nilo Language Specification)
-(現在動作確認中です)
 
 ## 概要 (Overview)
 
@@ -205,31 +204,6 @@ timeline MainMenu {
 }
 ```
 
-#### 修飾名を持つタイムライン
-```nilo
-timeline GameFlow::Level1 {
-    VStack {
-        Text("レベル1")
-        Text("敵を倒してレベル2に進もう！")
-        Button(id: next_btn, label: "次のレベル")
-    }
-    
-    when user.click(next_btn) {
-        navigate_to(GameFlow::Level2)
-    }
-}
-```
-
-#### タイムライン設定パラメータ
-```nilo
-timeline Settings::Audio (style: { background: "#f8f9fa", padding: 20px }) {
-    VStack {
-        Text("音声設定")
-        // 設定項目...
-    }
-}
-```
-
 #### フォント定義
 ```nilo
 timeline MainScreen {
@@ -270,7 +244,7 @@ VStack {
     Text("下")
 }
 
-VStack(style: { gap: 10px }) {
+VStack(style: { spacing: 10px }) {
     Text("要素1")
     Text("要素2")
 }
@@ -312,7 +286,7 @@ Button(
     style: {
         background: "#007bff",
         color: "white",
-        padding: "10px 20px",
+        padding: 10px,
         rounded: 5px
     }
 )
@@ -322,8 +296,7 @@ Button(
 ```nilo
 TextInput("input_id", style: {
     width: 200px,
-    padding: 8px,
-    border: "1px solid #ccc"
+    padding: 8px
 })
 
 TextInput(state.user_input, style: {
@@ -349,9 +322,60 @@ Spacing(20)      // 20ピクセルの固定スペース
 SpacingAuto      // 自動スペース
 ```
 
-## 5. スタイルシステム (Style System)
+## 5. 制御構造 (Control Structures)
 
-### 5.1 スタイル指定方法 (Style Specification)
+### 5.1 条件分岐 (Conditional)
+
+#### match ブロック
+```nilo
+match state.theme {
+    case "dark" {
+        Text("ダークテーマ", style: { color: "white" })
+    }
+    case "light" {
+        Text("ライトテーマ", style: { color: "black" })
+    }
+    default {
+        Text("デフォルトテーマ")
+    }
+}
+```
+
+#### if ブロック
+```nilo
+if state.is_logged_in {
+    VStack {
+        Text("ようこそ、{}さん", state.user.name)
+        Button(id: logout_btn, label: "ログアウト")
+    }
+}
+
+if state.count > 0 {
+    Text("カウント: {}", state.count)
+} else {
+    Text("カウントがありません")
+}
+```
+
+### 5.2 繰り返し処理 (Iteration)
+
+#### foreach ブロック
+```nilo
+foreach item in state.items {
+    VStack(style: { padding: 10px }) {
+        Text("アイテム: {}", item.name)
+        Text("価格: {}円", item.price)
+    }
+}
+
+foreach player in state.players (style: { spacing: 5px }) {
+    PlayerCard(player.name, player.score)
+}
+```
+
+## 6. スタイルシステム (Style System)
+
+### 6.1 基本スタイル指定
 
 ```nilo
 Text("スタイル付きテキスト", style: {
@@ -364,484 +388,309 @@ Text("スタイル付きテキスト", style: {
 })
 ```
 
-### 5.2 利用可能なスタイルプロパティ (Available Style Properties)
+### 6.2 色指定 (Color System)
 
-#### 色 (Colors)
 ```nilo
-color: "#ff0000"           // 16進数
-color: "red"               // 色名
-background: "#00ff00"      // 背景色
-border_color: "blue"       // ボーダー色
+// 16進数カラーコード
+color: "#ff0000"           // 赤
+color: "#ffffff"           // 白
+color: "#000000"           // 黒
+
+// 名前付きカラー
+color: "red"
+color: "blue"
+color: "green"
+color: "white"
+color: "black"
+color: "transparent"
+
+// RGBA配列形式
+color: [1.0, 0.0, 0.0, 1.0]     // 赤（RGBA）
+color: [0.0, 1.0, 0.0, 0.5]     // 半透明の緑
 ```
 
-#### サイズと間隔 (Size and Spacing)
+### 6.3 サイズと位置
+
+#### 基本サイズ指定
 ```nilo
-width: 100px
+width: 100px               // 固定幅
+height: 200px              // 固定高さ
+size: [200px, 100px]       // 幅と高さを配列で指定
+```
+
+#### 相対単位
+```nilo
 width: 50vw                // ビューポート幅の50%
-height: 200px
 height: 100vh              // ビューポート高の100%
+font_size: 2rem            // ルート要素の2倍
+padding: 1.5em             // 親要素基準
+```
 
-// 絶対値でのサイズ指定
-size: [200px, 100px]
+### 6.4 間隔とパディング
 
-// 相対単位でのサイズ指定
-width: 80vw
-height: 60vh
-
+```nilo
+// パディング
 padding: 10px              // 全方向
-padding: "10px 20px"       // 垂直 水平
+padding: [10px, 15px, 20px, 25px]  // 上右下左
+padding: {
+    top: 10px,
+    right: 15px,
+    bottom: 20px,
+    left: 25px
+}
+
+// マージン
 margin: 5px
-margin: [10px, 15px, 20px, 25px]  // 上 右 下 左
+margin: [10px, 15px, 20px, 25px]
 
-// 相対単位での間隔指定
-padding: 2rem
-margin: 1.5em
-gap: 5vw
+// スペーシング（子要素間の間隔）
+spacing: 10px
+spacing: 2rem
 ```
 
-#### フォント (Fonts)
+### 6.5 装飾
+
+#### 角丸 (Rounded)
 ```nilo
-font_size: 16px
-font_size: 1.2rem          // 相対単位
-font_weight: "bold"        // "normal", "bold"
-font_family: "Arial"
-text_align: "center"       // "left", "center", "right"
+rounded: true              // デフォルト角丸
+rounded: 8px               // 固定値
 ```
 
-#### レイアウト (Layout)
+#### 影 (Shadow)
 ```nilo
-align: "center"            // "start", "center", "end"
-justify_content: "center"  // "flex-start", "center", "flex-end"
-align_items: "center"      // "flex-start", "center", "flex-end"
-gap: 10px                  // 子要素間の間隔
-spacing: 15px              // gap のエイリアス
-```
-
-#### 装飾 (Decoration)
-```nilo
-rounded: 8px               // 角丸
-border: "2px solid #000"   // ボーダー
-shadow: {                  // 影の詳細設定
+shadow: true               // デフォルト影
+shadow: {
     blur: 8px,
-    offset: [2px, 2px],
-    color: "rgba(0,0,0,0.3)"
+    offset: [0px, 2px],
+    color: "#000000"
 }
-shadow: true               // 標準の影
 ```
 
-## 6. 制御構造 (Control Structures)
-
-### 6.1 条件分岐 (Conditional)
-
-#### if文
+#### アライメント
 ```nilo
-if state.is_logged_in {
-    Text("ログイン済み")
-} else {
-    Text("ログインしてください")
-}
-
-// スタイル付きif
-if state.error (style: { background: "#ffcccc", padding: 10px }) {
-    Text("エラーが発生しました")
-}
+align: "left"              // 左揃え
+align: "center"            // 中央揃え
+align: "right"             // 右揃え
+align: "top"               // 上揃え
+align: "bottom"            // 下揃え
 ```
 
-### 6.2 繰り返し (Loops)
-
-#### foreach文
-```nilo
-foreach item in state.items {
-    Text("アイテム: {}", item)
-}
-
-foreach user in state.users {
-    PlayerCard(user.name, user.score)
-}
-
-// スタイル付きforeach
-foreach color in ["red", "green", "blue"] (style: { margin: 5px }) {
-    Text("色: {}", color, style: { color: color })
-}
-```
-
-### 6.3 パターンマッチング (Pattern Matching)
+### 6.6 ホバーエフェクト
 
 ```nilo
-match state.status {
-    case "loading" {
-        Text("読み込み中...")
+Button(id: btn, label: "ホバー", style: {
+    background: "#007bff",
+    hover: {
+        background: "#0056b3"
     }
-    case "success" {
-        Text("完了")
-    }
-    case "error" {
-        Text("エラー")
-    }
-    default {
-        Text("不明な状態")
-    }
-}
-
-// スタイル付きmatch
-match state.theme (style: { padding: 20px }) {
-    case "dark" {
-        VStack(style: { background: "#000" }) {
-            Text("ダークテーマ", style: { color: "white" })
-        }
-    }
-    case "light" {
-        VStack(style: { background: "#fff" }) {
-            Text("ライトテーマ", style: { color: "black" })
-        }
-    }
-}
+})
 ```
 
-## 7. イベント処理 (Event Handling)
+## 7. 状態操作 (State Management)
 
-### 7.1 when文 (When Statements)
+### 7.1 状態設定
+```nilo
+set state.user.name = "田中太郎"
+set state.counter = 42
+set state.is_active = true
+```
+
+### 7.2 状態トグル
+```nilo
+state.is_visible = !state.is_visible
+state.dark_mode = !state.dark_mode
+```
+
+### 7.3 リスト操作
+```nilo
+// リストに要素を追加
+state.items.append("新しいアイテム")
+state.players.append({ name: "プレイヤー", score: 100 })
+
+// リストから要素を削除（インデックス指定）
+state.items.remove(0)    // 最初の要素を削除
+state.players.remove(2)  // 3番目の要素を削除
+```
+
+## 8. イベント処理 (Event Handling)
+
+### 8.1 基本イベント
 
 ```nilo
 when user.click(button_id) {
     navigate_to(NextScreen)
-}
-
-when user.click(increment_btn) {
-    set counter = state.counter + 1
+    set state.clicked = true
 }
 ```
 
-### 7.2 利用可能なイベント (Available Events)
-
-#### ユーザーイベント (User Events)
-```nilo
-user.click(button_id)      // ボタンクリック
-```
-
-## 8. 状態管理 (State Management)
-
-### 8.1 状態の参照 (State Access)
-```nilo
-Text("現在の値: {}", state.counter)
-Text("ユーザー名: {}", state.user.name)
-```
-
-### 8.2 状態の変更 (State Modification)
-
-#### 値の設定 (Set Value)
-```nilo
-set counter = 10
-set user.name = "新しい名前"
-set config.theme = "dark"
-```
-
-#### 真偽値の切り替え (Toggle Boolean)
-```nilo
-is_visible = !is_visible
-settings.dark_mode = !settings.dark_mode
-```
-
-#### リストの操作 (List Operations)
-```nilo
-// リストに要素を追加
-items.append("新しいアイテム")
-users.append({ name: "太郎", score: 100 })
-
-// インデックスで要素を削除
-items.remove(0)          // 最初の要素を削除
-users.remove(2)          // 3番目の要素を削除
-```
-
-## 9. アクション (Actions)
-
-### 9.1 画面遷移 (Navigation)
-```nilo
-navigate_to(GameScreen)
-navigate_to(MainMenu)
-navigate_to(GameFlow::Level2)  // 修飾名での遷移
-```
-
-### 9.2 Rust関数呼び出し (Rust Function Calls)
-```nilo
-// 引数なし
-save_game!()
-
-// 引数あり
-load_user_data!(state.user_id)
-calculate_score!(state.level, state.time)
-
-// ボタンのonclickイベント
-Button(id: save_btn, label: "保存", onclick: save_game!())
-```
-
-### 9.3 コンポーネント呼び出し (Component Calls)
-```nilo
-// パラメータなし
-MyComponent()
-
-// パラメータあり
-PlayerCard("太郎", 1500)
-UserProfile(state.current_user.name, state.current_user.avatar)
-
-// スタイル付きコンポーネント
-MyCard("タイトル", "内容", style: {
-    background: "#f8f9fa",
-    border: "1px solid #dee2e6"
-})
-```
-
-## 10. 動的セクション (Dynamic Sections)
+## 9. 動的セクション (Dynamic Sections)
 
 ```nilo
-dynamic_section content {
-    // 動的に生成される内容
-}
-
-dynamic_section sidebar (style: { width: 200px }) {
-    // サイドバーの内容
+timeline GameScreen {
+    VStack {
+        Text("ゲーム画面")
+        dynamic_section game_area {
+            // この部分は実行時に動的に変更される
+            Text("ゲームコンテンツ")
+        }
+    }
 }
 ```
 
-## 11. Stencil低レベルグラフィック (Stencil Low-level Graphics)
+## 10. ステンシル（低レベルグラフィック）
 
-Niloでは低レベルのグラフィック描画にStencilシステムを使用できます。
+Niloではrect、circle、triangleなどの基本図形を直接描画できます。
 
 ```nilo
-// 基本図形
-circle(x: 100, y: 100, radius: 50, r: 1.0, g: 0.0, b: 0.0, a: 1.0)
-rect(x: 0, y: 0, width: 200, height: 100, r: 0.5, g: 0.5, b: 0.5, a: 1.0)
-triangle(x1: 0, y1: 0, x2: 100, y2: 0, x3: 50, y3: 100, r: 0.0, g: 1.0, b: 0.0, a: 1.0)
-rounded_rect(x: 10, y: 10, width: 180, height: 80, radius: 10, r: 0.8, g: 0.8, b: 0.8, a: 1.0)
-
-// 画像とテキスト
-image(path: "texture.png", x: 0, y: 0, width: 100, height: 100)
-text(content: "Hello", x: 50, y: 50, size: 16, r: 0.0, g: 0.0, b: 0.0, a: 1.0)
+rect(x: 10, y: 10, width: 100, height: 50, r: 1.0, g: 0.0, b: 0.0, a: 1.0)
+circle(x: 50, y: 50, radius: 25, r: 0.0, g: 1.0, b: 0.0, a: 1.0)
+triangle(x1: 0, y1: 0, x2: 50, y2: 0, x3: 25, y3: 50, r: 0.0, g: 0.0, b: 1.0, a: 1.0)
+rounded_rect(x: 10, y: 10, width: 100, height: 50, radius: 8, r: 1.0, g: 1.0, b: 1.0, a: 1.0)
 ```
 
+## 11. Rust関数呼び出し
 
-## 13. 文法リファレンス (Grammar Reference)
+```nilo
+// Rust側で定義された関数を呼び出し
+my_function!()
+calculate!(state.value1, state.value2)
+api_call!("https://api.example.com", { method: "GET" })
+```
 
-### 13.1 完全なPEST文法
+## 12. ナビゲーション
+
+```nilo
+navigate_to(TargetScreen)
+navigate_to(GameFlow::Level1)
+```
+
+## 13. 完全な例
+
+```nilo
+flow GameFlow {
+    start: MainMenu
+    MainMenu -> [Game, Settings]
+    Game -> [MainMenu, GameOver]
+    GameOver -> [MainMenu, Game]
+}
+
+component PlayerCard(name, score) {
+    VStack(style: {
+        padding: 10px,
+        background: "#f0f0f0",
+        rounded: 8px,
+        margin: 5px
+    }) {
+        Text("プレイヤー: {}", name, style: { font_size: 16px })
+        Text("スコア: {}", score, style: { color: "#007bff" })
+    }
+}
+
+timeline GameFlow::MainMenu {
+    VStack(style: { 
+        width: 90vw, 
+        max_width: 600px,
+        spacing: 20px,
+        align: "center"
+    }) {
+        Text("ゲームタイトル", style: {
+            font_size: 32px,
+            color: "#333"
+        })
+        
+        VStack(style: { spacing: 10px }) {
+            Button(id: start_btn, label: "ゲーム開始", style: {
+                background: "#007bff",
+                color: "white",
+                padding: 15px,
+                rounded: 8px
+            })
+            
+            Button(id: settings_btn, label: "設定", style: {
+                background: "#6c757d",
+                color: "white",
+                padding: 15px,
+                rounded: 8px
+            })
+        }
+        
+        if state.players {
+            VStack(style: { spacing: 5px }) {
+                Text("プレイヤー一覧")
+                foreach player in state.players {
+                    PlayerCard(player.name, player.score)
+                }
+            }
+        }
+    }
+    
+    when user.click(start_btn) {
+        navigate_to(GameFlow::Game)
+    }
+    
+    when user.click(settings_btn) {
+        navigate_to(GameFlow::Settings)
+    }
+}
+
+timeline GameFlow::Game {
+    VStack {
+        Text("ゲーム中...")
+        Button(id: back_btn, label: "メニューに戻る")
+    }
+    
+    when user.click(back_btn) {
+        navigate_to(GameFlow::MainMenu)
+    }
+}
+```
+
+## 14. 文法リファレンス (Grammar Reference)
+
+### 14.1 PEST文法（抜粋）
 
 ```pest
-WHITESPACE = _{ " " | "\t" | NEWLINE | COMMENT }
-NEWLINE    = _{ "\r\n" | "\n" }
-COMMENT    = _{ "//" ~ (!NEWLINE ~ ANY)* ~ NEWLINE? }
-
+// 基本要素
 ident = @{ (ASCII_ALPHANUMERIC | "_" | "-")+ }
-
-// 階層的フロー糖衣構文用の修飾された識別子
 qualified_ident = @{ ident ~ ("::" ~ ident)* }
+string = @{ dq_string | fancy_dq_string }
+number = @{ "-"? ~ ASCII_DIGIT+ ~ ("." ~ ASCII_DIGIT+)? }
+bool = { "true" | "false" }
 
-// 拡張文字列リテラル（通常の引用符と三重引用符）
-string           = @{ dq_string | fancy_dq_string }
-dq_string        = @{ "\"" ~ ( "\\\"" | "\\\\" | (!"\""  ~ ANY) )* ~ "\"" }
-fancy_dq_string  = @{ "\"\"\"" ~ ( "\\\"" | "\\\\" | (!"\"\"\"" ~ ANY) )* ~ "\"\"\"" }
-
-number  = @{ "-"? ~ ASCII_DIGIT+ ~ ("." ~ ASCII_DIGIT+)? }
-bool    = { "true" | "false" }
-
-// 相対単位対応の寸法値
+// 寸法値（単位付き数値）
 dimension_value = { number ~ unit_suffix? }
 unit_suffix = { "px" | "vw" | "vh" | "%" | "rem" | "em" }
 
-array   = { "[" ~ (expr ~ ("," ~ expr)*)? ~ "]" }
-object  = { "{" ~ (object_entry ~ ("," ~ object_entry)*)? ~ "}" }
+// データ構造
+array = { "[" ~ (expr ~ ("," ~ expr)*)? ~ "]" }
+object = { "{" ~ (object_entry ~ ("," ~ object_entry)*)? ~ "}" }
 object_entry = { ident ~ ":" ~ expr }
 
-expr    = { match_expr | string | dimension_value | number | bool | path | ident | array | object }
+// 式
+expr = { match_expr | string | dimension_value | number | bool | path | ident | array | object }
 
-style_arg = { "style" ~ ":" ~ expr }
-
-file       = { SOI ~ (flow_def | namespaced_flow_def | timeline_def | component_def)* ~ EOI }
-
-// 基本フロー定義
-flow_def   = { "flow" ~ "{" ~ start_def ~ transition_def+ ~ "}" }
-// 階層的フロー定義（糖衣構文)
+// フロー定義
+flow_def = { "flow" ~ "{" ~ start_def ~ transition_def+ ~ "}" }
 namespaced_flow_def = { "flow" ~ ident ~ "{" ~ namespaced_start_def ~ namespaced_transition_def+ ~ "}" }
 
-start_def  = { "start" ~ ":" ~ qualified_ident }
-namespaced_start_def = { "start" ~ ":" ~ ident }
-
-// 複数ソース・複数ターゲット対応遷移定義
-transition_def = { transition_source ~ "->" ~ (qualified_ident | ("[" ~ (qualified_ident ~ ("," ~ qualified_ident)*)? ~ "]")) }
-namespaced_transition_def = { namespaced_transition_source ~ "->" ~ (transition_target | ("[" ~ (transition_target ~ ("," ~ transition_target)*)? ~ "]")) }
-
-transition_source = { qualified_ident | ("[" ~ qualified_ident ~ ("," ~ qualified_ident)* ~ "]") }
-namespaced_transition_source = { ident | ("[" ~ ident ~ ("," ~ ident)* ~ "]") }
-transition_target = { qualified_ident | ident }
-
-// タイムライン・コンポーネント定義
-timeline_def = { "timeline" ~ qualified_ident ~ timeline_config? ~ "{" ~ font_def? ~ view_nodes? ~ "}" }
-timeline_config = { "(" ~ timeline_param ~ ("," ~ timeline_param)* ~ ")" }
-timeline_param = { "style" ~ ":" ~ expr }
-
-font_def = { "font" ~ ":" ~ string }
-
-component_def = { "component" ~ ident ~ param_list? ~ "{" ~ font_def? ~ view_nodes? ~ "}" }
-param_list = { "(" ~ (ident ~ ("," ~ ident)*)? ~ ")" }
-
-view_nodes = { view_node* }
-
-view_node = _{
-      vstack_node
-    | hstack_node
-    | text
-    | button
-    | text_input
-    | image
-    | dynamic_section
-    | match_block
-    | foreach_node
-    | if_node
-    | navigate_action
-    | spacing_node
-    | state_set
-    | state_toggle
-    | list_append
-    | list_remove
-    | when_block
-    | rust_call
-    | component_call
-    | stencil_call
-}
-
+// UI要素
+text = { "Text" ~ "(" ~ expr ~ ("," ~ arg_item)* ~ ")" }
+button = { "Button" ~ "(" ~ "id" ~ ":" ~ (ident | string) ~ "," ~ "label" ~ ":" ~ string ~ ("," ~ "onclick" ~ ":" ~ rust_call)? ~ ("," ~ style_arg)? ~ ")" }
 vstack_node = { "VStack" ~ "(" ~ style_arg? ~ ")" ~ "{" ~ view_nodes? ~ "}" }
 hstack_node = { "HStack" ~ "(" ~ style_arg? ~ ")" ~ "{" ~ view_nodes? ~ "}" }
 
-arg_item = { style_arg | expr }
+// 制御構造
+foreach_node = { "foreach" ~ ident ~ "in" ~ expr ~ ("(" ~ style_arg? ~ ")")? ~ "{" ~ view_nodes? ~ "}" }
+if_node = { "if" ~ expr ~ ("(" ~ style_arg? ~ ")")? ~ "{" ~ view_nodes? ~ "}" ~ ("else" ~ "{" ~ view_nodes? ~ "}")? }
+match_block = { "match" ~ expr ~ ("(" ~ style_arg? ~ ")")? ~ "{" ~ match_arm* ~ default_arm? ~ "}" }
 
-text = { "Text" ~ "(" ~ expr ~ ("," ~ arg_item)* ~ ")" }
-
-button = { "Button" ~ "("
-    ~ "id" ~ ":" ~ WHITESPACE* ~ (ident | string)
-    ~ "," ~ WHITESPACE* ~ "label" ~ ":" ~ WHITESPACE* ~ string
-    ~ ("," ~ WHITESPACE* ~ "onclick" ~ ":" ~ WHITESPACE* ~ rust_call)?
-    ~ ("," ~ WHITESPACE* ~ style_arg)?
-    ~ ")"
-}
-
-image = { "Image" ~ "(" ~ string ~ ("," ~ arg_item)* ~ ")" }
-
-text_input = { "TextInput" ~ "(" ~ expr ~ ("," ~ arg_item)* ~ ")" }
-
-dynamic_section = { "dynamic_section" ~ ident ~ "(" ~ style_arg? ~ ")" ~ "{" ~ view_nodes? ~ "}" }
-
-match_expr = {
-    "match" ~ expr ~ "{"
-    ~ expr_match_arm* ~ expr_default_arm? ~ "}"
-}
-
-match_block = {
-    "match" ~ expr ~ ("(" ~ style_arg? ~ ")")? ~ "{"
-    ~ match_arm* ~ default_arm? ~ "}"
-}
-match_arm = { "case" ~ expr ~ "{" ~ view_nodes? ~ "}" }
-default_arm = { "default" ~ "{" ~ view_nodes? ~ "}" }
-
-expr_match_arm = { "case" ~ expr ~ "{" ~ expr ~ "}" }
-expr_default_arm = { "default" ~ "{" ~ expr ~ "}" }
-
-navigate_action = { "navigate_to" ~ "(" ~ ident ~ ")" }
-
-spacing_node = { "Spacing" ~ "(" ~ number? ~ ")" | "SpacingAuto" }
-
-rust_call = { ident ~ "!" ~ "(" ~ (arg_item ~ ("," ~ arg_item)*)? ~ ")" }
-
-component_call = { ident ~ "(" ~ (arg_item ~ ("," ~ arg_item)*)? ~ ")" }
-
-state_set    = { "set" ~ ident ~ "=" ~ expr }
-state_toggle = { ident ~ "=" ~ "!" ~ ident }
-list_append  = { ident ~ ".append" ~ "(" ~ expr ~ ")" }
-list_remove  = { ident ~ ".remove" ~ "(" ~ number ~ ")" }
-
-// Stencil低レベルグラフィック
-stencil_call = { stencil_name ~ "(" ~ stencil_args? ~ ")" }
-stencil_name = { "rect" | "circle" | "triangle" | "text" | "image" | "rounded_rect" }
-stencil_args = { (stencil_arg ~ ("," ~ stencil_arg)*)? }
-stencil_arg  = { ident ~ ":" ~ stencil_value }
-stencil_value = { number | string | bool }
-
+// イベント
 when_block = { "when" ~ event_expr ~ "{" ~ view_nodes? ~ "}" }
 event_expr = { user_event }
 user_event = { "user" ~ "." ~ event_kind ~ "(" ~ ident ~ ")" }
 event_kind = { "click" }
-
-foreach_node = { "foreach" ~ ident ~ "in" ~ expr ~ ("(" ~ style_arg? ~ ")")? ~ "{" ~ view_nodes? ~ "}" }
-if_node = { "if" ~ expr ~ ("(" ~ style_arg? ~ ")")? ~ "{" ~ view_nodes? ~ "}" ~ ("else" ~ "{" ~ view_nodes? ~ "}")? }
-
-path = @{ ident ~ ("." ~ ident)* }
 ```
-
-## 14. ベストプラクティス (Best Practices)
-
-### 14.1 階層的フロー設計
-- 関連する画面を同じ名前空間にグループ化する
-- 深い階層よりも平坦な構造を優先する
-- 修飾名を使って画面間の関係を明確にする
-
-```nilo
-// 良い例：機能ごとのグループ化
-flow GameFlow {
-    start: MainMenu
-    MainMenu -> [Level1, Settings]
-    Level1 -> Level2
-    Level2 -> Boss
-}
-
-flow SettingsFlow {
-    start: Main
-    Main -> [Audio, Video, Controls]
-}
-```
-
-### 14.2 レスポンシブデザイン
-- ビューポート単位（vw, vh）を活用する
-- 固定値とRelative値を適切に使い分ける
-- 様々な画面サイズでのテストを行う
-
-```nilo
-// 良い例：レスポンシブレイアウト
-VStack(style: {
-    width: 90vw,        // ビューポート幅の90%
-    max_width: 800px,   // 最大幅制限
-    padding: 5vw,       // レスポンシブな余白
-    gap: 2vh            // ビューポート高に応じた間隔
-}) {
-    // コンテンツ
-}
-```
-
-### 14.3 スタイリング
-- 一貫したデザインシステムを使用する
-- 色や寸法は変数的に管理する（将来的な機能）
-- 階層化されたスタイルを活用する
-
-```nilo
-// 良い例：一貫したスタイル
-Button(id: primary_btn, label: "主要アクション", style: {
-    background: "#007bff",
-    color: "white",
-    padding: "12px 24px",
-    rounded: 8px,
-    font_weight: "bold"
-})
-
-Button(id: secondary_btn, label: "副次アクション", style: {
-    background: "transparent",
-    color: "#007bff",
-    padding: "12px 24px",
-    rounded: 8px,
-    border: "1px solid #007bff"
-})
-```
-
-### 14.4 パフォーマンス
-- 大きなリストには注意深く対処する
-- 不要な再描画を避ける設計を心がける
-- 適切なコンポーネント分割を行う
 
 ---
 
-この仕様書は、Nilo言語の最新の機能を含む完全な文法と機能を説明するリファレンスドキュメントです。階層的フロー糖衣構文、修飾識別子、相対単位システム、TextInput要素などの新機能により、より柔軟で表現力豊かなUIアプリケーションの開発が可能になりました。
+この仕様書は、実際のNiloパーサーとAST実装に基づいて作成されており、現在サポートされている機能のみを含んでいます。

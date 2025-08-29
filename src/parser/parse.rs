@@ -16,7 +16,6 @@ use crate::stencil::stencil::Stencil;
 // ユーティリティ関数
 // ========================================
 
-/// �����字列から引用符を除去する関数
 fn unquote(s: &str) -> String {
     let trimmed = s.trim();
     if (trimmed.starts_with('"') && trimmed.ends_with('"')) ||
@@ -137,7 +136,6 @@ pub struct NiloParser;
 
 /// Niloソースコードを解析してAppASTを生成する
 ///
-/// # ���数
 /// * `source` - 解析対象のソースコード文字列
 ///
 /// # 戻り値
@@ -145,7 +143,6 @@ pub struct NiloParser;
 /// * `Err(String)` - 解析エラー時のエラーメッセージ
 pub fn parse_nilo(source: &str) -> Result<App, String> {
     println!("🔍 PARSE DEBUG: Starting to parse nilo file, length: {} chars", source.len());
-    println!("🔍 PARSE DEBUG: First 200 chars: {}", &source[..source.len().min(200)]);
 
     // Pestパーサーでファイル全体を解析
     let mut pairs = NiloParser::parse(Rule::file, source)
@@ -190,7 +187,6 @@ pub fn parse_nilo(source: &str) -> Result<App, String> {
         }
     }
 
-    // 階��的フロー糖衣構文を平坦なフローに変換
     // TODO: 階層的フロー糖衣構文は後で実装
     // if !namespaced_flows.is_empty() {
     //     let (expanded_flow, expanded_timelines) = expand_namespaced_flows(namespaced_flows, timelines)?;
@@ -203,13 +199,7 @@ pub fn parse_nilo(source: &str) -> Result<App, String> {
     Ok(App { flow, timelines, components })
 }
 
-// ========================================
-// フロー/タイムライ��/コンポーネン���解���
-// ========================================
-
 /// フロー定義を解析してFlowASTを生成
-///
-/// フ��ーは開始点と状態遷移を定義します
 pub fn parse_flow_def(pair: Pair<Rule>) -> Result<Flow, String> {
     assert_eq!(pair.as_rule(), Rule::flow_def);
 
@@ -259,7 +249,6 @@ fn parse_transition_def(pair: Pair<Rule>) -> Result<(String, Vec<String>), Strin
     if source.len() == 1 {
         Ok((source[0].clone(), targets))
     } else {
-        // 複数遷移元の場合は最初のもので代表（後で改善予定��
         Ok((source[0].clone(), targets))
     }
 }
@@ -308,15 +297,12 @@ fn parse_transition_targets(pair: Pair<Rule>) -> Result<Vec<String>, String> {
     }
 }
 
-/// タイムライン��義を解析してTimelineASTを生成
-///
-/// タイムラインは名前付きのビューノ����ド集合���������イベントハンドラーを���義します
 pub fn parse_timeline_def(pair: Pair<Rule>) -> Timeline {
     let mut inner = pair.into_inner();
     let name = inner.next().unwrap().as_str().to_string();
     let font: Option<String> = None;
     let mut body: Vec<WithSpan<ViewNode>> = Vec::new();
-    let whens = Vec::new(); // 空のまま保持（when_blockは通常のview_nodeとして処理）
+    let mut whens = Vec::new(); // whenイベントを正しく解析するように修正
 
     for node_pair in inner {
         match node_pair.as_rule() {
@@ -328,8 +314,20 @@ pub fn parse_timeline_def(pair: Pair<Rule>) -> Timeline {
             Rule::view_nodes => {
                 // view_nodesラッパーを剥がして個別のノードを処理
                 for p in node_pair.into_inner() {
-                    body.push(parse_view_node(p));
+                    match p.as_rule() {
+                        Rule::when_block => {
+                            // whenイベントを解析
+                            whens.push(parse_when_block(p));
+                        }
+                        _ => {
+                            body.push(parse_view_node(p));
+                        }
+                    }
                 }
+            }
+            Rule::when_block => {
+                // 直接のwhenブロックを解析
+                whens.push(parse_when_block(node_pair));
             }
             _ => body.push(parse_view_node(node_pair)),
         }
@@ -337,22 +335,18 @@ pub fn parse_timeline_def(pair: Pair<Rule>) -> Timeline {
     Timeline { name, font, body, whens }
 }
 
-/// コンポーネント定義を解析してComponentAST������
-///
-/// コンポーネ��トは再利用可能なビュー���素を定義します
 pub fn parse_component_def(pair: Pair<Rule>) -> Component {
     let mut inner = pair.into_inner();
     let name = inner.next().unwrap().as_str().to_string();
 
-    // ���ラメータリストの解析（オプション）
     let params = match inner.peek().map(|p| p.as_rule()) {
         Some(Rule::param_list) => inner.next().unwrap().into_inner().map(|p| p.as_str().to_string()).collect(),
         _ => vec![],
     };
 
-    let mut font: Option<String> = None;
+    let font: Option<String> = None;
     let mut body: Vec<WithSpan<ViewNode>> = Vec::new();
-    let whens = Vec::new(); // 空の��ま保持（when_blockは通常のview_nodeとして処理）
+    let whens = Vec::new();
 
     for node_pair in inner {
         match node_pair.as_rule() {
@@ -362,7 +356,6 @@ pub fn parse_component_def(pair: Pair<Rule>) -> Component {
             //     font = Some(unquote(font_str));
             // }
             Rule::view_nodes => {
-                // view_nodesラッパーを剥がして個別�����ードを処理
                 for p in node_pair.into_inner() {
                     body.push(parse_view_node(p));
                 }
@@ -373,13 +366,7 @@ pub fn parse_component_def(pair: Pair<Rule>) -> Component {
     Component { name, params, font, body, whens }
 }
 
-// ========================================
-// ビューノード解析（WithSpan + style ������ー���）
-// ========================================
 
-/// ビューノードを解析してWithSpan<ViewNode>を���成
-///
-/// 各ノードには位置情報（行・列）とオプションの���タイル情報が付与されます
 fn parse_view_node(pair: Pair<Rule>) -> WithSpan<ViewNode> {
     let span = pair.as_span();
     let (line, col) = span.start_pos().line_col();
@@ -390,7 +377,7 @@ fn parse_view_node(pair: Pair<Rule>) -> WithSpan<ViewNode> {
         }
         Rule::text => parse_text(pair),
         Rule::button => parse_button(pair),
-        // Rule::text_input => parse_text_input(pair), // 一時的にコメントアウト
+        Rule::text_input => parse_text_input(pair), // コメントアウトを解除
         Rule::image => parse_image(pair),
         Rule::vstack_node => parse_vstack_node(pair),
         Rule::hstack_node => parse_hstack_node(pair),
@@ -399,12 +386,11 @@ fn parse_view_node(pair: Pair<Rule>) -> WithSpan<ViewNode> {
         Rule::dynamic_section => parse_dynamic_section(pair),
         Rule::match_block => parse_match_block(pair),
         Rule::navigate_action => parse_navigate_action(pair),
-        Rule::when_block => parse_when_block(pair),
+        // when_blockは削除：タイムライン解析で直接処理
         Rule::spacing_node => {
             let span = pair.as_span();
             let (line, col) = span.start_pos().line_col();
 
-            // ス�����シングの種類を判別（固定値 or 自動）
             let text = pair.as_str();
             let node = if text == "SpacingAuto" {
                 ViewNode::SpacingAuto
@@ -427,6 +413,16 @@ fn parse_view_node(pair: Pair<Rule>) -> WithSpan<ViewNode> {
         Rule::state_toggle => parse_state_toggle(pair),
         Rule::foreach_node => parse_foreach_node(pair),
         Rule::if_node => parse_if_node(pair),
+        Rule::font_def => {
+            // font定義は表示ノードではないため、ダミーのテキストノードとして処理
+            // タイムライン解析で直接処理されるべきなので、ここでは無視
+            WithSpan {
+                node: ViewNode::Text { format: "".to_string(), args: vec![] },
+                line,
+                column: col,
+                style: None
+            }
+        }
         _ => unreachable!("不明なview_node: {:?}", pair),
     }
 }
@@ -438,17 +434,14 @@ fn parse_view_node(pair: Pair<Rule>) -> WithSpan<ViewNode> {
 /// テキストノードの解析
 ///
 /// 形式: Text("format_string", arg1, arg2, ..., [style: {...}])
-/// フォーマット文字列と引数リスト、オプションのスタ���ルを解析
 fn parse_text(pair: Pair<Rule>) -> WithSpan<ViewNode> {
     let span = pair.as_span();
     let (line, col) = span.start_pos().line_col();
 
     let mut it = pair.into_inner();
 
-    // 最初の引数は必ずフォーマッ�����字列
     let format = unquote(it.next().unwrap().as_str());
 
-    // 残りの引数を位置引数と���タイル引数��振り分け
     let mut args: Vec<Expr> = Vec::new();
     let mut style: Option<Style> = None;
 
@@ -481,10 +474,7 @@ fn parse_text(pair: Pair<Rule>) -> WithSpan<ViewNode> {
     }
 }
 
-/// ボタンノ��ドの解析
-///
 /// 形式: Button(id: "button_id", label: "Button Label", [onclick: function!()], [style: {...}])
-/// ID、ラベ���、オプションのonclick、オプションのスタイルを解析
 fn parse_button(pair: Pair<Rule>) -> WithSpan<ViewNode> {
     let span = pair.as_span();
     let (line, col) = span.start_pos().line_col();
@@ -550,7 +540,6 @@ fn parse_button(pair: Pair<Rule>) -> WithSpan<ViewNode> {
                         }
                         Rule::expr => {
                             let expr = parse_expr(inner);
-                            // 式がStringの場合、idまた��labelとして使用
                             match expr {
                                 Expr::String(s) => {
                                     if id.is_none() {
@@ -570,9 +559,8 @@ fn parse_button(pair: Pair<Rule>) -> WithSpan<ViewNode> {
         }
     }
 
-    // 必須フィールド���検証
     let id = id.expect("ボタンにはid:が必要です");
-    let label = label.expect("ボタンにはlabel:が必要���す");
+    let label = label.expect("ボタンにはlabel:が必要です");
     WithSpan { node: ViewNode::Button { id, label, onclick }, line, column: col, style }
 }
 
@@ -601,7 +589,6 @@ fn parse_image(pair: Pair<Rule>) -> WithSpan<ViewNode> {
                     if inner.as_rule() == Rule::style_arg {
                         style = Some(style_from_expr(parse_expr(inner.into_inner().next().unwrap())));
                     } else if inner.as_rule() == Rule::expr {
-                        // ��来の互換性のため（現在��未使用）
                         let _ = parse_expr(inner);
                     }
                 }
@@ -618,10 +605,8 @@ fn parse_image(pair: Pair<Rule>) -> WithSpan<ViewNode> {
     WithSpan { node: ViewNode::Image { path }, line, column: col, style }
 }
 
-/// 垂直スタックノードの解��
 ///
 /// 形式: VStack([style: {...}]) { ... }
-/// 子要素を垂直方���に配置するコンテナ
 fn parse_vstack_node(pair: Pair<Rule>) -> WithSpan<ViewNode> {
     let span = pair.as_span();
     let (line, col) = span.start_pos().line_col();
@@ -644,10 +629,6 @@ fn parse_vstack_node(pair: Pair<Rule>) -> WithSpan<ViewNode> {
     WithSpan { node: ViewNode::VStack(children), line, column: col, style }
 }
 
-/// 水���スタック��ードの解��
-///
-/// ��式: HStack([style: {...}]) { ... }
-/// 子要素を水平���向に配置するコンテナ
 fn parse_hstack_node(pair: Pair<Rule>) -> WithSpan<ViewNode> {
     let span = pair.as_span();
     let (line, col) = span.start_pos().line_col();
@@ -673,7 +654,6 @@ fn parse_hstack_node(pair: Pair<Rule>) -> WithSpan<ViewNode> {
 /// コンポーネント呼び出しの解析
 ///
 /// 形式: ComponentName(arg1, ..., [style: {...}])
-/// 定義済みコ���ポーネントの呼び出し
 fn parse_component_call(pair: Pair<Rule>) -> WithSpan<ViewNode> {
     let span = pair.as_span();
     let (line, col) = span.start_pos().line_col();
@@ -684,7 +664,6 @@ fn parse_component_call(pair: Pair<Rule>) -> WithSpan<ViewNode> {
     let mut args: Vec<Expr> = Vec::new();
     let mut style: Option<Style> = None;
 
-    // component_callはarg_item��列を返す
     for p in inner {
         match p.as_rule() {
             Rule::arg_item => {
@@ -712,7 +691,6 @@ fn parse_component_call(pair: Pair<Rule>) -> WithSpan<ViewNode> {
     WithSpan { node: ViewNode::ComponentCall { name, args }, line, column: col, style }
 }
 
-/// ��的セクションの解析
 ///
 /// 形式: dynamic_section section_name ([style: {...}]) { ... }
 /// 動的に内容が変更される領域
@@ -736,10 +714,7 @@ fn parse_dynamic_section(pair: Pair<Rule>) -> WithSpan<ViewNode> {
     WithSpan { node: ViewNode::DynamicSection { name: name.unwrap(), body }, line, column: col, style }
 }
 
-/// マッチブロ���クの解析
-///
 /// 形式: match <expr> ([style: {...}]) { case value1 { ... } case value2 { ... } default { ... } }
-/// 条件分岐による表示制��
 fn parse_match_block(pair: Pair<Rule>) -> WithSpan<ViewNode> {
     let span = pair.as_span();
     let (line, col) = span.start_pos().line_col();
@@ -791,7 +766,6 @@ fn parse_match_block(pair: Pair<Rule>) -> WithSpan<ViewNode> {
     WithSpan { node: ViewNode::Match { expr: expr.unwrap(), arms, default }, line, column: col, style }
 }
 
-/// ナビゲーションアクショ��の解析
 ///
 /// 形式: navigate_to(TargetState)
 /// 指定された状態への遷移アクション
@@ -799,15 +773,12 @@ fn parse_navigate_action(pair: Pair<Rule>) -> WithSpan<ViewNode> {
     let span = pair.as_span();
     let (line, col) = span.start_pos().line_col();
     let mut inner = pair.into_inner();
-    let target = inner.next().unwrap().as_str().to_string();
+    let target = inner.next().unwrap().as_str().to_string(); // qualified_identに対応
     WithSpan { node: ViewNode::NavigateTo { target }, line, column: col, style: None }
 }
 
 /// Whenブロック（イベントハンドラー）の解析
-fn parse_when_block(pair: Pair<Rule>) -> WithSpan<ViewNode> {
-    let span = pair.as_span();
-    let (line, col) = span.start_pos().line_col();
-    
+fn parse_when_block(pair: Pair<Rule>) -> When {
     let mut inner = pair.into_inner();
     let event = parse_event_expr(inner.next().unwrap());
     
@@ -823,38 +794,36 @@ fn parse_when_block(pair: Pair<Rule>) -> WithSpan<ViewNode> {
         }
     }
     
-    WithSpan { 
-        node: ViewNode::When { event, actions }, 
-        line, 
-        column: col, 
-        style: None 
-    }
+    When { event, actions }
 }
 
 // ========================================
 // イベント/式の解析
 // ========================================
 
-/// イベント式の解��
 fn parse_event_expr(pair: Pair<Rule>) -> EventExpr {
     let mut inner = pair.into_inner();
     let user_event = inner.next().expect("event_exprにuser_eventがありません");
     let mut ev_inner = user_event.into_inner();
     let kind = ev_inner.next().expect("user_eventにevent_kindがありません").as_str();
-    let target = ev_inner.next().expect("user_eventにidentが��りません").as_str().to_string();
+    let target = ev_inner.next().expect("user_eventにidentがありません").as_str().to_string();
     match kind {
         "click" => EventExpr::ButtonPressed(target),
         _ => panic!("不明なevent_kind: {:?}", kind),
     }
 }
 
-/// 式���解析（リテ��ル、識別子、配列、オブジェクトなど）
+
 fn parse_expr(pair: Pair<Rule>) -> Expr {
     match pair.as_rule() {
-        // arg_itemは中���1要素（style_arg or expr）にフォールスルー
         Rule::arg_item => {
-            let inner = pair.into_inner().next().expect("��のarg_item");
+            let inner = pair.into_inner().next().expect("arg_item");
             return parse_expr(inner);
+        }
+        Rule::expr => {
+            // exprの中身を直接処理
+            let inner = pair.into_inner().next().unwrap();
+            parse_expr(inner)
         }
 
         Rule::string => Expr::String(unquote(pair.as_str())),
@@ -890,8 +859,8 @@ fn parse_expr(pair: Pair<Rule>) -> Expr {
                 println!("🔍 PARSER DEBUG: Created DimensionValue: {:?}", result);
                 result
             } else {
-                // 単位��し���場���はpxとし��扱う
-                Expr::Dimension(DimensionValue::px(value))
+                // ★ 修正: 単位がない場合は純粋な数値として扱う（pxに変換しない）
+                Expr::Number(value)
             }
         }
         Rule::bool => Expr::Bool(pair.as_str() == "true"),
@@ -937,8 +906,153 @@ fn parse_expr(pair: Pair<Rule>) -> Expr {
 
             Expr::Match { expr, arms, default }
         }
-        Rule::expr => parse_expr(pair.into_inner().next().unwrap()),
-        _ => panic!("不明なexpr rule: {:?}", pair.as_rule()),
+        _ => {
+            // 算術式として解析を試行
+            parse_arithmetic_expr(pair)
+        }
+    }
+}
+
+fn parse_arithmetic_expr(pair: Pair<Rule>) -> Expr {
+    let mut inner = pair.into_inner();
+    let mut left = parse_term(inner.next().unwrap());
+
+    while let Some(op_pair) = inner.next() {
+        let op = op_pair.as_str();
+        let right = parse_term(inner.next().unwrap());
+
+        left = match op {
+            "+" => Expr::BinaryOp {
+                left: Box::new(left),
+                op: BinaryOperator::Add,
+                right: Box::new(right),
+            },
+            "-" => Expr::BinaryOp {
+                left: Box::new(left),
+                op: BinaryOperator::Sub,
+                right: Box::new(right),
+            },
+            _ => panic!("不明な算術演算: {}", op),
+        };
+    }
+
+    left
+}
+
+fn parse_term(pair: Pair<Rule>) -> Expr {
+    let mut inner = pair.into_inner();
+    let mut left = parse_factor(inner.next().unwrap());
+
+    while let Some(op_pair) = inner.next() {
+        let op = op_pair.as_str();
+        let right = parse_factor(inner.next().unwrap());
+
+        left = match op {
+            "*" => Expr::BinaryOp {
+                left: Box::new(left),
+                op: BinaryOperator::Mul,
+                right: Box::new(right),
+            },
+            "/" => Expr::BinaryOp {
+                left: Box::new(left),
+                op: BinaryOperator::Div,
+                right: Box::new(right),
+            },
+            _ => panic!("不明な乗除演算子: {}", op),
+        };
+    }
+
+    left
+}
+
+fn parse_factor(pair: Pair<Rule>) -> Expr {
+    parse_primary(pair.into_inner().next().unwrap())
+}
+
+fn parse_primary(pair: Pair<Rule>) -> Expr {
+    match pair.as_rule() {
+        Rule::match_expr => {
+            let mut inner = pair.into_inner();
+            let expr = Box::new(parse_expr(inner.next().unwrap()));
+
+            let mut arms = Vec::new();
+            let mut default = None;
+
+            for arm_pair in inner {
+                match arm_pair.as_rule() {
+                    Rule::expr_match_arm => {
+                        let mut arm_inner = arm_pair.into_inner();
+                        let pattern = parse_expr(arm_inner.next().unwrap());
+                        let value = parse_expr(arm_inner.next().unwrap());
+                        arms.push(MatchArm { pattern, value });
+                    }
+                    Rule::expr_default_arm => {
+                        let mut default_inner = arm_pair.into_inner();
+                        let default_value = parse_expr(default_inner.next().unwrap());
+                        default = Some(Box::new(default_value));
+                    }
+                    _ => {}
+                }
+            }
+
+            Expr::Match { expr, arms, default }
+        }
+        Rule::string => Expr::String(unquote(pair.as_str())),
+        Rule::dimension_value => {
+            let mut inner = pair.into_inner();
+            let number_str = inner.next().unwrap().as_str();
+            let value: f32 = number_str.parse().unwrap();
+
+            if let Some(unit_pair) = inner.next() {
+                let unit_str = unit_pair.as_str();
+                let unit = match unit_str {
+                    "px" => Unit::Px,
+                    "vw" => Unit::Vw,
+                    "vh" => Unit::Vh,
+                    "%" => Unit::Percent,
+                    "rem" => Unit::Rem,
+                    "em" => Unit::Em,
+                    _ => Unit::Px,
+                };
+                Expr::Dimension(DimensionValue { value, unit })
+            } else {
+                Expr::Number(value)
+            }
+        }
+        Rule::number => {
+            let v: f32 = pair.as_str().parse().unwrap();
+            Expr::Number(v)
+        }
+        Rule::bool => Expr::Bool(pair.as_str() == "true"),
+        Rule::path => Expr::Path(pair.as_str().to_string()),
+        Rule::ident => Expr::Ident(pair.as_str().to_string()),
+        Rule::array => {
+            let xs = pair.into_inner().map(parse_expr).collect();
+            Expr::Array(xs)
+        }
+        Rule::object => {
+            let mut kvs = Vec::new();
+            for kv in pair.into_inner() {
+                let mut it = kv.into_inner();
+                let k = it.next().unwrap().as_str().to_string();
+                let v = parse_expr(it.next().unwrap());
+                kvs.push((k, v));
+            }
+            Expr::Object(kvs)
+        }
+        Rule::expr => parse_expr(pair),
+        _ => {
+            // デフォルトケース：知らないルールを適切に処理
+            // 子要素があれば再帰的に処理、なければ文字列として扱う
+            let text = pair.as_str().to_string(); // 先に文字列を取得
+            let mut inner = pair.into_inner();
+            if let Some(child) = inner.next() {
+                parse_primary(child)
+            } else {
+                // 子要素がない場合は文字列として扱う
+                Expr::String(text)
+            }
+        }
     }
 }
 
@@ -954,14 +1068,9 @@ fn parse_stencil_call(pair: Pair<Rule>) -> Stencil {
     let mut inner = pair.into_inner();
     let kind = inner.next().unwrap().as_str(); // rect, circle, ...
 
-    // Button要素が誤って��こに来た場合の特別処理
-    if kind == "Button" {
-        panic!("Buttonノー���がstencil_callとして誤って解釈されました。grammar.pestファイルの順序やルールを確認してください。");
-    }
 
     let mut map = std::collections::HashMap::new();
 
-    // 引��の解析
     if let Some(stencil_args) = inner.next() {
         for arg in stencil_args.into_inner() {
             let mut arg_inner = arg.into_inner();
@@ -978,12 +1087,12 @@ fn parse_stencil_call(pair: Pair<Rule>) -> Stencil {
                         Rule::string => StencilArg::String(unquote(actual_value.as_str())),
                         Rule::bool => StencilArg::Bool(actual_value.as_str() == "true"),
                         Rule::ident => {
-                            panic!("ステンシル引数���変数名は使���できません: key={}, value={}", key, actual_value.as_str());
+                            panic!("ステンシル引数は変数名は使用できません: key={}, value={}", key, actual_value.as_str());
                         }
                         _ => panic!("不明な引数タイプ"),
                     }
                 } else {
-                    panic!("key: {} ���stencil_valueの値が見つかりません", key);
+                    panic!("key: {} stencil_valueの値が見つかりません", key);
                 }
             } else {
                 match val_pair.as_rule() {
@@ -998,17 +1107,14 @@ fn parse_stencil_call(pair: Pair<Rule>) -> Stencil {
         }
     }
 
-    // 値取得��マクロ（デフォルト値付き）
     macro_rules! get_f32 { ($k:expr, $def:expr) => { map.get($k).and_then(|v| v.as_f32()).unwrap_or($def) } }
     macro_rules! get_str { ($k:expr, $def:expr) => { map.get($k).and_then(|v| v.as_str()).unwrap_or($def).to_string() } }
     macro_rules! get_bool { ($k:expr, $def:expr) => { map.get($k).and_then(|v| v.as_bool()).unwrap_or($def) } }
 
-    // 位置���定システ�����のヘルパー
     let parse_position_value = |key: &str, default: f32| -> f32 {
         map.get(key).and_then(|v| v.as_f32()).unwrap_or(default)
     };
 
-    // ステンシルの種類ご��の解析
     match kind {
         "rect" => Stencil::Rect {
             position: [parse_position_value("x", 0.0), parse_position_value("y", 0.0)],
@@ -1078,7 +1184,6 @@ fn parse_stencil_call(pair: Pair<Rule>) -> Stencil {
     }
 }
 
-/// ステ���シ����引数の補助enum
 enum StencilArg {
     Number(f32),
     String(String),
@@ -1100,7 +1205,6 @@ impl StencilArg {
 // 状態操作
 // ========================================
 
-/// 状態セットノー��の解析
 fn parse_state_set(pair: Pair<Rule>) -> WithSpan<ViewNode> {
     let span = pair.as_span();
     let (line, col) = span.start_pos().line_col();
@@ -1110,7 +1214,6 @@ fn parse_state_set(pair: Pair<Rule>) -> WithSpan<ViewNode> {
     WithSpan { node: ViewNode::Set { path, value }, line, column: col, style: None }
 }
 
-/// リスト追��ノード��解析
 fn parse_list_append(pair: Pair<Rule>) -> WithSpan<ViewNode> {
     let span = pair.as_span();
     let (line, col) = span.start_pos().line_col();
@@ -1120,7 +1223,6 @@ fn parse_list_append(pair: Pair<Rule>) -> WithSpan<ViewNode> {
     WithSpan { node: ViewNode::ListAppend { path, value }, line, column: col, style: None }
 }
 
-/// ��スト削除ノード��解析
 fn parse_list_remove(pair: Pair<Rule>) -> WithSpan<ViewNode> {
     let span = pair.as_span();
     let (line, col) = span.start_pos().line_col();
@@ -1129,8 +1231,6 @@ fn parse_list_remove(pair: Pair<Rule>) -> WithSpan<ViewNode> {
     let index = inner.next().unwrap().as_str().parse::<usize>().unwrap();
     WithSpan { node: ViewNode::ListRemove { path, index }, line, column: col, style: None }
 }
-
-/// �����トグルノードの解析
 fn parse_state_toggle(pair: Pair<Rule>) -> WithSpan<ViewNode> {
     let span = pair.as_span();
     let (line, col) = span.start_pos().line_col();
@@ -1138,7 +1238,7 @@ fn parse_state_toggle(pair: Pair<Rule>) -> WithSpan<ViewNode> {
     let lhs = inner.next().unwrap().as_str().to_string();
     let rhs = inner.next().unwrap().as_str().to_string();
     if lhs != rhs {
-        panic!("toggle は `state.foo = !state.foo` の形式で同��パスに対して行ってください（lhs={}, rhs={}）", lhs, rhs);
+        panic!("toggle は `state.foo = !state.foo` の形式で同じパスに対して行ってください（lhs={}, rhs={}）", lhs, rhs);
     }
     WithSpan { node: ViewNode::Toggle { path: lhs }, line, column: col, style: None }
 }
@@ -1147,7 +1247,7 @@ fn parse_state_toggle(pair: Pair<Rule>) -> WithSpan<ViewNode> {
 // スタイル取り回し
 // ========================================
 
-/// 式からスタイ���を生成
+
 fn style_from_expr(expr: Expr) -> Style {
     match expr {
         Expr::Object(kvs) => {
@@ -1157,7 +1257,7 @@ fn style_from_expr(expr: Expr) -> Style {
                 // ★ 新規追加: match式を含むプロパティを特別処理
                 let resolved_value = match &v {
                     Expr::Match { .. } => {
-                        // match式は実行時に評��されるため、ここでは���の値を設定
+                        // match式は実行時に評価されるため、ここでは既存の値を設定
                         // 実際の評価はAppState::eval_expr_from_astで行われる
                         v.clone()
                     },
@@ -1169,13 +1269,12 @@ fn style_from_expr(expr: Expr) -> Style {
                     "background"   => s.background   = color_from_expr(&resolved_value),
                     "border_color" => s.border_color = color_from_expr(&resolved_value),
 
-                    // ★ justify_contentなどのレ��アウトプロパティを追加
+
                     "justify_content" => {
-                        // match式の場合は実行時評価の���め、ここでは何もしない
-                        // 実際の処���はレイアウトエンジンで行われる
+
                         match &resolved_value {
                             Expr::Match { .. } => {
-                                // match式をそのまま保持（実行時���価用）
+                                // match式をそのまま保持
                             },
                             Expr::String(align_val) => {
                                 // 静的な値の場合は即座に処理
@@ -1223,12 +1322,11 @@ fn style_from_expr(expr: Expr) -> Style {
                         s.rounded = Some(match v {
                             Expr::Bool(true)  => Rounded::On,
                             Expr::Number(n)   => Rounded::Px(n),
-                            Expr::Dimension(d) => Rounded::Px(d.value), // 相対単����も受���付����
+                            Expr::Dimension(d) => Rounded::Px(d.value),
                             _ => Rounded::Px(8.0),
                         });
                     }
 
-                    // 従来の���対値padding/margin
                     "padding" => s.padding = edges_from_expr(&v),
                     "margin"  => s.margin  = edges_from_expr(&v),
 
@@ -1241,7 +1339,6 @@ fn style_from_expr(expr: Expr) -> Style {
                         if let Some([w,h]) = size_from_expr(&v) {
                             s.size = Some([w,h]);
                         }
-                        // 相対単��のsizeもチェック
                         if let Some([w,h]) = relative_size_from_expr(&v) {
                             s.relative_size = Some([w,h]);
                         }
@@ -1327,10 +1424,13 @@ fn style_from_expr(expr: Expr) -> Style {
     }
 }
 
-/// 式か���相対単位対応のエッジを生成
 fn relative_edges_from_expr(e: &Expr) -> Option<RelativeEdges> {
     match e {
-        Expr::Number(n) => Some(RelativeEdges::all(DimensionValue::px(*n))),
+        Expr::Number(_n) => {
+            // ★ 修正: 純粋な数値はpxに自動変換しない
+            // 相対単位のエッジは明示的にDimensionValueを持つもののみ
+            None
+        },
         Expr::Dimension(d) => Some(RelativeEdges::all(*d)),
         Expr::Array(xs) => {
             // [v, h] 形式
@@ -1374,14 +1474,16 @@ fn relative_size_from_expr(e: &Expr) -> Option<[DimensionValue; 2]> {
 /// 式からDimensionValueを抽出
 fn dimension_from_expr(e: &Expr) -> Option<DimensionValue> {
     match e {
-        Expr::Number(n) => Some(DimensionValue::px(*n)),
+        Expr::Number(_n) => {
+            // ★ 修正: 純粋な数値はpxに自動変換しない
+            // DimensionValueは明示的にDimensionを持つExprのみから作成
+            None
+        },
         Expr::Dimension(d) => Some(*d),
         _ => None
     }
 }
 
-/// Rust関数���び出しの解析
-///
 /// 形式: function_name!(arg1, ..., [style: {...}])
 /// Rust側で定義された関数の呼び出し
 fn parse_rust_call(pair: Pair<Rule>) -> WithSpan<ViewNode> {
@@ -1410,7 +1512,6 @@ fn parse_rust_call(pair: Pair<Rule>) -> WithSpan<ViewNode> {
                     }
                 }
             }
-            // 後方互���性
             Rule::style_arg => {
                 style = Some(style_from_expr(parse_expr(p.into_inner().next().unwrap())));
             }
@@ -1425,7 +1526,6 @@ fn parse_rust_call(pair: Pair<Rule>) -> WithSpan<ViewNode> {
 /// foreach制御ノードの解析
 ///
 /// 形式: foreach item in expr ([style: {...}]) { ... }
-/// 繰���返し処理による動的コンテンツ生成
 fn parse_foreach_node(pair: Pair<Rule>) -> WithSpan<ViewNode> {
     let span = pair.as_span();
     let (line, col) = span.start_pos().line_col();
@@ -1441,10 +1541,8 @@ fn parse_foreach_node(pair: Pair<Rule>) -> WithSpan<ViewNode> {
     if let Some(var_pair) = inner.next() {
         var = Some(var_pair.as_str().to_string());
     }
-    
-    // "in"キーワードをスキップ（パーサー��自��処理）
 
-    // 第2引数: 繰り返し対��の式
+
     if let Some(expr_pair) = inner.next() {
         iterable = Some(parse_expr(expr_pair));
     }
@@ -1464,8 +1562,8 @@ fn parse_foreach_node(pair: Pair<Rule>) -> WithSpan<ViewNode> {
 
     WithSpan {
         node: ViewNode::ForEach {
-            var: var.expect("foreach には変数名が必�����です"),
-            iterable: iterable.expect("foreach には繰り返し対象が���要です"),
+            var: var.expect("foreach には変数名が必ず必要です"),
+            iterable: iterable.expect("foreach には繰り返し対象必要です"),
             body,
         },
         line,
@@ -1475,9 +1573,6 @@ fn parse_foreach_node(pair: Pair<Rule>) -> WithSpan<ViewNode> {
 }
 
 /// if制御ノードの解析
-///
-/// ���式: if condition ([style: {...}]) { ... } [else { ... }]
-/// 条件分岐による表示�����御
 fn parse_if_node(pair: Pair<Rule>) -> WithSpan<ViewNode> {
     let span = pair.as_span();
     let (line, col) = span.start_pos().line_col();
@@ -1495,8 +1590,7 @@ fn parse_if_node(pair: Pair<Rule>) -> WithSpan<ViewNode> {
     }
 
     let mut in_else = false;
-    
-    // 残りの要��を処理
+
     for p in inner {
         match p.as_rule() {
             Rule::style_arg => {
@@ -1508,7 +1602,7 @@ fn parse_if_node(pair: Pair<Rule>) -> WithSpan<ViewNode> {
                     else_body = Some(nodes);
                 } else {
                     then_body = nodes;
-                    in_else = true; // ��のview_nodesはelse部分
+                    in_else = true;
                 }
             }
             _ => {}
@@ -1530,7 +1624,6 @@ fn parse_if_node(pair: Pair<Rule>) -> WithSpan<ViewNode> {
 /// テキスト入力フィールドの解析
 ///
 /// 形式: TextInput(id: "field_id", placeholder: "hint", [value: "initial"], [ime_enabled: true], [style: {...}])
-/// IME対応のテキスト��力フィールドを解析
 fn parse_text_input(pair: Pair<Rule>) -> WithSpan<ViewNode> {
     let span = pair.as_span();
     let (line, col) = span.start_pos().line_col();
@@ -1557,11 +1650,10 @@ fn parse_text_input(pair: Pair<Rule>) -> WithSpan<ViewNode> {
                         // 位置引数として処理
                         match param_index {
                             0 => {
-                                // 第1����: id（必���）
                                 if let Expr::String(s) = parse_expr(inner_item) {
                                     id = Some(s);
                                 } else {
-                                    panic!("TextInputの第1引数（id）は文字列である��要���あります");
+                                    panic!("TextInputの第1引数（id）は文字列である必要があります");
                                 }
                             }
                             1 => {
@@ -1584,7 +1676,6 @@ fn parse_text_input(pair: Pair<Rule>) -> WithSpan<ViewNode> {
                 }
             }
             Rule::expr => {
-                // 直接的な式（���方互換性）
                 match param_index {
                     0 => {
                         if let Expr::String(s) = parse_expr(p) {
@@ -1608,8 +1699,8 @@ fn parse_text_input(pair: Pair<Rule>) -> WithSpan<ViewNode> {
         }
     }
 
-    // 必須パラメ��タの検証
-    let id = id.expect("TextInputにはidが必���です");
+
+    let id = id.expect("TextInputにはidが必要です");
 
     WithSpan {
         node: ViewNode::TextInput {
@@ -1627,10 +1718,6 @@ fn parse_text_input(pair: Pair<Rule>) -> WithSpan<ViewNode> {
     }
 }
 
-// ========================================
-// 階層的フ���ー糖衣��文の解析
-// ========================================
-
 /// 階層的フロー定義を解析
 pub fn parse_namespaced_flow_def(pair: Pair<Rule>) -> Result<NamespacedFlow, String> {
     assert_eq!(pair.as_rule(), Rule::namespaced_flow_def);
@@ -1646,7 +1733,6 @@ pub fn parse_namespaced_flow_def(pair: Pair<Rule>) -> Result<NamespacedFlow, Str
     for flow_inner in inner {
         match flow_inner.as_rule() {
             Rule::namespaced_start_def => {
-                // 開始��態の定義を取得（修飾なしの識別子）
                 let ident = flow_inner.into_inner().next().unwrap(); // ident
                 start = Some(ident.as_str().to_string());
             }
@@ -1674,8 +1760,7 @@ fn parse_namespaced_transition_def(pair: Pair<Rule>) -> Result<(String, Vec<Stri
 
     let mut inner = pair.into_inner();
 
-    // 遷移元の���析
-    let source_pair = inner.next().ok_or("階層的遷���定義に遷移元がありません")?;
+    let source_pair = inner.next().ok_or("階層的遷移定義に遷移元がありません")?;
     let source = parse_namespaced_transition_source(source_pair)?;
 
     // 遷移先の解析
@@ -1739,7 +1824,6 @@ fn parse_namespaced_transition_targets(pair: Pair<Rule>) -> Result<Vec<String>, 
     }
 }
 
-/// 階層的フローを平坦なフローと��イムライン��展開する
 fn expand_namespaced_flow(
     namespaced_flow: NamespacedFlow,
     existing_timelines: Vec<Timeline>
@@ -1756,7 +1840,6 @@ fn expand_namespaced_flow(
         // 遷移元を修飾
         let qualified_source = format!("{}::{}", namespace, source);
 
-        // 遷移先���修飾（既に修飾さ��ているものはそのまま）
         let qualified_targets: Vec<String> = targets.into_iter()
             .map(|target| {
                 if target.contains("::") {
@@ -1772,9 +1855,8 @@ fn expand_namespaced_flow(
         expanded_transitions.push((qualified_source, qualified_targets));
     }
 
-    // 必要に応じてタイムラインを追加生成
     // 例：階層化されたタイムラインが見つからない場合のデフォルト処理
-    // この実装では��存のタイムラインをそのまま使用
+    // この実装では既存のタイムラインをそのまま使用
 
     let expanded_flow = Flow {
         start: expanded_start,

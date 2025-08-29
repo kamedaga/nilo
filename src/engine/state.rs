@@ -29,7 +29,7 @@ impl ComponentContext {
         }
     }
 
-    /// コンポーネントに入る際の処理（軽量化�������������）
+
     pub fn enter_component(&mut self, component_name: &str, args: HashMap<String, String>) {
         self.args_stack.push(self.current_args.clone());
         self.current_args = args;
@@ -40,7 +40,7 @@ impl ComponentContext {
     /// コンポーネントから出る際の処理（軽量化版）
     pub fn exit_component(&mut self) {
         if let Some(_) = self.call_stack.pop() {
-            // デバッグログを削����
+ 
         }
 
         self.nest_level = self.nest_level.saturating_sub(1);
@@ -61,12 +61,12 @@ impl ComponentContext {
     /// ネストした上位レベルの引数も検索（軽量化版）
     #[inline]
     pub fn get_arg_from_any_level(&self, name: &str) -> Option<&String> {
-        // まず現在のレ���ルから検索
+
         if let Some(value) = self.current_args.get(name) {
             return Some(value);
         }
 
-        // 上位レベルのスタックから検索（逆順���最新から）
+        // 上位レベルのスタックから検索
         for args in self.args_stack.iter().rev() {
             if let Some(value) = args.get(name) {
                 return Some(value);
@@ -82,7 +82,7 @@ impl ComponentContext {
         self.current_args.insert(name, value);
     }
 
-    /// 全レ��ルの引数を一���取得（デバッグ用）
+
     pub fn get_all_args(&self) -> HashMap<String, String> {
         let mut all_args = HashMap::new();
 
@@ -158,7 +158,7 @@ impl ComponentContext {
     }
 }
 
-/// ����リ実行時の状態（軽量化版��
+
 #[derive(Debug, Clone)]
 pub struct AppState<S> {
     pub custom_state: S,
@@ -174,12 +174,11 @@ pub struct AppState<S> {
 
     /// 静的パートの描画キャッシュ
     pub static_stencils: Option<Vec<Stencil>>,
-    /// 静的ボタン境界��キャッシュ
+
     pub static_buttons: Vec<(String, [f32; 2], [f32; 2])>,
 
     pub expanded_body: Option<Vec<WithSpan<ViewNode>>>,
 
-    /// ウィンドウサイズのキ���ッシュ
     pub cached_window_size: Option<[f32; 2]>,
     
     /// 前回のホバーボタンID（ホバー状態変化の検出用）
@@ -287,7 +286,7 @@ impl<S> AppState<S> {
         self.text_cursor_positions.insert(field_id, cursor_pos);
     }
 
-    /// テキスト��力フィールドの値を取得
+
     pub fn get_text_input_value(&self, field_id: &str) -> String {
         self.text_input_values.get(field_id).cloned().unwrap_or_default()
     }
@@ -297,7 +296,7 @@ impl<S> AppState<S> {
         self.ime_composition_text.insert(field_id.to_string(), composition_text);
     }
 
-    /// IME変換中��テキストをクリア
+
     pub fn clear_ime_composition_text(&mut self, field_id: &str) {
         self.ime_composition_text.remove(field_id);
     }
@@ -417,18 +416,41 @@ impl<S: StateAccess + 'static> AppState<S> {
                 // 関数呼び出しを実行
                 self.execute_function_call(name, args)
             }
+            Expr::BinaryOp { left, op, right } => {
+                // 算術演算の評価
+                let left_val = self.eval_expr_from_ast(left);
+                let right_val = self.eval_expr_from_ast(right);
+
+                // 数値に変換して計算
+                let left_num = left_val.parse::<f32>().unwrap_or(0.0);
+                let right_num = right_val.parse::<f32>().unwrap_or(0.0);
+
+                let result = match op {
+                    crate::parser::ast::BinaryOperator::Add => left_num + right_num,
+                    crate::parser::ast::BinaryOperator::Sub => left_num - right_num,
+                    crate::parser::ast::BinaryOperator::Mul => left_num * right_num,
+                    crate::parser::ast::BinaryOperator::Div => {
+                        if right_num != 0.0 {
+                            left_num / right_num
+                        } else {
+                            0.0 // ゼロ除算回避
+                        }
+                    }
+                };
+
+                result.to_string()
+            }
         }
     }
 
-    /// 関数呼び���しの実行
     fn execute_function_call(&self, name: &str, args: &[Expr]) -> String {
         // 引数を評価
         let _arg_values: Vec<String> = args.iter().map(|arg| self.eval_expr_from_ast(arg)).collect();
 
-        // まず登録さ��たRust関数を試す
+
         use crate::engine::rust_call::{execute_rust_call, has_rust_call};
 
-        // 登録された���数があるかチェック
+
         if has_rust_call(name) {
             execute_rust_call(name, args);
             return format!("{}_executed", name);
@@ -451,7 +473,7 @@ impl<S: StateAccess + 'static> AppState<S> {
         }
     }
 
-    /// 軽量化���れたステンシル変換メソッド（従来のAPIとの互換性維持）
+
     pub fn viewnode_layouted_to_stencil(
         &mut self,
         lnode: &crate::ui::LayoutedNode<'_>,
@@ -465,7 +487,7 @@ impl<S: StateAccess + 'static> AppState<S> {
         self.viewnode_layouted_to_stencil_lightweight(lnode, out, mouse_pos, &mut depth_counter);
     }
 
-    /// 軽量化されたステンシル��換（内部用）
+
     fn viewnode_layouted_to_stencil_lightweight(
         &mut self,
         lnode: &crate::ui::LayoutedNode<'_>,
@@ -486,7 +508,7 @@ impl<S: StateAccess + 'static> AppState<S> {
                 lnode.position, lnode.size, rel_height);
         }
 
-        // 借用エラーを修正：hoverスタイルのマージを安全に��う
+
         let final_style = if is_hover {
             if let Some(ref hover_style) = style.hover {
                 style.merged(hover_style)
@@ -539,7 +561,6 @@ impl<S: StateAccess + 'static> AppState<S> {
         }
     }
 
-    /// 軽量化された��ンテナ背景描画
     fn render_container_background(
         &self,
         lnode: &crate::ui::LayoutedNode<'_>,
@@ -676,7 +697,6 @@ impl<S: StateAccess + 'static> AppState<S> {
             });
         }
 
-        // ★ 重要: 透明色の場合は背景を描画し��い
         if bg[3] > 0.0 {
             // 背景
             *depth_counter += 0.001;
@@ -712,7 +732,7 @@ impl<S: StateAccess + 'static> AppState<S> {
         // self.all_buttons.push((id.to_string(), lnode.position, lnode.size));
     }
 
-    /// 軽量化された画像描��
+
     fn render_image_optimized(
         &self,
         lnode: &crate::ui::LayoutedNode<'_>,
@@ -721,7 +741,6 @@ impl<S: StateAccess + 'static> AppState<S> {
         out: &mut Vec<Stencil>,
         depth_counter: &mut f32,
     ) {
-        // 背景（あれば���
         if let Some(bg) = &style.background {
             let radius = style.rounded
                 .map(|r| match r { Rounded::On => 8.0, Rounded::Px(v) => v })
@@ -782,18 +801,18 @@ impl<S: StateAccess + 'static> AppState<S> {
 
     /// Rustコール実行メソッド
     pub fn execute_rust_call(&mut self, name: &str, args: &[Expr]) -> bool {
-        // ���ずstateアクセス可能な関数を試す
+
         let result = crate::engine::rust_call::execute_state_accessible_call(name, self, args);
         if result {
             return true;
         }
 
-        // ���来の関数を試す
+
         crate::engine::rust_call::execute_rust_call(name, args);
         true
     }
 
-    /// ViewNodeからRustコール��処理
+
     pub fn handle_rust_call_viewnode(&mut self, name: &str, args: &[Expr]) {
         if !self.execute_rust_call(name, args) {
             eprintln!("Warning: Rust call '{}' failed to execute", name);

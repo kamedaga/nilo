@@ -23,7 +23,17 @@ array   = { "[" ~ (expr ~ ("," ~ expr)*)? ~ "]" }
 object  = { "{" ~ (object_entry ~ ("," ~ object_entry)*)? ~ "}" }
 object_entry = { ident ~ ":" ~ expr }
 
-expr    = { match_expr | string | dimension_value | number | bool | path | ident | array | object }
+expr    = { arithmetic_expr }
+
+// 算術演算式の定義
+arithmetic_expr = { term ~ (arithmetic_op ~ term)* }
+term = { factor ~ (factor_op ~ factor)* }
+factor = { primary }
+
+arithmetic_op = { "+" | "-" }
+factor_op = { "*" | "/" }
+
+primary = { match_expr | string | dimension_value | number | bool | path | ident | array | object | "(" ~ expr ~ ")" }
 
 style_arg = { "style" ~ ":" ~ expr }
 
@@ -71,10 +81,10 @@ view_node = _{
     | if_node
     | navigate_action
     | spacing_node
-    | state_set
-    | state_toggle
     | list_append
     | list_remove
+    | state_set
+    | state_toggle
     | when_block
     | rust_call
     | component_call
@@ -118,7 +128,7 @@ default_arm = { "default" ~ "{" ~ view_nodes? ~ "}" }
 expr_match_arm = { "case" ~ expr ~ "{" ~ expr ~ "}" }
 expr_default_arm = { "default" ~ "{" ~ expr ~ "}" }
 
-navigate_action = { "navigate_to" ~ "(" ~ ident ~ ")" }
+navigate_action = { "navigate_to" ~ "(" ~ qualified_ident ~ ")" }
 
 spacing_node = { "Spacing" ~ "(" ~ number? ~ ")" | "SpacingAuto" }
 
@@ -126,10 +136,10 @@ rust_call = { ident ~ "!" ~ "(" ~ (arg_item ~ ("," ~ arg_item)*)? ~ ")" }
 
 component_call = { ident ~ "(" ~ (arg_item ~ ("," ~ arg_item)*)? ~ ")" }
 
-state_set    = { "set" ~ ident ~ "=" ~ expr }
+state_set    = { "set" ~ path ~ "=" ~ expr }
 state_toggle = { ident ~ "=" ~ "!" ~ ident }
-list_append  = { ident ~ ".append" ~ "(" ~ expr ~ ")" }
-list_remove  = { ident ~ ".remove" ~ "(" ~ number ~ ")" }
+list_append  = { path ~ ".append" ~ "(" ~ expr ~ ")" }
+list_remove  = { path ~ ".remove" ~ "(" ~ number ~ ")" }
 
 // ステンシルは限定的に定義する
 stencil_name = { "rect" | "circle" | "triangle" | "text" | "image" | "rounded_rect" }

@@ -27,8 +27,11 @@ impl ImageVertex {
 }
 
 pub struct TextureResource {
+    #[allow(dead_code)]
     pub texture: Texture,
+    #[allow(dead_code)]
     pub view: TextureView,
+    #[allow(dead_code)]
     pub sampler: Sampler,
     pub bind_group: BindGroup,
 }
@@ -215,6 +218,7 @@ impl ImageRenderer {
         Ok((width, height, pixels))
     }
 
+    #[allow(dead_code)]
     // ★ Z値を指定できる描画メソッド
     pub fn draw_with_depth<'a>(
         &'a self,

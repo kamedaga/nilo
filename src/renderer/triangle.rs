@@ -98,6 +98,7 @@ impl TriangleRenderer {
     }
 
     // ★ Z値を指定できる描画メソッド
+    #[allow(dead_code)]
     pub fn draw_with_depth<'a>(
         &'a mut self,
         pass: &mut RenderPass<'a>,

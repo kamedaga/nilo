@@ -303,6 +303,7 @@ fn get_stencil_depth(stencil: &Stencil) -> f32 {
     }
 }
 
+#[allow(dead_code)]
 // ★ f32の順序付けのためのWrapper
 #[derive(Debug, Clone, Copy, PartialEq, PartialOrd)]
 struct OrderedFloat(f32);

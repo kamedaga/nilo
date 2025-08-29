@@ -124,7 +124,7 @@ pub enum ViewNode {
     
     // ★ 新規追加: foreach制御
     ForEach { 
-        var: String,           // ��り返し変数名 (e.g., "item")
+        var: String,           // 繰り返し変数名 (e.g., "item")
         iterable: Expr,        // 繰り返し対象 (e.g., "state.items")
         body: Vec<WithSpan<ViewNode>>,
     },
@@ -148,8 +148,7 @@ pub enum ViewNode {
     
     // イベントハンドラー
     When { event: EventExpr, actions: Vec<WithSpan<ViewNode>> },
-    
-    // ��テンシル（低レベルグラフィック）
+
     Stencil(crate::stencil::stencil::Stencil),
 }
 
@@ -169,6 +168,15 @@ pub enum Expr {
     Dimension(DimensionValue),
     Match { expr: Box<Expr>, arms: Vec<MatchArm>, default: Option<Box<Expr>> },
     FunctionCall { name: String, args: Vec<Expr> },
+    BinaryOp { left: Box<Expr>, op: BinaryOperator, right: Box<Expr> },
+}
+
+#[derive(Debug, Clone)]
+pub enum BinaryOperator {
+    Add,
+    Sub,
+    Mul,
+    Div,
 }
 
 #[derive(Debug, Clone)]

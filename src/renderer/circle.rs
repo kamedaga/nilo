@@ -150,6 +150,7 @@ impl CircleRenderer {
     }
 
     // ★ Z値を指定できる描画メソッド
+    #[allow(dead_code)]
     pub fn draw_with_depth<'a>(
         &'a mut self,
         pass: &mut wgpu::RenderPass<'a>,
@@ -164,7 +165,6 @@ impl CircleRenderer {
         let w = screen_size.width as f32;
         let h = screen_size.height as f32;
 
-        // Screen uniform を更���
         let screen_uniform = ScreenUniform {
             screen_size: [w, h],
             _padding: [0.0, 0.0],

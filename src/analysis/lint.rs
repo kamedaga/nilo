@@ -291,7 +291,7 @@ Use `Text(\"{}\", variable)` instead to display variable values."
                     d.location = loc;
                     diags.push(d);
                 } else if !defined.contains(name.as_str()) {
-                    // ��み込み関数やステンシル関数をチェック
+                    // 組み込み関数やステンシル関数をチェック
                     let builtin_functions = [
                         "rect", "circle", "triangle", "rounded_rect", "text", "image",
                         "Spacing", "SpacingAuto", "Image"

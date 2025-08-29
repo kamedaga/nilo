@@ -12,6 +12,7 @@ pub struct TextRenderer {
     font_system: FontSystem,
     swash_cache: SwashCache,
     viewport: Viewport,
+    #[allow(dead_code)]
     cache: Cache,
 }
 
@@ -156,6 +157,7 @@ impl TextRenderer {
     }
 
 
+    #[allow(dead_code)]
     pub fn render_text(
         &mut self,
         pass: &mut RenderPass,
@@ -236,6 +238,7 @@ impl TextRenderer {
             .expect("Failed to render text");
     }
 
+    #[allow(dead_code)]
     pub fn draw<'a>(
         &'a mut self,
         pass: &mut RenderPass<'a>,
@@ -260,6 +263,7 @@ impl TextRenderer {
             .expect("Failed to render text");
     }
 
+    #[allow(dead_code)]
     pub fn create_buffer(&mut self, text: &str, metrics: Metrics) -> Buffer {
         let mut buffer = Buffer::new(&mut self.font_system, metrics);
         buffer.set_text(
@@ -271,6 +275,7 @@ impl TextRenderer {
         buffer
     }
 
+    #[allow(dead_code)]
     pub fn create_text_area<'a>(
         &self,
         buffer: &'a Buffer,
@@ -291,23 +296,28 @@ impl TextRenderer {
         }
     }
 
+    #[allow(dead_code)]
     pub fn font_system(&mut self) -> &mut FontSystem {
         &mut self.font_system
     }
 
+    #[allow(dead_code)]
     pub fn atlas(&mut self) -> &mut TextAtlas {
         &mut self.atlas
     }
 
+    #[allow(dead_code)]
     pub fn cache(&mut self) -> &mut Cache {
         &mut self.cache
     }
 
+    #[allow(dead_code)]
     pub fn viewport(&mut self) -> &mut Viewport {
         &mut self.viewport
     }
 
     // ★ Z値を指定できるテキスト描画メソッド
+    #[allow(dead_code)]
     pub fn render_multiple_texts_with_depth(
         &mut self,
         pass: &mut RenderPass,

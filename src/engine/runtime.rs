@@ -347,7 +347,7 @@ where
                             self.event_queue.push(UIEvent::ImeDisabled { field_id: focused_field });
                         }
                     }
-                    window.request_redraw(); // IME状態変化��は再描画
+                    window.request_redraw();
                 }
             }
             WindowEvent::RedrawRequested => {
@@ -405,11 +405,9 @@ where
                 // ホバー状態の変化を検出
                 if self.last_hovered_button != current_hovered {
                     self.last_hovered_button = current_hovered;
-                    // ホバ��状態変化時はキ��ッシュを無効化
                     self.state.static_stencils = None;
                 }
 
-                // イベ��ト処理
                 let events_snapshot: Vec<UIEvent> = self.event_queue.queue.iter().cloned().collect();
                 if !events_snapshot.is_empty() {
 
@@ -609,7 +607,6 @@ where
         // 再起動フラグをチェック（ノンブロッキング）
         if let Ok(flag) = self.restart_flag.try_lock() {
             if *flag {
-                // 再起動が要求されている場合はイ��ントループを終了
                 event_loop.exit();
                 return;
             }
@@ -620,7 +617,6 @@ where
     }
 }
 
-/// ホットリロード機能付きでアプリケーションを実行���メインスレッド用）
 pub fn run_with_hotreload_support<S: StateAccess + 'static + Clone + std::fmt::Debug>(
     initial_app: Arc<App>,
     initial_state: AppState<S>,
@@ -640,7 +636,6 @@ pub fn run_with_hotreload_support<S: StateAccess + 'static + Clone + std::fmt::D
         updated_app
     );
 
-    // イベ���トループを実行（アプリケーション終了まで継続）
     let _ = event_loop.run_app(&mut app_handler);
 }
 
@@ -1150,7 +1145,6 @@ where
     }
 }
 
-/// ウィンドウタイトルを指定してアプリケーション��実行
 pub fn run_with_window_title<S: StateAccess + 'static + Clone + std::fmt::Debug>(
     app: App, 
     custom_state: S, 
@@ -1180,7 +1174,6 @@ pub fn run_with_hotreload_support_and_title<S: StateAccess + 'static + Clone + s
     // 単一のイベントループを作成（一度だけ）
     let event_loop = EventLoop::new().unwrap();
 
-    // ホットリロ��ド対応のAppHandlerを作成（ウィンドウタイトル付き）
     let mut app_handler = AppHandlerWithDynamicReloadAndTitle::new(
         initial_app,
         initial_state,
@@ -1215,7 +1208,6 @@ where
     last_hovered_button: Option<String>,
     window_title: String,
 
-    // ホットリ���ード用
     restart_flag: Arc<Mutex<bool>>,
     updated_app: Arc<Mutex<Option<App>>>,
 }

@@ -49,7 +49,6 @@ const MIN_BUTTON_WIDTH: f32 = 120.0;
 const MAX_BUTTON_WIDTH: f32 = 220.0;
 const BUTTON_HEIGHT: f32 = 48.0;
 const TEXT_PADDING: f32 = 12.0;
-const DEFAULT_SPACING: f32 = 12.0;
 const CARD_DEFAULT_PADDING: f32 = 20.0;
 
 pub type ImageSizeFn = dyn Fn(&str) -> (u32, u32);
@@ -66,7 +65,6 @@ fn resolve_dimension_value(dim: &DimensionValue, params: &LayoutParams) -> f32 {
     )
 }
 
-/// 相対エッジを絶対エッジに変換す��
 fn resolve_relative_edges(edges: &RelativeEdges, params: &LayoutParams) -> Edges {
     edges.to_edges(
         params.window_size[0],
@@ -102,7 +100,6 @@ fn effective_spacing(params: &LayoutParams, style: Option<&Style>) -> f32 {
 
 fn effective_padding(style: Option<&Style>, params: &LayoutParams) -> Edges {
     if let Some(s) = style {
-        // 相対単����������パディングをチェ��ク
         if let Some(rel_padding) = &s.relative_padding {
             return resolve_relative_edges(rel_padding, params);
         }
@@ -139,8 +136,6 @@ where
         // 相対単位のwidth/heightをチェック
         if let Some(rel_width) = &s.relative_width {
             let calculated_width = resolve_dimension_value(rel_width, params);
-            println!("🔧 Layout DEBUG: width {}px (from {:?}), window_size: {:?}",
-                calculated_width, rel_width, params.window_size);
             size[0] = calculated_width;
             has_explicit_size = true;
         } else if let Some(width) = s.width {
@@ -150,8 +145,6 @@ where
 
         if let Some(rel_height) = &s.relative_height {
             let calculated_height = resolve_dimension_value(rel_height, params);
-            println!("🔧 Layout DEBUG: height {}px (from {:?}), window_size: {:?}",
-                calculated_height, rel_height, params.window_size);
             size[1] = calculated_height;
             has_explicit_size = true;
         } else if let Some(height) = s.height {
@@ -170,7 +163,6 @@ where
         }
     }
 
-    // 明示的���サイズが部分的に設定されている場合、残りの次元はデフォルト計算
     if has_explicit_size {
         let default_size = calculate_node_size_with_style(node, params, eval, get_image_size);
         if size[0] == 0.0 { size[0] = default_size[0]; }
@@ -281,6 +273,28 @@ where
     }
 }
 
+/// テキストの幅を正確に計算する関数
+fn calculate_text_width(text: &str, font_size: f32) -> f32 {
+    let mut width = 0.0;
+    for ch in text.chars() {
+        if ch.is_ascii() {
+            // 英数字・記号
+            width += font_size * 0.6;
+        } else {
+            // 日本語文字（ひらがな、カタカナ、漢字）
+            width += font_size * 1.0;
+        }
+    }
+    width
+}
+
+/// ボタンラベルの幅を計算する関数
+fn calculate_button_text_width(text: &str, font_size: f32) -> f32 {
+    let text_width = calculate_text_width(text, font_size);
+    let padding = 20.0;
+    text_width + padding
+}
+
 /// foreach文のサイズを計算する関数
 fn calculate_foreach_size<F, G>(
     var: &str,
@@ -310,7 +324,6 @@ where
             // 変数を置換したノードを作成
             let substituted_node = substitute_foreach_variables_in_node(body_node, var, item, index);
 
-            // 置��されたノードのサイズを計算
             let size = calculate_node_size_with_params(&substituted_node, params, eval, get_image_size);
 
             // VStack形式で積み上げる想定で高さを累積
@@ -323,7 +336,6 @@ where
             }
         }
 
-        // アイテム間のスペーシングを追加（��後以外）
         if index < items.len() - 1 {
             total_height += params.spacing;
         }
@@ -332,7 +344,7 @@ where
     [total_width, total_height]
 }
 
-/// イテラブル式を評価してアイテムリストを取得する関数
+/// イテラブル式を評価してアイテムリストを取得する関���
 fn evaluate_iterable<F>(iterable: &Expr, eval: &F) -> Vec<String>
 where
     F: Fn(&Expr) -> String,
@@ -512,34 +524,97 @@ where
     let idx_container = result.len();
     result.push(LayoutedNode { node: owner, position: *cursor, size: [0.0, 0.0] });
 
-    // ★ 修正: コンテナ自体のサイズを事前に計算して、子要素の親サイズとして使用
-    let container_size = calculate_node_size_with_params(owner, &params, eval, get_image_size);
+    // ★ 新規追加: 子要素の最大幅を事前計算
+    let mut max_child_width = 0.0f32;
+    let mut total_child_height = 0.0f32;
 
-    let mut inner_cursor = [cursor[0] + pad.left, cursor[1] + pad.top];
-
-    // ★ 重要修正: vw/vh単位はビューポートサイズを維持し、%単位のみ親サ��ズを使用
+    // 子要素のサイズを事前に計算して最大幅を求める
     let inner_params = LayoutParams {
-        start: inner_cursor,
+        start: [cursor[0] + pad.left, cursor[1] + pad.top],
         spacing: gap,
-        window_size: params.window_size, // ★ ビューポートサイズは維持
-        parent_size: container_size, // ★ %単位計算��の親サイズ
+        window_size: params.window_size,
+        parent_size: params.parent_size, // 親のサイズを継承
         root_font_size: params.root_font_size,
         font_size: params.font_size,
         default_font: params.default_font.clone(),
     };
 
-    let start_ix = result.len();
-    // ★ 重要: 子要素をすべてレイアウトして result に追加
-    layout_vstack_impl(children, inner_params, result, &mut inner_cursor, app, eval, get_image_size);
-    let (_min, sz_children) = bounds_of(&result[start_ix..]);
+    // 子要素のサイズを計算
+    for (i, child) in children.iter().enumerate() {
+        let child_size = match &child.node {
+            ViewNode::Spacing(v) => {
+                total_child_height += *v;
+                [0.0, *v]
+            }
+            ViewNode::SpacingAuto => {
+                total_child_height += gap;
+                [0.0, gap]
+            }
+            ViewNode::VStack(grandchildren) => {
+                // ネストしたVStackのサイズを再帰的に計算
+                calculate_vstack_content_size(grandchildren, &inner_params, app, eval, get_image_size)
+            }
+            ViewNode::HStack(grandchildren) => {
+                // ネストしたHStackのサイズを計算
+                calculate_hstack_content_size(grandchildren, &inner_params, app, eval, get_image_size)
+            }
+            ViewNode::ComponentCall { name, .. } => {
+                if let Some(c) = app.components.iter().find(|c| c.name == *name) {
+                    calculate_vstack_content_size(&c.body, &inner_params, app, eval, get_image_size)
+                } else {
+                    calculate_node_size_with_params(child, &inner_params, eval, get_image_size)
+                }
+            }
+            _ => calculate_node_size_with_params(child, &inner_params, eval, get_image_size)
+        };
 
-    let size = [
-        sz_children[0] + pad.left + pad.right,
-        sz_children[1] + pad.top  + pad.bottom,
-    ];
-    result[idx_container].size = size;
+        max_child_width = max_child_width.max(child_size[0]);
+        total_child_height += child_size[1];
 
-    size
+        // 子要素間のスペーシング
+        if i < children.len() - 1 {
+            total_child_height += gap;
+        }
+    }
+
+    // ★ 修正: 明示的なサイズが指定されている場合はそれを優先
+    let container_width = if let Some(s) = style {
+        if let Some(width) = s.width {
+            width
+        } else if let Some(rel_width) = &s.relative_width {
+            resolve_dimension_value(rel_width, &params)
+        } else {
+            max_child_width + pad.left + pad.right
+        }
+    } else {
+        max_child_width + pad.left + pad.right
+    };
+
+    let container_height = total_child_height + pad.top + pad.bottom;
+
+    // ★ 修正: 計算されたコンテナサイズを使用して子要素をレイアウト
+    let mut inner_cursor = [cursor[0] + pad.left, cursor[1] + pad.top];
+
+    let updated_inner_params = LayoutParams {
+        start: inner_cursor,
+        spacing: gap,
+        window_size: params.window_size,
+        parent_size: [container_width, container_height], // 計算されたコンテナサイズを親サイズとして使用
+        root_font_size: params.root_font_size,
+        font_size: params.font_size,
+        default_font: params.default_font.clone(),
+    };
+
+    let _start_ix = result.len();
+    // 子要素をすべてレイアウトして result に追加
+    layout_vstack_impl(children, updated_inner_params, result, &mut inner_cursor, app, eval, get_image_size);
+
+    // ★ 修正: 計算されたサイズを使用
+    let final_size = [container_width, container_height];
+    result[idx_container].size = final_size;
+
+
+    final_size
 }
 
 // ★ 修正: HStackブロック処理で子要素もすべて出力
@@ -572,7 +647,6 @@ where
     let mut cur_x = base_x;
     let mut child_ranges: Vec<(usize, usize, f32)> = Vec::new();
 
-    // ★ 修正: コンテ��自体のサイズを事前に計算して、子要素の親サイズとして使用
     let container_size = calculate_node_size_with_params(owner, &params, eval, get_image_size);
 
     for (i, n) in children.iter().enumerate() {
@@ -582,7 +656,6 @@ where
             _ => {
                 let start_idx = result.len();
 
-                // ★ 重要修正: vw/vh単位はビューポートサイズを維持し、%単位のみ親サ��ズを使用
                 let child_params = LayoutParams {
                     start: [cur_x, base_y],
                     spacing: gap,
@@ -656,29 +729,111 @@ where
     (*cursor, size)
 }
 
-/// テキストの幅を正確に計算する関数
-fn calculate_text_width(text: &str, font_size: f32) -> f32 {
-    let mut width = 0.0;
-    for ch in text.chars() {
-        if ch.is_ascii() {
-            // 英数字・記号
-            width += font_size * 0.6;
-        } else {
-            // 日本語文字（ひらがな、カタカナ、漢字）
-            width += font_size * 1.0;
+/// VStackの内容サイズを計算するヘルパー関数
+fn calculate_vstack_content_size<F, G>(
+    children: &[WithSpan<ViewNode>],
+    params: &LayoutParams,
+    app: &App,
+    eval: &F,
+    get_image_size: &G,
+) -> [f32; 2]
+where
+    F: Fn(&Expr) -> String,
+    G: Fn(&str) -> (u32, u32),
+{
+    let mut max_width = 0.0f32;
+    let mut total_height = 0.0f32;
+
+    for (i, child) in children.iter().enumerate() {
+        let child_size = match &child.node {
+            ViewNode::Spacing(v) => {
+                total_height += *v;
+                [0.0, *v]
+            }
+            ViewNode::SpacingAuto => {
+                total_height += params.spacing;
+                [0.0, params.spacing]
+            }
+            ViewNode::VStack(grandchildren) => {
+                calculate_vstack_content_size(grandchildren, params, app, eval, get_image_size)
+            }
+            ViewNode::HStack(grandchildren) => {
+                calculate_hstack_content_size(grandchildren, params, app, eval, get_image_size)
+            }
+            ViewNode::ComponentCall { name, .. } => {
+                if let Some(c) = app.components.iter().find(|c| c.name == *name) {
+                    calculate_vstack_content_size(&c.body, params, app, eval, get_image_size)
+                } else {
+                    calculate_node_size_with_params(child, params, eval, get_image_size)
+                }
+            }
+            _ => calculate_node_size_with_params(child, params, eval, get_image_size)
+        };
+
+        max_width = max_width.max(child_size[0]);
+        total_height += child_size[1];
+
+        // 子要素間のスペーシング
+        if i < children.len() - 1 {
+            total_height += params.spacing;
         }
     }
-    width
+
+    [max_width, total_height]
 }
 
-/// ボタンラベルの幅を計算する関数
-fn calculate_button_text_width(text: &str, font_size: f32) -> f32 {
-    let text_width = calculate_text_width(text, font_size);
-    // ボタンには��小限のパディングを追加
-    let padding = 20.0;
-    text_width + padding
-}
+/// HStackの内容サイズを計算するヘルパー関数
+fn calculate_hstack_content_size<F, G>(
+    children: &[WithSpan<ViewNode>],
+    params: &LayoutParams,
+    app: &App,
+    eval: &F,
+    get_image_size: &G,
+) -> [f32; 2]
+where
+    F: Fn(&Expr) -> String,
+    G: Fn(&str) -> (u32, u32),
+{
+    let mut total_width = 0.0f32;
+    let mut max_height = 0.0f32;
 
+    for (i, child) in children.iter().enumerate() {
+        let child_size = match &child.node {
+            ViewNode::Spacing(v) => {
+                total_width += *v;
+                [*v, 0.0]
+            }
+            ViewNode::SpacingAuto => {
+                total_width += params.spacing;
+                [params.spacing, 0.0]
+            }
+            ViewNode::VStack(grandchildren) => {
+                calculate_vstack_content_size(grandchildren, params, app, eval, get_image_size)
+            }
+            ViewNode::HStack(grandchildren) => {
+                calculate_hstack_content_size(grandchildren, params, app, eval, get_image_size)
+            }
+            ViewNode::ComponentCall { name, .. } => {
+                if let Some(c) = app.components.iter().find(|c| c.name == *name) {
+                    calculate_vstack_content_size(&c.body, params, app, eval, get_image_size)
+                } else {
+                    calculate_node_size_with_params(child, params, eval, get_image_size)
+                }
+            }
+            _ => calculate_node_size_with_params(child, params, eval, get_image_size)
+        };
+
+        total_width += child_size[0];
+        max_height = max_height.max(child_size[1]);
+
+        // 子要素間のスペーシング
+        if i < children.len() - 1 {
+            total_width += params.spacing;
+        }
+    }
+
+    [total_width, max_height]
+}
 fn calculate_node_size<F, G>(
     node: &WithSpan<ViewNode>,
     eval: &F,
@@ -708,7 +863,6 @@ where
             [img_w as f32, img_h as f32]
         }
         ViewNode::ComponentCall { name, args } => {
-            // ★ 修正: コンポーネン��名の正確な幅計算
             let name_width = calculate_text_width(name, FONT_SIZE);
             let args_width = (args.len() as f32) * FONT_SIZE * 0.5;
             let total_width = name_width + args_width + 20.0;
@@ -814,7 +968,6 @@ fn layout_vstack_impl<'a, F, G>(
             ViewNode::ForEach { var, iterable, body } => {
                 // ★ 修正: foreach全体のサイズを事前計算し、正しい高さを確保
                 let foreach_size = calculate_foreach_size(var, iterable, body, &params, eval, get_image_size);
-                // コ��テナとしてのLayoutedNodeを追加（子要素はengine側で描画）
                 result.push(LayoutedNode {
                     node,
                     position: *cursor,
@@ -894,7 +1047,6 @@ where
             }
             ViewNode::ComponentCall { name, .. } => {
                 if let Some(c) = app.components.iter().find(|c| c.name == *name) {
-                    // ★ 修正: コンポーネン��内容をすべて処理
                     let child_params = LayoutParams { start: *cursor, spacing: params.spacing, ..params.clone() };
                     let mut child_cursor = *cursor;
                     layout_vstack_impl(&c.body, child_params, result, &mut child_cursor, app, eval, get_image_size);
@@ -1013,7 +1165,6 @@ fn size_of_stencil(st: &DrawStencil) -> [f32; 2] {
     }
 }
 
-/// レイアウト処理で使用するノー��展開��数
 pub fn layout_node<'a>(
     node: &'a WithSpan<ViewNode>,
     available_size: [f32; 2],
