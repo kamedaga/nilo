@@ -20,7 +20,7 @@ timeline start {
             color: "#61dafb",
             font_weight: "bold"
         })
-
+7
         Spacing(30)
 
         // Text要素のデモ

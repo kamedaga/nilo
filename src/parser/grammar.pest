@@ -68,8 +68,20 @@ param_list = { "(" ~ (ident ~ ("," ~ ident)*)? ~ ")" }
 
 view_nodes = { view_node* }
 
+action_node = _{
+      state_set
+    | state_toggle
+    | list_append
+    | list_remove
+    | list_clear
+    | rust_call
+}
+
 view_node = _{
-      vstack_node
+      list_append
+    | list_remove
+    | list_clear
+    | vstack_node
     | hstack_node
     | text
     | button
@@ -81,8 +93,6 @@ view_node = _{
     | if_node
     | navigate_action
     | spacing_node
-    | list_append
-    | list_remove
     | state_set
     | state_toggle
     | when_block
@@ -138,8 +148,11 @@ component_call = { ident ~ "(" ~ (arg_item ~ ("," ~ arg_item)*)? ~ ")" }
 
 state_set    = { "set" ~ path ~ "=" ~ expr }
 state_toggle = { ident ~ "=" ~ "!" ~ ident }
-list_append  = { path ~ ".append" ~ "(" ~ expr ~ ")" }
-list_remove  = { path ~ ".remove" ~ "(" ~ number ~ ")" }
+
+// 関数呼び出し風の構文に変更
+list_append = { "append" ~ "(" ~ path ~ "," ~ expr ~ ")" }
+list_remove = { "remove" ~ "(" ~ path ~ "," ~ number ~ ")" }
+list_clear = { "clear" ~ "(" ~ path ~ ")" }
 
 // ステンシルは限定的に定義する
 stencil_name = { "rect" | "circle" | "triangle" | "text" | "image" | "rounded_rect" }

@@ -304,27 +304,21 @@ impl Engine {
         default_font: &str,
     ) {
         if let ViewNode::Button { label, .. } = &lnode.node.node {
-            let style = lnode.node.style.clone().unwrap_or_default();
+            let mut style = lnode.node.style.clone().unwrap_or_default();
 
-            let bg_color = if let Some(ref bg) = style.background {
-                Self::convert_to_rgba(bg)
-            } else {
-                if is_hover {
-                    [0.09, 0.46, 0.82, 1.0]
-                } else {
-                    [0.13, 0.59, 0.95, 1.0]
+            // ★ 修正: ホバー状態の場合、hoverスタイルをマージ
+            if is_hover {
+                if let Some(hover_style) = &style.hover {
+                    style = style.merged(hover_style);
                 }
-            };
+            }
 
-            let final_bg_color = if is_hover && style.background.is_some() {
-                [
-                    (bg_color[0] * 0.8).max(0.0),
-                    (bg_color[1] * 0.8).max(0.0),
-                    (bg_color[2] * 0.8).max(0.0),
-                    bg_color[3]
-                ]
+            // ★ 修正: 背景色が明示的に指定されている場合のみ適用
+            let bg_color = if let Some(ref bg) = style.background {
+                Some(Self::convert_to_rgba(bg))
             } else {
-                bg_color
+                // 背景色が指定されていない場合はNoneとして、背景を描画しない
+                None
             };
 
             let radius = style.rounded
@@ -337,19 +331,22 @@ impl Engine {
             let font_size = style.font_size.unwrap_or(16.0);
             let text_color = style.color.as_ref()
                 .map(|c| Self::convert_to_rgba(c))
-                .unwrap_or([1.0, 1.0, 1.0, 1.0]);
+                .unwrap_or([0.0, 0.0, 0.0, 1.0]); // ★ 修正: デフォルトのテキスト色を黒に変更
 
-            if final_bg_color[3] > 0.0 {
-                *depth_counter += 0.001;
-                stencils.push(Stencil::RoundedRect {
-                    position: lnode.position,
-                    width: lnode.size[0],
-                    height: lnode.size[1],
-                    radius,
-                    color: final_bg_color,
-                    scroll: true,
-                    depth: (1.0 - *depth_counter).max(0.0),
-                });
+            // ★ 修正: 背景色が指定されている場合のみ背景を描画
+            if let Some(bg_rgba) = bg_color {
+                if bg_rgba[3] > 0.0 {
+                    *depth_counter += 0.001;
+                    stencils.push(Stencil::RoundedRect {
+                        position: lnode.position,
+                        width: lnode.size[0],
+                        height: lnode.size[1],
+                        radius,
+                        color: bg_rgba,
+                        scroll: true,
+                        depth: (1.0 - *depth_counter).max(0.0),
+                    });
+                }
             }
 
             let text_w = Self::calculate_text_width_accurate(label, font_size);
@@ -411,6 +408,56 @@ impl Engine {
                 .map(|f| f.clone())
                 .unwrap_or_else(|| default_font.to_string());
 
+            // ★ 修正: 背景色と角丸の描画を追加
+            if let Some(bg) = &style.background {
+                let bg_color = Self::convert_to_rgba(bg);
+
+                // 透明でない場合のみ背景を描画
+                if bg_color[3] > 0.0 {
+                    let radius = style.rounded
+                        .map(|r| match r {
+                            crate::parser::ast::Rounded::On => 8.0,
+                            crate::parser::ast::Rounded::Px(v) => v,
+                        })
+                        .unwrap_or(0.0);
+
+                    // 影の描画
+                    if let Some(sh) = style.shadow.clone() {
+                        let (off, scol) = match sh {
+                            crate::parser::ast::Shadow::On => ([0.0, 2.0], [0.0, 0.0, 0.0, 0.2]),
+                            crate::parser::ast::Shadow::Spec { offset, color, .. } => {
+                                let scol = color.as_ref().map(|c| Self::convert_to_rgba(c)).unwrap_or([0.0, 0.0, 0.0, 0.2]);
+                                (offset, scol)
+                            }
+                        };
+
+                        *depth_counter += 0.001;
+                        stencils.push(Stencil::RoundedRect {
+                            position: [lnode.position[0] + off[0], lnode.position[1] + off[1]],
+                            width: lnode.size[0],
+                            height: lnode.size[1],
+                            radius,
+                            color: [scol[0], scol[1], scol[2], (scol[3] * 0.9).min(1.0)],
+                            scroll: true,
+                            depth: (1.0 - *depth_counter).max(0.0),
+                        });
+                    }
+
+                    // 背景の描画
+                    *depth_counter += 0.001;
+                    stencils.push(Stencil::RoundedRect {
+                        position: lnode.position,
+                        width: lnode.size[0],
+                        height: lnode.size[1],
+                        radius,
+                        color: bg_color,
+                        scroll: true,
+                        depth: (1.0 - *depth_counter).max(0.0),
+                    });
+                }
+            }
+
+            // テキストの描画
             *depth_counter += 0.001;
             stencils.push(Stencil::Text {
                 content,
@@ -884,60 +931,39 @@ impl Engine {
         S: crate::engine::state::StateAccess + 'static
     {
         let Some(tl) = state.current_timeline(app) else {
-            println!("🔍 DEBUG: No current timeline found");
             return None;
         };
 
-        println!("🔍 DEBUG: Current timeline: {}", tl.name);
-        println!("🔍 DEBUG: Number of whens in timeline: {}", tl.whens.len());
-
+        // ButtonPressedイベントのみを処理対象とする（ButtonReleasedは除外）
         let clicked: Vec<&str> = events
             .iter()
             .filter_map(|ev| match ev {
                 UIEvent::ButtonPressed { id } => {
-                    println!("🔍 DEBUG: ButtonPressed event for id: {}", id);
                     Some(id.as_str())
                 },
-                UIEvent::ButtonReleased { id } => {
-                    println!("🔍 DEBUG: ButtonReleased event for id: {}", id);
-                    Some(id.as_str())
+                UIEvent::ButtonReleased { id: _ } => {
+                    None  // ButtonReleasedはwhen処理では無視
                 },
                 _ => None,
             })
             .collect();
 
-        println!("🔍 DEBUG: Clicked buttons: {:?}", clicked);
-
         if !clicked.is_empty() {
             Self::handle_button_onclick(app, state, &clicked);
         }
 
-        for (i, when) in tl.whens.iter().enumerate() {
-            println!("🔍 DEBUG: Processing when #{}: {:?}", i, when.event);
-
+        for (_i, when) in tl.whens.iter().enumerate() {
             if let EventExpr::ButtonPressed(target) = &when.event {
-                println!("🔍 DEBUG: When targets button: {}", target);
-
                 if clicked.iter().any(|&s| s == target) {
-                    println!("🔍 DEBUG: Button match found! Processing {} actions", when.actions.len());
-
-                    for (j, action) in when.actions.iter().enumerate() {
-                        println!("🔍 DEBUG: Processing action #{}: {:?}", j, action.node);
-
+                    for (_j, action) in when.actions.iter().enumerate() {
                         if let Some(new_tl) = Self::apply_action(app, state, action) {
-                            println!("🔍 DEBUG: Action resulted in timeline change to: {}", new_tl);
                             return Some(new_tl);
-                        } else {
-                            println!("🔍 DEBUG: Action did not result in timeline change");
                         }
                     }
-                } else {
-                    println!("🔍 DEBUG: No button match for target: {}", target);
                 }
             }
         }
 
-        println!("🔍 DEBUG: No timeline changes triggered");
         None
     }
 
@@ -954,24 +980,47 @@ impl Engine {
                 state.handle_rust_call_viewnode(name, args);
             }
             ViewNode::Set { path, value } => {
-                let key = path.strip_prefix("state.").unwrap_or(path).trim().to_string();
-                let v = state.eval_expr_from_ast(value);
-                if state.custom_state.set(&key, v.clone()).is_err() {
+                if path.starts_with("state.") {
+                    let key = path.strip_prefix("state.").unwrap().trim().to_string();
+                    let v = state.eval_expr_from_ast(value);
+
+                    // state.xxxアクセス時はエラーでクラッシュ
+                    if let Err(e) = state.custom_state.set(&key, v.clone()) {
+                        panic!("Failed to set state.{}: {:?}. State access failed - this should crash the application.", key, e);
+                    }
+                } else {
+                    let key = path.trim().to_string();
+                    let v = state.eval_expr_from_ast(value);
                     state.variables.insert(key, v);
                 }
             }
             ViewNode::Toggle { path } => {
-                let key = path.strip_prefix("state.").unwrap_or(path).to_string();
-                if state.custom_state.toggle(&key).is_err() {
+                if path.starts_with("state.") {
+                    let key = path.strip_prefix("state.").unwrap().to_string();
+
+                    // state.xxxアクセス時はエラーでクラッシュ
+                    if let Err(e) = state.custom_state.toggle(&key) {
+                        panic!("Failed to toggle state.{}: {:?}. State access failed - this should crash the application.", key, e);
+                    }
+                } else {
+                    let key = path.to_string();
                     let cur = state.variables.get(&key).cloned().unwrap_or_else(|| "false".into());
                     let b = matches!(cur.as_str(), "true" | "1" | "True" | "TRUE");
                     state.variables.insert(key, (!b).to_string());
                 }
             }
             ViewNode::ListAppend { path, value } => {
-                let key = path.strip_prefix("state.").unwrap_or(path).to_string();
-                let v = state.eval_expr_from_ast(value);
-                if state.custom_state.list_append(&key, v.clone()).is_err() {
+                if path.starts_with("state.") {
+                    let key = path.strip_prefix("state.").unwrap().to_string();
+                    let v = state.eval_expr_from_ast(value);
+
+                    // state.xxxアクセス時はエラーでクラッシュ
+                    if let Err(e) = state.custom_state.list_append(&key, v.clone()) {
+                        panic!("Failed to append to state.{}: {:?}. State access failed - this should crash the application.", key, e);
+                    }
+                } else {
+                    let key = path.to_string();
+                    let v = state.eval_expr_from_ast(value);
                     let mut arr: Vec<String> = state
                         .variables
                         .get(&key)
@@ -982,8 +1031,15 @@ impl Engine {
                 }
             }
             ViewNode::ListRemove { path, index } => {
-                let key = path.strip_prefix("state.").unwrap_or(path).to_string();
-                if state.custom_state.list_remove(&key, *index).is_err() {
+                if path.starts_with("state.") {
+                    let key = path.strip_prefix("state.").unwrap().to_string();
+
+                    // state.xxxアクセス時はエラーでクラッシュ
+                    if let Err(e) = state.custom_state.list_remove(&key, *index) {
+                        panic!("Failed to remove from state.{}: {:?}. State access failed - this should crash the application.", key, e);
+                    }
+                } else {
+                    let key = path.to_string();
                     let mut arr: Vec<String> = state
                         .variables
                         .get(&key)
@@ -993,6 +1049,19 @@ impl Engine {
                         arr.remove(*index);
                         state.variables.insert(key, serde_json::to_string(&arr).unwrap());
                     }
+                }
+            }
+            ViewNode::ListClear { path } => {
+                if path.starts_with("state.") {
+                    let key = path.strip_prefix("state.").unwrap().to_string();
+
+                    // state.xxxアクセス時はエラーでクラッシュ
+                    if let Err(e) = state.custom_state.list_clear(&key) {
+                        panic!("Failed to clear state.{}: {:?}. State access failed - this should crash the application.", key, e);
+                    }
+                } else {
+                    let key = path.to_string();
+                    state.variables.insert(key, "[]".to_string());
                 }
             }
             _ => {}

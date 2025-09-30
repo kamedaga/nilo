@@ -2,6 +2,8 @@
 // Nilo言語 AST定義
 // ========================================
 
+use log::debug; // debug!マクロを使用するためのインポートを追加
+
 // ========================================
 // メインアプリケーション構造
 // ========================================
@@ -145,7 +147,8 @@ pub enum ViewNode {
     Toggle { path: String },
     ListAppend { path: String, value: Expr },
     ListRemove { path: String, index: usize },
-    
+    ListClear { path: String },
+
     // イベントハンドラー
     When { event: EventExpr, actions: Vec<WithSpan<ViewNode>> },
 
@@ -200,25 +203,38 @@ impl DimensionValue {
         Self { value, unit: Unit::Px }
     }
     
-    pub fn to_px(&self, viewport_w: f32, viewport_h: f32, _parent_w: f32, _parent_h: f32, _root_font_size: f32, _font_size: f32) -> f32 {
-        let result = match self.unit {
+    /// ビューポートサイズを考慮して実際のピクセル値を計算
+    pub fn to_pixels(&self, viewport_w: f32, viewport_h: f32) -> f32 {
+        match self.unit {
             Unit::Px => self.value,
             Unit::Vw => {
-                let calculated = (self.value / 100.0) * viewport_w;
-                println!("🔍 VW DEBUG: {}vw with viewport_w:{} = {}px", self.value, viewport_w, calculated);
+                let calculated = self.value * viewport_w / 100.0;
+                debug!("🔍 VW DEBUG: {}vw with viewport_w:{} = {}px", self.value, viewport_w, calculated);
                 calculated
-            },
+            }
             Unit::Vh => {
-                let calculated = (self.value / 100.0) * viewport_h;
-                println!("🔍 VH DEBUG: {}vh with viewport_h:{} = {}px", self.value, viewport_h, calculated);
+                let calculated = self.value * viewport_h / 100.0;
+                debug!("🔍 VH DEBUG: {}vh with viewport_h:{} = {}px", self.value, viewport_h, calculated);
                 calculated
-            },
-            Unit::Percent => self.value, // 実装は親要素に依存
-            Unit::PercentHeight => self.value,
-            Unit::Rem => self.value * _root_font_size, // ルートフォントサイズを使用
-            Unit::Em => self.value * _font_size,  // 現在のフォントサイズを使用
-        };
-        result
+            }
+            Unit::Percent => self.value / 100.0, // 通常は親要素のサイズに対する割合
+            Unit::PercentHeight => self.value / 100.0, // PercentHeightケースを追加
+            Unit::Rem => self.value * 16.0, // 仮のroot font-size
+            Unit::Em => self.value * 16.0,  // 仮のcurrent font-size
+        }
+    }
+
+    /// より詳細なピクセル変換（親要素サイズやフォントサイズを考慮）
+    pub fn to_px(&self, viewport_w: f32, viewport_h: f32, parent_w: f32, parent_h: f32, font_size: f32, root_font_size: f32) -> f32 {
+        match self.unit {
+            Unit::Px => self.value,
+            Unit::Vw => self.value * viewport_w / 100.0,
+            Unit::Vh => self.value * viewport_h / 100.0,
+            Unit::Percent => self.value * parent_w / 100.0,
+            Unit::PercentHeight => self.value * parent_h / 100.0,
+            Unit::Rem => self.value * root_font_size,
+            Unit::Em => self.value * font_size,
+        }
     }
 }
 

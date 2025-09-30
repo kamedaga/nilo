@@ -202,10 +202,15 @@ where
         ViewNode::Text { format, args } => {
             let values: Vec<String> = args.iter().map(|e| eval(e)).collect();
             let text = format_text(format, &values);
-            // ★ 修正: スタイルのフォントサイズを考慮
-            let width = calculate_text_width(&text, effective_font_size);
-            let final_width = width.clamp(MIN_TEXT_WIDTH, MAX_TEXT_WIDTH);
-            [final_width, effective_font_size * 1.2 + TEXT_PADDING]
+            // ★ 修正: パディングを考慮したテキスト幅計算
+            let text_width = calculate_text_width(&text, effective_font_size);
+            let padding = effective_padding(style, params);
+            let total_width = text_width + padding.left + padding.right;
+            let total_height = effective_font_size * 1.2 + padding.top + padding.bottom;
+
+            // ★ 修正: 最小幅のみ適用し、最大幅制限を削除してテキストが切れないようにする
+            let final_width = total_width.max(MIN_TEXT_WIDTH);
+            [final_width, total_height]
         }
         ViewNode::Button { label, .. } => {
             // ★ 修正: ボタンのフォントサイズを考慮
@@ -278,14 +283,15 @@ fn calculate_text_width(text: &str, font_size: f32) -> f32 {
     let mut width = 0.0;
     for ch in text.chars() {
         if ch.is_ascii() {
-            // 英数字・記号
-            width += font_size * 0.6;
+            // 英数字・記号 - より正確な係数を使用
+            width += font_size * 0.65;
         } else {
-            // 日本語文字（ひらがな、カタカナ、漢字）
-            width += font_size * 1.0;
+            // 日本語文字（ひらがな、カタカナ、漢字） - より正確な係数を使用
+            width += font_size * 1.1;
         }
     }
-    width
+    // ★ 修正: 少し余裕を持たせる
+    width * 1.05
 }
 
 /// ボタンラベルの幅を計算する関数
@@ -344,7 +350,7 @@ where
     [total_width, total_height]
 }
 
-/// イテラブル式を評価してアイテムリストを取得する関���
+/// イテラブル式を評価してアイテムリストを取得する関数
 fn evaluate_iterable<F>(iterable: &Expr, eval: &F) -> Vec<String>
 where
     F: Fn(&Expr) -> String,

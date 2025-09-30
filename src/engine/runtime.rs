@@ -6,6 +6,7 @@ use crate::ui::viewport;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use colored::Colorize;
+use log::{info, debug}; // ログマクロを追加
 use winit::{
     event::{WindowEvent, MouseScrollDelta, ElementState, MouseButton, KeyEvent, Ime},
     event_loop::{EventLoop, ActiveEventLoop},
@@ -413,12 +414,12 @@ where
 
                     // when評価
                     if let Some(new_tl) = Engine::step_whens(&self.app, &mut self.state, &events_snapshot) {
-                        println!("[INFO] Timeline changed to {}", new_tl);
+                        info!("[INFO] Timeline changed to {}", new_tl);
 
                         if let Some(tl) = self.state.current_timeline(&self.app) {
                             Engine::sync_button_handlers(&tl.body, &self.app.components, &mut self.button_handlers, |id| {
                                 let id = id.to_owned();
-                                Box::new(move |_st| println!("Button '{}' pressed (default handler)", id))
+                                Box::new(move |_st| debug!("Button '{}' pressed (default handler)", id)) // println!をdebug!に変更
                             });
                         }
 
@@ -453,7 +454,7 @@ where
                         &tl.body, &self.app.components, &mut self.button_handlers,
                         |id| {
                             let id = id.to_owned();
-                            Box::new(move |_st| println!("Button '{}' pressed (default handler)", id))
+                            Box::new(move |_st| debug!("Button '{}' pressed (default handler)", id)) // println!をdebug!に変更
                         }
                     );
                 }
@@ -495,7 +496,6 @@ pub fn run_internal<S>(app: Arc<App>, state: AppState<S>)
 where
     S: StateAccess + 'static + Clone + std::fmt::Debug,
 {
-    env_logger::init();
     let event_loop = EventLoop::new().unwrap();
     let mut app_handler = AppHandler::new(app, state, "My Application".to_string());
     event_loop.run_app(&mut app_handler).unwrap();
@@ -522,7 +522,6 @@ pub fn run_internal_with_restart_flag<S>(
 where
     S: StateAccess + 'static + Clone + std::fmt::Debug,
 {
-    env_logger::init();
     let event_loop = EventLoop::new().unwrap();
 
     // 再起動フラグ付きのAppHandlerを作成
@@ -623,7 +622,7 @@ pub fn run_with_hotreload_support<S: StateAccess + 'static + Clone + std::fmt::D
     restart_flag: Arc<Mutex<bool>>,
     updated_app: Arc<Mutex<Option<App>>>
 ) {
-    env_logger::init();
+    // env_logger::init(); // 削除: lib.rsで既に初期化されている
 
     // 単一のイベントループを作成（一度だけ）
     let event_loop = EventLoop::new().unwrap();
@@ -703,7 +702,7 @@ where
                 // 新しいアプリケーションがあるかチェック
                 if let Ok(mut app_guard) = self.updated_app.try_lock() {
                     if let Some(new_app) = app_guard.take() {
-                        println!("{}","🔄 Applying hot reload update...".yellow());
+                        info!("🔄 Applying hot reload update..."); // println!をinfo!に変更、coloredの使用を削除
                         self.current_app = Arc::new(new_app);
 
                         // 状態をリセット
@@ -718,7 +717,7 @@ where
                             window.request_redraw();
                         }
 
-                        println!("{}","✅ Hot reload update applied successfully!".green());
+                        info!("✅ Hot reload update applied successfully!"); // println!をinfo!に変更、coloredの使用を削除
                     }
                 }
 
@@ -1075,12 +1074,12 @@ where
                 let events_snapshot: Vec<UIEvent> = self.event_queue.queue.iter().cloned().collect();
                 if !events_snapshot.is_empty() {
                     if let Some(new_tl) = Engine::step_whens(&self.current_app, &mut self.state, &events_snapshot) {
-                        println!("[INFO] Timeline changed to {}", new_tl);
+                        info!("[INFO] Timeline changed to {}", new_tl);
 
                         if let Some(tl) = self.state.current_timeline(&self.current_app) {
                             Engine::sync_button_handlers(&tl.body, &self.current_app.components, &mut self.button_handlers, |id| {
                                 let id = id.to_owned();
-                                Box::new(move |_st| println!("Button '{}' pressed (default handler)", id))
+                                Box::new(move |_st| debug!("Button '{}' pressed (default handler)", id)) // println!をdebug!に変更
                             });
                         }
 
@@ -1113,7 +1112,7 @@ where
                         &tl.body, &self.current_app.components, &mut self.button_handlers,
                         |id| {
                             let id = id.to_owned();
-                            Box::new(move |_st| println!("Button '{}' pressed (default handler)", id))
+                            Box::new(move |_st| debug!("Button '{}' pressed (default handler)", id)) // println!をdebug!に変更
                         }
                     );
                 }
@@ -1146,15 +1145,15 @@ where
 }
 
 pub fn run_with_window_title<S: StateAccess + 'static + Clone + std::fmt::Debug>(
-    app: App, 
-    custom_state: S, 
+    app: App,
+    custom_state: S,
     window_title: Option<&str>
 ) {
     let start = app.flow.start.clone();
     let state = AppState::new(custom_state, start);
     let app = Arc::new(app);
-    
-    env_logger::init();
+
+    // env_logger::init(); // 削除: lib.rsで既に初期化されている
     let event_loop = EventLoop::new().unwrap();
     let title = window_title.unwrap_or("My Application").to_string();
     let mut app_handler = AppHandler::new(app, state, title);
@@ -1169,7 +1168,7 @@ pub fn run_with_hotreload_support_and_title<S: StateAccess + 'static + Clone + s
     updated_app: Arc<Mutex<Option<App>>>,
     window_title: Option<&str>
 ) {
-    env_logger::init();
+    // env_logger::init(); // 削除: lib.rsで既に初期化されている
 
     // 単一のイベントループを作成（一度だけ）
     let event_loop = EventLoop::new().unwrap();
@@ -1258,7 +1257,7 @@ where
                 // 新しいアプリケーションがあるかチェック
                 if let Ok(mut app_guard) = self.updated_app.try_lock() {
                     if let Some(new_app) = app_guard.take() {
-                        println!("{}","🔄 Applying hot reload update...".yellow());
+                        info!("🔄 Applying hot reload update..."); // println!をinfo!に変更、coloredの使用を削除
                         self.current_app = Arc::new(new_app);
 
                         // 状態をリセット
@@ -1273,7 +1272,7 @@ where
                             window.request_redraw();
                         }
 
-                        println!("{}","✅ Hot reload update applied successfully!".green());
+                        info!("✅ Hot reload update applied successfully!"); // println!をinfo!に変更、coloredの使用を削除
                     }
                 }
 
@@ -1630,12 +1629,12 @@ where
                 let events_snapshot: Vec<UIEvent> = self.event_queue.queue.iter().cloned().collect();
                 if !events_snapshot.is_empty() {
                     if let Some(new_tl) = Engine::step_whens(&self.current_app, &mut self.state, &events_snapshot) {
-                        println!("[INFO] Timeline changed to {}", new_tl);
+                        info!("[INFO] Timeline changed to {}", new_tl);
 
                         if let Some(tl) = self.state.current_timeline(&self.current_app) {
                             Engine::sync_button_handlers(&tl.body, &self.current_app.components, &mut self.button_handlers, |id| {
                                 let id = id.to_owned();
-                                Box::new(move |_st| println!("Button '{}' pressed (default handler)", id))
+                                Box::new(move |_st| debug!("Button '{}' pressed (default handler)", id)) // println!をdebug!に変更
                             });
                         }
 
@@ -1668,7 +1667,7 @@ where
                         &tl.body, &self.current_app.components, &mut self.button_handlers,
                         |id| {
                             let id = id.to_owned();
-                            Box::new(move |_st| println!("Button '{}' pressed (default handler)", id))
+                            Box::new(move |_st| debug!("Button '{}' pressed (default handler)", id)) // println!をdebug!に変更
                         }
                     );
                 }

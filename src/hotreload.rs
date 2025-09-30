@@ -4,7 +4,7 @@ use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
-use colored::*;
+use log::{error, info}; // ログマクロを追加
 
 pub struct HotReloader {
     _watcher: RecommendedWatcher,
@@ -22,7 +22,7 @@ impl HotReloader {
         let mut watcher = RecommendedWatcher::new(
             move |res| {
                 if let Err(e) = tx.send(res) {
-                    eprintln!("Error sending watch event: {}", e);
+                    error!("Error sending watch event: {}", e); // eprintln!をerror!に変更
                 }
             },
             config,
@@ -30,7 +30,7 @@ impl HotReloader {
 
         watcher.watch(watch_path.as_ref(), RecursiveMode::Recursive)?;
 
-        println!("{}", format!("🔥 Hot reload enabled for: {}", watch_path.as_ref().display()).green().bold());
+        info!("🔥 Hot reload enabled for: {}", watch_path.as_ref().display()); // println!をinfo!に変更、coloredの使用を削除
 
         let reload_callback: Arc<Mutex<Option<Box<dyn Fn() + Send + 'static>>>> = Arc::new(Mutex::new(None));
 
@@ -41,7 +41,7 @@ impl HotReloader {
                 match rx.recv_timeout(Duration::from_millis(50)) {
                     Ok(Ok(event)) => {
                         if should_reload(&event) {
-                            println!("{}", "🔄 File changed, reloading...".yellow().bold());
+                            info!("🔄 File changed, reloading..."); // println!をinfo!に変更、coloredの使用を削除
 
                             // 少し待ってからリロード（ファイル書き込みが完了するのを待つ）
                             thread::sleep(Duration::from_millis(100));
@@ -54,13 +54,13 @@ impl HotReloader {
                         }
                     }
                     Ok(Err(e)) => {
-                        eprintln!("Watch error: {:?}", e);
+                        error!("Watch error: {:?}", e); // eprintln!をerror!に変更
                     }
                     Err(mpsc::RecvTimeoutError::Timeout) => {
                         // タイムアウトは正常、続行
                     }
                     Err(mpsc::RecvTimeoutError::Disconnected) => {
-                        eprintln!("Watcher disconnected");
+                        error!("Watcher disconnected"); // eprintln!をerror!に変更
                         break;
                     }
                 }

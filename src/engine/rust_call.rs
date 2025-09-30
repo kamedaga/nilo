@@ -3,11 +3,12 @@ use crate::engine::state::{AppState, StateAccess};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::any::Any;
+use log;
 
-// 従来の引数のみを受け取る関数型
+/// 従来の引数のみを受け取る関数型
 type RustCallFn = dyn Fn(&[Expr]) + Send + Sync;
 
-// stateアクセス可能な関数型
+/// stateアクセス可能な関数型
 type StateAccessibleFn = dyn Fn(&mut dyn Any, &[Expr]) + Send + Sync;
 
 lazy_static::lazy_static! {
@@ -38,7 +39,7 @@ where
         if let Some(typed_state) = state.downcast_mut::<AppState<S>>() {
             func(typed_state, args);
         } else {
-            eprintln!("Error: State type mismatch in Rust call '{}'", name_owned);
+            log::error!("Error: State type mismatch in Rust call '{}'", name_owned);
         }
     };
     
@@ -59,7 +60,7 @@ pub fn execute_rust_call(name: &str, args: &[Expr]) {
     if let Some(func) = registry.get(name) {
         func(args);
     } else {
-        eprintln!("Warning: Rust call '{}' is not registered in basic registry", name);
+        log::warn!("Warning: Rust call '{}' is not registered in basic registry", name);
     }
 }
 
@@ -100,7 +101,7 @@ where
         return true;
     }
     
-    eprintln!("Error: Rust call '{}' is not registered in any registry", name);
+    log::error!("Error: Rust call '{}' is not registered in any registry", name);
     false
 }
 

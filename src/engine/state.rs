@@ -3,6 +3,7 @@ use crate::parser::ast::{
 };
 use crate::stencil::stencil::Stencil;
 use std::collections::HashMap;
+use log;
 
 /// コンポーネント専用の状態管理構造体（軽量化版）
 #[derive(Debug, Clone)]
@@ -459,15 +460,15 @@ impl<S: StateAccess + 'static> AppState<S> {
         // フォールバック：内部関数
         match name {
             "test" => {
-                println!("test() function called!");
+                log::debug!("test() function called!");
                 "test_executed".to_string()
             }
             "click_test" => {
-                println!("click_test() function called!");
+                log::debug!("click_test() function called!");
                 "click_test_executed".to_string()
             }
             _ => {
-                println!("Unknown function: {}", name);
+                log::debug!("Unknown function: {}", name);
                 format!("unknown_function({})", name)
             }
         }
@@ -500,11 +501,11 @@ impl<S: StateAccess + 'static> AppState<S> {
 
         // ★ デバッグ出力: レンダリング段階でのサイズ確認
         if let Some(ref rel_width) = style.relative_width {
-            println!("🎨 Render DEBUG: position: {:?}, size: {:?}, rel_width: {:?}",
+            log::debug!("🎨 Render DEBUG: position: {:?}, size: {:?}, rel_width: {:?}",
                 lnode.position, lnode.size, rel_width);
         }
         if let Some(ref rel_height) = style.relative_height {
-            println!("🎨 Render DEBUG: position: {:?}, size: {:?}, rel_height: {:?}",
+            log::debug!("🎨 Render DEBUG: position: {:?}, size: {:?}, rel_height: {:?}",
                 lnode.position, lnode.size, rel_height);
         }
 
@@ -640,6 +641,56 @@ impl<S: StateAccess + 'static> AppState<S> {
         let text_color = style.color.as_ref().map(to_rgba).unwrap_or([0.0, 0.0, 0.0, 1.0]);
         let p = style.padding.unwrap_or(Edges::default());
 
+        // ★ 修正: 背景色と角丸の描画を追加
+        if let Some(bg) = &style.background {
+            let bg_color = to_rgba(bg);
+
+            // 透明でない場合のみ背景を描画
+            if bg_color[3] > 0.0 {
+                let radius = style.rounded
+                    .map(|r| match r {
+                        Rounded::On => 8.0,
+                        Rounded::Px(v) => v,
+                    })
+                    .unwrap_or(0.0);
+
+                // 影の描画
+                if let Some(sh) = style.shadow.clone() {
+                    let (off, scol) = match sh {
+                        Shadow::On => ([0.0, 2.0], [0.0, 0.0, 0.0, 0.2]),
+                        Shadow::Spec { offset, color, .. } => {
+                            let scol = color.as_ref().map(to_rgba).unwrap_or([0.0, 0.0, 0.0, 0.2]);
+                            (offset, scol)
+                        }
+                    };
+
+                    *depth_counter += 0.001;
+                    out.push(Stencil::RoundedRect {
+                        position: [lnode.position[0] + off[0], lnode.position[1] + off[1]],
+                        width: lnode.size[0],
+                        height: lnode.size[1],
+                        radius,
+                        color: [scol[0], scol[1], scol[2], (scol[3] * 0.9).min(1.0)],
+                        scroll: true,
+                        depth: (1.0 - *depth_counter).max(0.0),
+                    });
+                }
+
+                // 背景の描画
+                *depth_counter += 0.001;
+                out.push(Stencil::RoundedRect {
+                    position: lnode.position,
+                    width: lnode.size[0],
+                    height: lnode.size[1],
+                    radius,
+                    color: bg_color,
+                    scroll: true,
+                    depth: (1.0 - *depth_counter).max(0.0),
+                });
+            }
+        }
+
+        // テキストの描画
         *depth_counter += 0.001;
         out.push(Stencil::Text {
             content,
@@ -815,7 +866,7 @@ impl<S: StateAccess + 'static> AppState<S> {
 
     pub fn handle_rust_call_viewnode(&mut self, name: &str, args: &[Expr]) {
         if !self.execute_rust_call(name, args) {
-            eprintln!("Warning: Rust call '{}' failed to execute", name);
+            log::warn!("Warning: Rust call '{}' failed to execute", name);
         }
     }
 }
@@ -897,6 +948,7 @@ pub trait StateAccess {
     fn toggle(&mut self, _path: &str) -> Result<(), String>;
     fn list_append(&mut self, _path: &str, _value: String) -> Result<(), String>;
     fn list_remove(&mut self, _path: &str, _index: usize) -> Result<(), String>;
+    fn list_clear(&mut self, _path: &str) -> Result<(), String>;
 }
 
 #[inline]

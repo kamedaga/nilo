@@ -4,6 +4,7 @@ use wgpu::util::DeviceExt;
 use winit::dpi::PhysicalSize;
 use crate::renderer::command::{DrawCommand, DrawList};
 use std::path::Path;
+use log::error; // ログマクロを追加
 
 #[repr(C)]
 #[derive(Copy, Clone, bytemuck::Pod, bytemuck::Zeroable, Debug)]
@@ -130,7 +131,7 @@ impl ImageRenderer {
             // SVGファイルの処理
             self.load_svg_as_rgba(path)
                 .unwrap_or_else(|e| {
-                    eprintln!("Failed to load SVG {}: {}", path, e);
+                    error!("Failed to load SVG {}: {}", path, e); // eprintln!をerror!に変更
                     // フォールバック: 1x1の透明画像
                     (1, 1, vec![0, 0, 0, 0])
                 })
@@ -143,7 +144,7 @@ impl ImageRenderer {
                     (w, h, rgba_img.into_raw())
                 }
                 Err(e) => {
-                    eprintln!("Failed to load image {}: {}", path, e);
+                    error!("Failed to load image {}: {}", path, e); // eprintln!をerror!に変更
                     // フォールバック: 1x1の透明画像
                     (1, 1, vec![0, 0, 0, 0])
                 }

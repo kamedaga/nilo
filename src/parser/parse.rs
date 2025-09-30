@@ -8,6 +8,7 @@
 use pest::Parser;
 use pest::iterators::Pair;
 use pest_derive::Parser;
+use log;
 
 use crate::parser::ast::*;
 use crate::stencil::stencil::Stencil;
@@ -19,7 +20,7 @@ use crate::stencil::stencil::Stencil;
 fn unquote(s: &str) -> String {
     let trimmed = s.trim();
     if (trimmed.starts_with('"') && trimmed.ends_with('"')) ||
-       (trimmed.starts_with('「') && trimmed.ends_with('」')) {
+        (trimmed.starts_with('「') && trimmed.ends_with('」')) {
         trimmed[1..trimmed.len()-1].to_string()
     } else {
         trimmed.to_string()
@@ -142,7 +143,7 @@ pub struct NiloParser;
 /// * `Ok(App)` - 解析成功時のAST
 /// * `Err(String)` - 解析エラー時のエラーメッセージ
 pub fn parse_nilo(source: &str) -> Result<App, String> {
-    println!("🔍 PARSE DEBUG: Starting to parse nilo file, length: {} chars", source.len());
+    log::debug!("🔍 PARSE DEBUG: Starting to parse nilo file, length: {} chars", source.len());
 
     // Pestパーサーでファイル全体を解析
     let mut pairs = NiloParser::parse(Rule::file, source)
@@ -151,7 +152,6 @@ pub fn parse_nilo(source: &str) -> Result<App, String> {
     let file_pair = pairs.next().expect("ファイルペアが見つかりません");
     assert_eq!(file_pair.as_rule(), Rule::file);
 
-    println!("🔍 PARSE DEBUG: Successfully parsed file structure");
 
     // 各定義を格納する変数を初期化
     let mut flow: Option<Flow> = None;
@@ -410,6 +410,7 @@ fn parse_view_node(pair: Pair<Rule>) -> WithSpan<ViewNode> {
         Rule::state_set    => parse_state_set(pair),
         Rule::list_append  => parse_list_append(pair),
         Rule::list_remove  => parse_list_remove(pair),
+        Rule::list_clear   => parse_list_clear(pair),
         Rule::state_toggle => parse_state_toggle(pair),
         Rule::foreach_node => parse_foreach_node(pair),
         Rule::if_node => parse_if_node(pair),
@@ -781,7 +782,7 @@ fn parse_navigate_action(pair: Pair<Rule>) -> WithSpan<ViewNode> {
 fn parse_when_block(pair: Pair<Rule>) -> When {
     let mut inner = pair.into_inner();
     let event = parse_event_expr(inner.next().unwrap());
-    
+
     let mut actions = Vec::new();
     for p in inner {
         match p.as_rule() {
@@ -793,7 +794,7 @@ fn parse_when_block(pair: Pair<Rule>) -> When {
             _ => actions.push(parse_view_node(p)),
         }
     }
-    
+
     When { event, actions }
 }
 
@@ -843,11 +844,11 @@ fn parse_expr(pair: Pair<Rule>) -> Expr {
                 let unit = match unit_str {
                     "px" => Unit::Px,
                     "vw" => {
-                        println!("🔍 PARSER DEBUG: Found {}vw in parsing", value);
+                        log::debug!("🔍 PARSER DEBUG: Found {}vw in parsing", value);
                         Unit::Vw
                     },
                     "vh" => {
-                        println!("🔍 PARSER DEBUG: Found {}vh in parsing", value);
+                        log::debug!("🔍 PARSER DEBUG: Found {}vh in parsing", value);
                         Unit::Vh
                     },
                     "%" => Unit::Percent,
@@ -856,7 +857,7 @@ fn parse_expr(pair: Pair<Rule>) -> Expr {
                     _ => Unit::Px, // デフォルト
                 };
                 let result = Expr::Dimension(DimensionValue { value, unit });
-                println!("🔍 PARSER DEBUG: Created DimensionValue: {:?}", result);
+                log::debug!("🔍 PARSER DEBUG: Created DimensionValue: {:?}", result);
                 result
             } else {
                 // ★ 修正: 単位がない場合は純粋な数値として扱う（pxに変換しない）
@@ -1217,7 +1218,7 @@ fn parse_state_set(pair: Pair<Rule>) -> WithSpan<ViewNode> {
 fn parse_list_append(pair: Pair<Rule>) -> WithSpan<ViewNode> {
     let span = pair.as_span();
     let (line, col) = span.start_pos().line_col();
-    let mut inner = pair.into_inner();                // ident_path, expr
+    let mut inner = pair.into_inner();                // path, expr
     let path = inner.next().unwrap().as_str().to_string();
     let value = parse_expr(inner.next().unwrap());
     WithSpan { node: ViewNode::ListAppend { path, value }, line, column: col, style: None }
@@ -1226,11 +1227,20 @@ fn parse_list_append(pair: Pair<Rule>) -> WithSpan<ViewNode> {
 fn parse_list_remove(pair: Pair<Rule>) -> WithSpan<ViewNode> {
     let span = pair.as_span();
     let (line, col) = span.start_pos().line_col();
-    let mut inner = pair.into_inner();                // ident_path, number
+    let mut inner = pair.into_inner();                // path, number
     let path = inner.next().unwrap().as_str().to_string();
     let index = inner.next().unwrap().as_str().parse::<usize>().unwrap();
     WithSpan { node: ViewNode::ListRemove { path, index }, line, column: col, style: None }
 }
+
+fn parse_list_clear(pair: Pair<Rule>) -> WithSpan<ViewNode> {
+    let span = pair.as_span();
+    let (line, col) = span.start_pos().line_col();
+    let mut inner = pair.into_inner();                // path
+    let path = inner.next().unwrap().as_str().to_string();
+    WithSpan { node: ViewNode::ListClear { path }, line, column: col, style: None }
+}
+
 fn parse_state_toggle(pair: Pair<Rule>) -> WithSpan<ViewNode> {
     let span = pair.as_span();
     let (line, col) = span.start_pos().line_col();
@@ -1243,10 +1253,162 @@ fn parse_state_toggle(pair: Pair<Rule>) -> WithSpan<ViewNode> {
     WithSpan { node: ViewNode::Toggle { path: lhs }, line, column: col, style: None }
 }
 
-// ========================================
-// スタイル取り回し
-// ========================================
+fn parse_rust_call(pair: Pair<Rule>) -> WithSpan<ViewNode> {
+    let span = pair.as_span();
+    let (line, col) = span.start_pos().line_col();
+    let mut inner = pair.into_inner();
+    let name = inner.next().unwrap().as_str().to_string();
 
+    let mut args: Vec<Expr> = Vec::new();
+    for arg_p in inner {
+        match arg_p.as_rule() {
+            Rule::arg_item => {
+                let mut it = arg_p.into_inner();
+                if let Some(x) = it.next() {
+                    if x.as_rule() == Rule::expr {
+                        args.push(parse_expr(x));
+                    }
+                }
+            }
+            Rule::expr => args.push(parse_expr(arg_p)),
+            _ => {}
+        }
+    }
+
+    WithSpan { node: ViewNode::RustCall { name, args }, line, column: col, style: None }
+}
+
+fn parse_text_input(pair: Pair<Rule>) -> WithSpan<ViewNode> {
+    let span = pair.as_span();
+    let (line, col) = span.start_pos().line_col();
+
+    let mut id: Option<String> = None;
+    let mut placeholder: Option<String> = None;
+    let mut value: Option<Expr> = None;
+    let mut on_change: Option<Expr> = None;
+    let mut multiline = false;
+    let mut max_length: Option<usize> = None;
+    let mut ime_enabled = true;
+    let mut style: Option<Style> = None;
+
+    for p in pair.into_inner() {
+        match p.as_rule() {
+            Rule::ident if id.is_none() => { id = Some(p.as_str().to_string()); }
+            Rule::string => {
+                if id.is_none() {
+                    id = Some(unquote(p.as_str()));
+                } else if placeholder.is_none() {
+                    placeholder = Some(unquote(p.as_str()));
+                }
+            }
+            Rule::style_arg => {
+                style = Some(style_from_expr(parse_expr(p.into_inner().next().unwrap())));
+            }
+            _ => {}
+        }
+    }
+
+    let id = id.expect("TextInputにはidが必要です");
+    WithSpan {
+        node: ViewNode::TextInput {
+            id,
+            placeholder,
+            value,
+            on_change,
+            multiline,
+            max_length,
+            ime_enabled
+        },
+        line,
+        column: col,
+        style
+    }
+}
+
+fn parse_foreach_node(pair: Pair<Rule>) -> WithSpan<ViewNode> {
+    let span = pair.as_span();
+    let (line, col) = span.start_pos().line_col();
+
+    let mut var: Option<String> = None;
+    let mut iterable: Option<Expr> = None;
+    let mut style: Option<Style> = None;
+    let mut body: Vec<WithSpan<ViewNode>> = Vec::new();
+
+    let mut inner = pair.into_inner();
+
+    // foreach variable in expression の解析
+    var = Some(inner.next().unwrap().as_str().to_string());
+    let _in_keyword = inner.next(); // "in" キーワードをスキップ
+    iterable = Some(parse_expr(inner.next().unwrap()));
+
+    // 残りの引数を処理
+    for p in inner {
+        match p.as_rule() {
+            Rule::style_arg => {
+                style = Some(style_from_expr(parse_expr(p.into_inner().next().unwrap())));
+            }
+            Rule::view_nodes => {
+                body = p.into_inner().map(parse_view_node).collect();
+            }
+            _ => {}
+        }
+    }
+
+    WithSpan {
+        node: ViewNode::ForEach {
+            var: var.unwrap(),
+            iterable: iterable.unwrap(),
+            body
+        },
+        line,
+        column: col,
+        style
+    }
+}
+
+fn parse_if_node(pair: Pair<Rule>) -> WithSpan<ViewNode> {
+    let span = pair.as_span();
+    let (line, col) = span.start_pos().line_col();
+
+    let mut condition: Option<Expr> = None;
+    let mut style: Option<Style> = None;
+    let mut then_body: Vec<WithSpan<ViewNode>> = Vec::new();
+    let mut else_body: Option<Vec<WithSpan<ViewNode>>> = None;
+
+    let mut inner = pair.into_inner();
+
+    // if condition の解析
+    condition = Some(parse_expr(inner.next().unwrap()));
+
+    // 残りの引数を処理
+    for p in inner {
+        match p.as_rule() {
+            Rule::style_arg => {
+                style = Some(style_from_expr(parse_expr(p.into_inner().next().unwrap())));
+            }
+            Rule::view_nodes => {
+                if then_body.is_empty() {
+                    then_body = p.into_inner().map(parse_view_node).collect();
+                } else {
+                    // else部分
+                    else_body = Some(p.into_inner().map(parse_view_node).collect());
+                }
+            }
+            _ => {}
+        }
+    }
+
+    WithSpan {
+        node: ViewNode::If {
+            condition: condition.unwrap(),
+            then_body,
+            else_body
+        },
+        line,
+        column: col,
+        style
+    }
+}
 
 fn style_from_expr(expr: Expr) -> Style {
     match expr {
@@ -1268,154 +1430,70 @@ fn style_from_expr(expr: Expr) -> Style {
                     "color"        => s.color        = color_from_expr(&resolved_value),
                     "background"   => s.background   = color_from_expr(&resolved_value),
                     "border_color" => s.border_color = color_from_expr(&resolved_value),
+                    "padding"      => s.padding      = edges_from_expr(&resolved_value),
+                    "margin"       => s.margin       = edges_from_expr(&resolved_value),
+                    "size"         => s.size         = size_from_expr(&resolved_value),
 
-
-                    "justify_content" => {
-
-                        match &resolved_value {
-                            Expr::Match { .. } => {
-                                // match式をそのまま保持
-                            },
-                            Expr::String(align_val) => {
-                                // 静的な値の場合は即座に処理
-                                s.align = Some(match align_val.as_str() {
-                                    "flex-start" | "start" => Align::Left,
-                                    "flex-end" | "end" => Align::Right,
-                                    "center" => Align::Center,
-                                    _ => Align::Left,
-                                });
-                            },
-                            _ => {}
-                        }
-                    },
-                    "align_items" => {
-                        match &resolved_value {
-                            Expr::String(align_val) => {
-                                s.align = Some(match align_val.as_str() {
-                                    "center" => Align::Center,
-                                    "flex-start" | "start" => Align::Top,
-                                    "flex-end" | "end" => Align::Bottom,
-                                    _ => Align::Left,
-                                });
-                            },
-                            _ => {}
-                        }
-                    },
-
-                    // ★ 個別のwidth/heightの処理を追加
+                    // 実際のStyleフィールドに合わせて修正
                     "width" => {
-                        match resolved_value {
-                            Expr::Number(n) => s.width = Some(n),
-                            Expr::Dimension(d) => s.relative_width = Some(d),
-                            _ => {}
+                        if let Some(Expr::Number(w)) = Some(&resolved_value) {
+                            s.width = Some(*w);
+                        } else if let Some(Expr::Dimension(d)) = Some(&resolved_value) {
+                            s.relative_width = Some(*d);
                         }
                     }
                     "height" => {
-                        match resolved_value {
-                            Expr::Number(n) => s.height = Some(n),
-                            Expr::Dimension(d) => s.relative_height = Some(d),
-                            _ => {}
+                        if let Some(Expr::Number(h)) = Some(&resolved_value) {
+                            s.height = Some(*h);
+                        } else if let Some(Expr::Dimension(d)) = Some(&resolved_value) {
+                            s.relative_height = Some(*d);
                         }
                     }
-
-                    "rounded" => {
-                        s.rounded = Some(match v {
-                            Expr::Bool(true)  => Rounded::On,
-                            Expr::Number(n)   => Rounded::Px(n),
-                            Expr::Dimension(d) => Rounded::Px(d.value),
-                            _ => Rounded::Px(8.0),
-                        });
-                    }
-
-                    "padding" => s.padding = edges_from_expr(&v),
-                    "margin"  => s.margin  = edges_from_expr(&v),
-
-                    // 相対単位対応のpadding/margin
-                    "relative_padding" => s.relative_padding = relative_edges_from_expr(&v),
-                    "relative_margin"  => s.relative_margin  = relative_edges_from_expr(&v),
-
-                    "size" => {
-                        // 従来の絶対値size
-                        if let Some([w,h]) = size_from_expr(&v) {
-                            s.size = Some([w,h]);
-                        }
-                        if let Some([w,h]) = relative_size_from_expr(&v) {
-                            s.relative_size = Some([w,h]);
-                        }
-                    }
-
-                    "hover" => {
-                        if let Expr::Object(_) = v {
-                            s.hover = Some(Box::new(style_from_expr(v)));
-                        }
-                    }
-
                     "font_size" => {
-                        match v {
-                            Expr::Number(n) => s.font_size = Some(n),
-                            Expr::Dimension(d) => s.relative_font_size = Some(d),
-                            _ => {}
+                        if let Some(Expr::Number(fs)) = Some(&resolved_value) {
+                            s.font_size = Some(*fs);
+                        } else if let Some(Expr::Dimension(d)) = Some(&resolved_value) {
+                            s.relative_font_size = Some(*d);
                         }
                     }
                     "font" => {
-                        if let Expr::String(t) = v { s.font = Some(t); }
+                        if let Some(Expr::String(f)) = Some(&resolved_value) {
+                            s.font = Some(f.clone());
+                        }
                     }
-                    "align" => {
-                        s.align = Some(match v {
-                            Expr::String(ref t) if t.eq_ignore_ascii_case("center") => Align::Center,
-                            Expr::String(ref t) if t.eq_ignore_ascii_case("right")  => Align::Right,
-                            Expr::String(ref t) if t.eq_ignore_ascii_case("top")    => Align::Top,
-                            Expr::String(ref t) if t.eq_ignore_ascii_case("bottom") => Align::Bottom,
-                            _ => Align::Left
-                        });
-                    },
                     "spacing" => {
-                        match v {
-                            Expr::Number(n) => s.spacing = Some(n),
-                            Expr::Dimension(d) => s.relative_spacing = Some(d),
-                            _ => {}
+                        if let Some(Expr::Number(sp)) = Some(&resolved_value) {
+                            s.spacing = Some(*sp);
+                        } else if let Some(Expr::Dimension(d)) = Some(&resolved_value) {
+                            s.relative_spacing = Some(*d);
                         }
-                    },
-                    "gap" => {
-                        // spacingのエイリアス
-                        match v {
-                            Expr::Number(n) => s.spacing = Some(n),
-                            Expr::Dimension(d) => s.relative_spacing = Some(d),
-                            _ => {}
-                        }
-                    },
-                    "card"    => { if let Expr::Bool(b)   = v { s.card    = Some(b); } },
-
-                    "shadow" => {
-                        s.shadow = Some(match v {
-                            Expr::Bool(true) => Shadow::On,
-                            Expr::Object(inner) => {
-                                let mut blur = 8.0;
-                                let mut offset = [0.0, 2.0];
-                                let mut color: Option<ColorValue> = None;
-                                for (kk, vv) in inner {
-                                    match kk.as_str() {
-                                        "blur" => if let Expr::Number(n) = vv { blur = n; },
-                                        "offset" => {
-                                            if let Expr::Array(xs) = vv {
-                                                if xs.len() >= 2 {
-                                                    if let (Expr::Number(x), Expr::Number(y)) = (&xs[0], &xs[1]) {
-                                                        offset = [*x, *y];
-                                                    }
-                                                }
-                                            }
-                                        }
-                                        "color" => color = color_from_expr(&vv),
-                                        _ => {}
-                                    }
-                                }
-                                Shadow::Spec { blur, offset, color }
-                            }
-                            _ => Shadow::On
-                        });
                     }
-
-                    _ => { /* 未知キーは無視 */ }
+                    "card" => {
+                        if let Some(Expr::Bool(c)) = Some(&resolved_value) {
+                            s.card = Some(*c);
+                        }
+                    }
+                    // ★ 新規追加: rounded プロパティの処理
+                    "rounded" => {
+                        match &resolved_value {
+                            Expr::Number(r) => {
+                                s.rounded = Some(Rounded::Px(*r));
+                            }
+                            Expr::Bool(true) => {
+                                s.rounded = Some(Rounded::On);
+                            }
+                            Expr::Bool(false) => {
+                                s.rounded = None;
+                            }
+                            Expr::Dimension(d) => {
+                                s.rounded = Some(Rounded::Px(d.value));
+                            }
+                            _ => {}
+                        }
+                    }
+                    _ => {
+                        // 未知のプロパティは無視
+                    }
                 }
             }
             s
@@ -1424,444 +1502,11 @@ fn style_from_expr(expr: Expr) -> Style {
     }
 }
 
-fn relative_edges_from_expr(e: &Expr) -> Option<RelativeEdges> {
-    match e {
-        Expr::Number(_n) => {
-            // ★ 修正: 純粋な数値はpxに自動変換しない
-            // 相対単位のエッジは明示的にDimensionValueを持つもののみ
-            None
-        },
-        Expr::Dimension(d) => Some(RelativeEdges::all(*d)),
-        Expr::Array(xs) => {
-            // [v, h] 形式
-            if xs.len() == 2 {
-                let v = dimension_from_expr(&xs[0])?;
-                let h = dimension_from_expr(&xs[1])?;
-                return Some(RelativeEdges::vh(v, h));
-            }
-            None
-        }
-        Expr::Object(kvs) => {
-            let mut ed = RelativeEdges::default();
-            for (k,v) in kvs {
-                let dim = dimension_from_expr(v)?;
-                match k.as_str() {
-                    "top"    => ed.top = Some(dim),
-                    "right"  => ed.right = Some(dim),
-                    "bottom" => ed.bottom = Some(dim),
-                    "left"   => ed.left = Some(dim),
-                    _ => {}
-                }
-            }
-            Some(ed)
-        }
-        _ => None
-    }
+// 階層的フロー関連の関数（現在は未実装、将来のために空実装）
+fn parse_namespaced_flow_def(_pair: Pair<Rule>) -> Result<NamespacedFlow, String> {
+    Err("階層的フロー定義は未実装です".to_string())
 }
 
-/// 式から相対単位対応のサイズを生成
-fn relative_size_from_expr(e: &Expr) -> Option<[DimensionValue; 2]> {
-    if let Expr::Array(xs) = e {
-        if xs.len() >= 2 {
-            let w = dimension_from_expr(&xs[0])?;
-            let h = dimension_from_expr(&xs[1])?;
-            return Some([w, h]);
-        }
-    }
-    None
-}
-
-/// 式からDimensionValueを抽出
-fn dimension_from_expr(e: &Expr) -> Option<DimensionValue> {
-    match e {
-        Expr::Number(_n) => {
-            // ★ 修正: 純粋な数値はpxに自動変換しない
-            // DimensionValueは明示的にDimensionを持つExprのみから作成
-            None
-        },
-        Expr::Dimension(d) => Some(*d),
-        _ => None
-    }
-}
-
-/// 形式: function_name!(arg1, ..., [style: {...}])
-/// Rust側で定義された関数の呼び出し
-fn parse_rust_call(pair: Pair<Rule>) -> WithSpan<ViewNode> {
-    let span = pair.as_span();
-    let (line, col) = span.start_pos().line_col();
-    let mut inner = pair.into_inner();
-
-    let name = inner.next().unwrap().as_str().to_string();
-
-    let mut args: Vec<Expr> = Vec::new();
-    let mut style: Option<Style> = None;
-
-    // rust_callはarg_itemの列を返す
-    for p in inner {
-        match p.as_rule() {
-            Rule::arg_item => {
-                let mut it = p.into_inner();
-                if let Some(x) = it.next() {
-                    match x.as_rule() {
-                        Rule::style_arg => {
-                            let expr = parse_expr(x.into_inner().next().unwrap());
-                            style = Some(style_from_expr(expr));
-                        }
-                        Rule::expr => args.push(parse_expr(x)),
-                        _ => {}
-                    }
-                }
-            }
-            Rule::style_arg => {
-                style = Some(style_from_expr(parse_expr(p.into_inner().next().unwrap())));
-            }
-            Rule::expr => args.push(parse_expr(p)),
-            _ => {}
-        }
-    }
-
-    WithSpan { node: ViewNode::RustCall { name, args }, line, column: col, style }
-}
-
-/// foreach制御ノードの解析
-///
-/// 形式: foreach item in expr ([style: {...}]) { ... }
-fn parse_foreach_node(pair: Pair<Rule>) -> WithSpan<ViewNode> {
-    let span = pair.as_span();
-    let (line, col) = span.start_pos().line_col();
-
-    let mut var: Option<String> = None;
-    let mut iterable: Option<Expr> = None;
-    let mut style: Option<Style> = None;
-    let mut body: Vec<WithSpan<ViewNode>> = Vec::new();
-
-    let mut inner = pair.into_inner();
-    
-    // 第1引数: 繰り返し変数名
-    if let Some(var_pair) = inner.next() {
-        var = Some(var_pair.as_str().to_string());
-    }
-
-
-    if let Some(expr_pair) = inner.next() {
-        iterable = Some(parse_expr(expr_pair));
-    }
-
-    // 残りの要素を処理
-    for p in inner {
-        match p.as_rule() {
-            Rule::style_arg => {
-                style = Some(style_from_expr(parse_expr(p.into_inner().next().unwrap())));
-            }
-            Rule::view_nodes => {
-                body = p.into_inner().map(parse_view_node).collect();
-            }
-            _ => {}
-        }
-    }
-
-    WithSpan {
-        node: ViewNode::ForEach {
-            var: var.expect("foreach には変数名が必ず必要です"),
-            iterable: iterable.expect("foreach には繰り返し対象必要です"),
-            body,
-        },
-        line,
-        column: col,
-        style,
-    }
-}
-
-/// if制御ノードの解析
-fn parse_if_node(pair: Pair<Rule>) -> WithSpan<ViewNode> {
-    let span = pair.as_span();
-    let (line, col) = span.start_pos().line_col();
-
-    let mut condition: Option<Expr> = None;
-    let mut style: Option<Style> = None;
-    let mut then_body: Vec<WithSpan<ViewNode>> = Vec::new();
-    let mut else_body: Option<Vec<WithSpan<ViewNode>>> = None;
-
-    let mut inner = pair.into_inner();
-    
-    // 第1引数: 条件式
-    if let Some(condition_pair) = inner.next() {
-        condition = Some(parse_expr(condition_pair));
-    }
-
-    let mut in_else = false;
-
-    for p in inner {
-        match p.as_rule() {
-            Rule::style_arg => {
-                style = Some(style_from_expr(parse_expr(p.into_inner().next().unwrap())));
-            }
-            Rule::view_nodes => {
-                let nodes = p.into_inner().map(parse_view_node).collect();
-                if in_else {
-                    else_body = Some(nodes);
-                } else {
-                    then_body = nodes;
-                    in_else = true;
-                }
-            }
-            _ => {}
-        }
-    }
-
-    WithSpan {
-        node: ViewNode::If {
-            condition: condition.expect("if には条件式が必要です"),
-            then_body,
-            else_body,
-        },
-        line,
-        column: col,
-        style,
-    }
-}
-
-/// テキスト入力フィールドの解析
-///
-/// 形式: TextInput(id: "field_id", placeholder: "hint", [value: "initial"], [ime_enabled: true], [style: {...}])
-fn parse_text_input(pair: Pair<Rule>) -> WithSpan<ViewNode> {
-    let span = pair.as_span();
-    let (line, col) = span.start_pos().line_col();
-
-    let mut id: Option<String> = None;
-    let mut placeholder: Option<String> = None;
-    let value: Option<Expr> = None;
-    let on_change: Option<Expr> = None;
-    let multiline = false;
-    let max_length: Option<usize> = None;
-    let ime_enabled = true; // デフォルトでIME有効
-    let mut style: Option<Style> = None;
-
-    // パラメータを順次解析
-    let inner = pair.into_inner();
-    let mut param_index = 0;
-
-    for p in inner {
-        match p.as_rule() {
-            Rule::arg_item => {
-                let inner_item = p.into_inner().next().unwrap();
-                match inner_item.as_rule() {
-                    Rule::expr => {
-                        // 位置引数として処理
-                        match param_index {
-                            0 => {
-                                if let Expr::String(s) = parse_expr(inner_item) {
-                                    id = Some(s);
-                                } else {
-                                    panic!("TextInputの第1引数（id）は文字列である必要があります");
-                                }
-                            }
-                            1 => {
-                                // 第2引数: placeholder（オプション）
-                                if let Expr::String(s) = parse_expr(inner_item) {
-                                    placeholder = Some(s);
-                                }
-                            }
-                            _ => {
-                                // その他の引数は名前付きで処理
-                            }
-                        }
-                        param_index += 1;
-                    }
-                    Rule::style_arg => {
-                        let expr = parse_expr(inner_item.into_inner().next().unwrap());
-                        style = Some(style_from_expr(expr));
-                    }
-                    _ => {}
-                }
-            }
-            Rule::expr => {
-                match param_index {
-                    0 => {
-                        if let Expr::String(s) = parse_expr(p) {
-                            id = Some(s);
-                        }
-                    }
-                    1 => {
-                        if let Expr::String(s) = parse_expr(p) {
-                            placeholder = Some(s);
-                        }
-                    }
-                    _ => {}
-                }
-                param_index += 1;
-            }
-            Rule::style_arg => {
-                let expr = parse_expr(p.into_inner().next().unwrap());
-                style = Some(style_from_expr(expr));
-            }
-            _ => {}
-        }
-    }
-
-
-    let id = id.expect("TextInputにはidが必要です");
-
-    WithSpan {
-        node: ViewNode::TextInput {
-            id,
-            placeholder,
-            value,
-            on_change,
-            multiline,
-            max_length,
-            ime_enabled,
-        },
-        line,
-        column: col,
-        style,
-    }
-}
-
-/// 階層的フロー定義を解析
-pub fn parse_namespaced_flow_def(pair: Pair<Rule>) -> Result<NamespacedFlow, String> {
-    assert_eq!(pair.as_rule(), Rule::namespaced_flow_def);
-
-    let mut inner = pair.into_inner();
-
-    // フロー名を取得
-    let name = inner.next().unwrap().as_str().to_string();
-
-    let mut start = None;
-    let mut transitions = Vec::new();
-
-    for flow_inner in inner {
-        match flow_inner.as_rule() {
-            Rule::namespaced_start_def => {
-                let ident = flow_inner.into_inner().next().unwrap(); // ident
-                start = Some(ident.as_str().to_string());
-            }
-            Rule::namespaced_transition_def => {
-                // 遷移定義を実際に解析
-                let transition = parse_namespaced_transition_def(flow_inner)?;
-                transitions.push(transition);
-            }
-            _ => {}
-        }
-    }
-
-    // バリデーション
-    let start = start.ok_or_else(|| "階層的フロー定義にはstart:が必要です".to_string())?;
-    if transitions.is_empty() {
-        return Err("階層的フロー定義には少なくとも1つの遷移が必要です".to_string());
-    }
-
-    Ok(NamespacedFlow { name, start, transitions })
-}
-
-/// 階層的フローの遷移定義を解析する関数
-fn parse_namespaced_transition_def(pair: Pair<Rule>) -> Result<(String, Vec<String>), String> {
-    assert_eq!(pair.as_rule(), Rule::namespaced_transition_def);
-
-    let mut inner = pair.into_inner();
-
-    let source_pair = inner.next().ok_or("階層的遷移定義に遷移元がありません")?;
-    let source = parse_namespaced_transition_source(source_pair)?;
-
-    // 遷移先の解析
-    let target_pair = inner.next().ok_or("階層的遷移定義に遷移先がありません")?;
-    let targets = parse_namespaced_transition_targets(target_pair)?;
-
-    // 現在のFlow構造では単一の遷移元のみサポートしているため、
-    // 複数の遷移元がある場合は各々を個別の遷移として扱う
-    if source.len() == 1 {
-        Ok((source[0].clone(), targets))
-    } else {
-        // 複数遷移元の場合は最初のもので代表（後で改善予定）
-        Ok((source[0].clone(), targets))
-    }
-}
-
-/// 階層的フローの遷移元の解析
-fn parse_namespaced_transition_source(pair: Pair<Rule>) -> Result<Vec<String>, String> {
-    assert_eq!(pair.as_rule(), Rule::namespaced_transition_source);
-
-    let inner = pair.into_inner().next().ok_or("namespaced_transition_sourceが空です")?;
-
-    match inner.as_rule() {
-        Rule::ident => {
-            // 単一の識別子
-            Ok(vec![inner.as_str().to_string()])
-        }
-        _ => {
-            // 配列形式 [ident1, ident2, ...]
-            let mut sources = Vec::new();
-            for ident_pair in inner.into_inner() {
-                if ident_pair.as_rule() == Rule::ident {
-                    sources.push(ident_pair.as_str().to_string());
-                }
-            }
-            Ok(sources)
-        }
-    }
-}
-
-/// 階層的フローの遷移先の解析
-fn parse_namespaced_transition_targets(pair: Pair<Rule>) -> Result<Vec<String>, String> {
-    match pair.as_rule() {
-        Rule::qualified_ident | Rule::ident => {
-            // 単一の遷移先
-            Ok(vec![pair.as_str().to_string()])
-        }
-        _ => {
-            // 配列形式の遷移先 [target1, target2, ...]
-            let mut targets = Vec::new();
-            for ident_pair in pair.into_inner() {
-                match ident_pair.as_rule() {
-                    Rule::qualified_ident | Rule::ident => {
-                        targets.push(ident_pair.as_str().to_string());
-                    }
-                    _ => {}
-                }
-            }
-            Ok(targets)
-        }
-    }
-}
-
-fn expand_namespaced_flow(
-    namespaced_flow: NamespacedFlow,
-    existing_timelines: Vec<Timeline>
-) -> Result<(Flow, Vec<Timeline>), String> {
-    let namespace = &namespaced_flow.name;
-
-    // 新しい開始状態は namespace::start の形式
-    let expanded_start = format!("{}::{}", namespace, namespaced_flow.start);
-
-    // 遷移を展開
-    let mut expanded_transitions = Vec::new();
-
-    for (source, targets) in namespaced_flow.transitions {
-        // 遷移元を修飾
-        let qualified_source = format!("{}::{}", namespace, source);
-
-        let qualified_targets: Vec<String> = targets.into_iter()
-            .map(|target| {
-                if target.contains("::") {
-                    // 既に修飾されている場合はそのまま
-                    target
-                } else {
-                    // ローカル名の場合は現在の名前空間で修飾
-                    format!("{}::{}", namespace, target)
-                }
-            })
-            .collect();
-
-        expanded_transitions.push((qualified_source, qualified_targets));
-    }
-
-    // 例：階層化されたタイムラインが見つからない場合のデフォルト処理
-    // この実装では既存のタイムラインをそのまま使用
-
-    let expanded_flow = Flow {
-        start: expanded_start,
-        transitions: expanded_transitions,
-    };
-
-    Ok((expanded_flow, existing_timelines))
+fn expand_namespaced_flow(_namespaced_flow: NamespacedFlow, timelines: Vec<Timeline>) -> Result<(Flow, Vec<Timeline>), String> {
+    Err("階層的フロー展開は未実装です".to_string())
 }

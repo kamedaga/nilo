@@ -59,13 +59,28 @@ pub fn derive_state_access(input: TokenStream) -> TokenStream {
 
     // ---- 型ヘルパ ----
     fn is_ty(ty: &Type, want: &str) -> bool {
-        if let Type::Path(tp) = ty {
-            if let Some(seg) = tp.path.segments.last() { return seg.ident == want; }
+        let actual_type = match ty {
+            Type::Group(group) => &*group.elem,  // Type::Groupの場合は内部の型を取得
+            other => other,
+        };
+
+        match actual_type {
+            Type::Path(tp) => {
+                if let Some(seg) = tp.path.segments.last() {
+                    return seg.ident == want;
+                }
+                false
+            }
+            _ => false,
         }
-        false
     }
     fn vec_inner(ty: &Type) -> Option<Type> {
-        if let Type::Path(tp) = ty {
+        let actual_type = match ty {
+            Type::Group(group) => &*group.elem,  // Type::Groupの場合は内部の型を取得
+            other => other,
+        };
+
+        if let Type::Path(tp) = actual_type {
             if let Some(seg) = tp.path.segments.last() {
                 if seg.ident == "Vec" {
                     if let PathArguments::AngleBracketed(ab) = &seg.arguments {
@@ -81,8 +96,14 @@ pub fn derive_state_access(input: TokenStream) -> TokenStream {
 
     // ---- get_field ----
     let get_field_arms = fs.iter().map(|f| {
-        let name = &f.ident; let key  = &f.key;
-        quote! { #key => Some(self.#name.to_string()) }
+        let name = &f.ident; let key = &f.key;
+        if vec_inner(&f.ty).is_some() {
+            // ベクター型の場合はJSONシリアライゼーションを使用
+            quote! { #key => Some(serde_json::to_string(&self.#name).unwrap_or_else(|_| "[]".to_string())) }
+        } else {
+            // その他の型は通常のto_string()を使用
+            quote! { #key => Some(self.#name.to_string()) }
+        }
     });
 
     // ---- set ----
@@ -98,14 +119,19 @@ pub fn derive_state_access(input: TokenStream) -> TokenStream {
         } else if is_ty(&f.ty, "i8")||is_ty(&f.ty, "i16")||is_ty(&f.ty, "i32")||is_ty(&f.ty, "i64")||is_ty(&f.ty, "i128")
             ||is_ty(&f.ty, "u8")||is_ty(&f.ty, "u16")||is_ty(&f.ty, "u32")||is_ty(&f.ty, "u64")||is_ty(&f.ty, "u128") {
             let ty = &f.ty;
-            quote! { #key => { self.#field = value.parse::<#ty>().map_err(|e| format!("parse {}: {}", #key, e))?; Ok(()) } }
+            quote! { #key => {
+                self.#field = value.parse::<#ty>().map_err(|e| format!("parse {}: {}", #key, e))?;
+                Ok(())
+            } }
         } else if is_ty(&f.ty, "f32")||is_ty(&f.ty, "f64") {
             let ty = &f.ty;
             quote! { #key => { self.#field = value.parse::<#ty>().map_err(|e| format!("parse {}: {}", #key, e))?; Ok(()) } }
         } else if vec_inner(&f.ty).is_some() {
             quote! { #key => { Err(format!("{} is a list; use list_append/remove", #key)) } }
         } else {
-            quote! { #key => { Err(format!("unsupported type for set: {}", #key)) } }
+            quote! { #key => {
+                Err(format!("unsupported type for set: {}", #key))
+            } }
         }
     });
 
@@ -154,6 +180,19 @@ pub fn derive_state_access(input: TokenStream) -> TokenStream {
         }
     });
 
+    // ---- list_clear ----
+    let list_clear_arms = fs.iter().map(|f| {
+        let field = &f.ident; let key = &f.key;
+        if vec_inner(&f.ty).is_some() {
+            quote! { #key => {
+                self.#field.clear();
+                Ok(())
+            } }
+        } else {
+            quote! { #key => { Err(format!("{} is not a list", #key)) } }
+        }
+    });
+
     let expanded = quote! {
         impl #trait_path_ts for #struct_ident {
             fn get_field(&self, key: &str) -> Option<String> {
@@ -170,6 +209,9 @@ pub fn derive_state_access(input: TokenStream) -> TokenStream {
             }
             fn list_remove(&mut self, path: &str, index: usize) -> Result<(), String> {
                 match path { #(#list_remove_arms,)* _ => Err(format!("unknown field: {}", path)) }
+            }
+            fn list_clear(&mut self, path: &str) -> Result<(), String> {
+                match path { #(#list_clear_arms,)* _ => Err(format!("unknown field: {}", path)) }
             }
         }
     };

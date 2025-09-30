@@ -1,6 +1,7 @@
 // foreach文の修正版処理
 use crate::parser::ast::{ViewNode, WithSpan, Expr};
 use crate::ui::layout::{LayoutedNode, LayoutParams};
+use log::debug; // ログマクロを追加
 
 /// foreach文専用のレイアウト処理関数
 pub fn layout_foreach_impl<'a, F, G>(
@@ -18,13 +19,13 @@ pub fn layout_foreach_impl<'a, F, G>(
 {
     // 繰り返し対象を評価
     let iterable_value = eval(iterable);
-    println!("🔄 Layout: foreach var={}, iterable_value={}", var, iterable_value);
-    
+    debug!("🔄 Layout: foreach var={}, iterable_value={}", var, iterable_value); // println!をdebug!に変更
+
     let items: Vec<String> = if iterable_value.starts_with('[') && iterable_value.ends_with(']') {
         // JSON配列として解析を試行
         match serde_json::from_str::<Vec<serde_json::Value>>(&iterable_value) {
             Ok(parsed) => {
-                println!("✅ Layout: Successfully parsed {} items", parsed.len());
+                debug!("✅ Layout: Successfully parsed {} items", parsed.len()); // println!をdebug!に変更
                 parsed.into_iter().map(|v| match v {
                     serde_json::Value::String(s) => s,
                     serde_json::Value::Number(n) => n.to_string(),
@@ -33,7 +34,7 @@ pub fn layout_foreach_impl<'a, F, G>(
                 }).collect()
             }
             Err(e) => {
-                println!("❌ Layout: JSON parse error: {}", e);
+                debug!("❌ Layout: JSON parse error: {}", e); // println!をdebug!に変更
                 vec![iterable_value]
             }
         }
@@ -43,8 +44,8 @@ pub fn layout_foreach_impl<'a, F, G>(
 
     // 各アイテムに対してボディを展開してレイアウト
     for (index, item) in items.iter().enumerate() {
-        println!("  🔸 Layout foreach[{}]: item='{}'", index, item);
-        
+        debug!("  🔸 Layout foreach[{}]: item='{}'", index, item); // println!をdebug!に変更
+
         // 各アイテムに対してボディの各ノードを処理
         for child in body {
             // 変数置換のための評価関数を作成

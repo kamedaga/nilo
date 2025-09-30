@@ -504,12 +504,16 @@ state.dark_mode = !state.dark_mode
 ### 7.3 リスト操作
 ```nilo
 // リストに要素を追加
-state.items.append("新しいアイテム")
-state.players.append({ name: "プレイヤー", score: 100 })
+append(state.items, "新しいアイテム")
+append(state.players, { name: "プレイヤー", score: 100 })
 
 // リストから要素を削除（インデックス指定）
-state.items.remove(0)    // 最初の要素を削除
-state.players.remove(2)  // 3番目の要素を削除
+remove(state.items, 0)    // 最初の要素を削除
+remove(state.players, 2)  // 3番目の要素を削除
+
+// リストをクリア（全要素を削除）
+clear(state.items)        // リストを空にする
+clear(state.players)      // プレイヤーリストをクリア
 ```
 
 ## 8. イベント処理 (Event Handling)
@@ -683,6 +687,11 @@ hstack_node = { "HStack" ~ "(" ~ style_arg? ~ ")" ~ "{" ~ view_nodes? ~ "}" }
 foreach_node = { "foreach" ~ ident ~ "in" ~ expr ~ ("(" ~ style_arg? ~ ")")? ~ "{" ~ view_nodes? ~ "}" }
 if_node = { "if" ~ expr ~ ("(" ~ style_arg? ~ ")")? ~ "{" ~ view_nodes? ~ "}" ~ ("else" ~ "{" ~ view_nodes? ~ "}")? }
 match_block = { "match" ~ expr ~ ("(" ~ style_arg? ~ ")")? ~ "{" ~ match_arm* ~ default_arm? ~ "}" }
+
+// リスト操作
+list_append = { "append" ~ "(" ~ path ~ "," ~ expr ~ ")" }
+list_remove = { "remove" ~ "(" ~ path ~ "," ~ number ~ ")" }
+list_clear = { "clear" ~ "(" ~ path ~ ")" }
 
 // イベント
 when_block = { "when" ~ event_expr ~ "{" ~ view_nodes? ~ "}" }
