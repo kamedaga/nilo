@@ -16,20 +16,25 @@ number  = @{ "-"? ~ ASCII_DIGIT+ ~ ("." ~ ASCII_DIGIT+)? }
 bool    = { "true" | "false" }
 
 // 相対単位対応の新しい値型
-dimension_value = { number ~ unit_suffix? }
-unit_suffix = { "px" | "vw" | "vh" | "%" | "rem" | "em" }
+dimension_value = { auto_keyword | (number ~ unit_suffix?) }
+unit_suffix = { "px" | "vw" | "vh" | "ww" | "wh" | "%" | "rem" | "em" }
+auto_keyword = { "auto" }
 
 array   = { "[" ~ (expr ~ ("," ~ expr)*)? ~ "]" }
 object  = { "{" ~ (object_entry ~ ("," ~ object_entry)*)? ~ "}" }
 object_entry = { ident ~ ":" ~ expr }
 
-expr    = { arithmetic_expr }
+expr    = { comparison_expr }
+
+// 比較演算式の定義（最低優先度）
+comparison_expr = { arithmetic_expr ~ (comparison_op ~ arithmetic_expr)* }
 
 // 算術演算式の定義
 arithmetic_expr = { term ~ (arithmetic_op ~ term)* }
 term = { factor ~ (factor_op ~ factor)* }
 factor = { primary }
 
+comparison_op = { "==" | "!=" | "<=" | ">=" | "<" | ">" }
 arithmetic_op = { "+" | "-" }
 factor_op = { "*" | "/" }
 
@@ -39,8 +44,8 @@ style_arg = { "style" ~ ":" ~ expr }
 
 file       = { SOI ~ (flow_def | namespaced_flow_def | timeline_def | component_def)* ~ EOI }
 
-// 既存のシンプルなフロー定義
-flow_def   = { "flow" ~ "{" ~ start_def ~ transition_def+ ~ "}" }
+// 既存のシンプルなフロー定義（単一ページ対応）
+flow_def   = { "flow" ~ "{" ~ start_def ~ transition_def* ~ "}" }
 // 新しい階層的フロー定義
 namespaced_flow_def = { "flow" ~ ident ~ "{" ~ namespaced_start_def ~ namespaced_transition_def+ ~ "}" }
 
@@ -63,8 +68,10 @@ timeline_param = { "style" ~ ":" ~ expr }
 
 font_def = { "font" ~ ":" ~ string }
 
-component_def = { "component" ~ ident ~ param_list? ~ "{" ~ font_def? ~ view_nodes? ~ "}" }
-param_list = { "(" ~ (ident ~ ("," ~ ident)*)? ~ ")" }
+component_def = { "component" ~ ident ~ component_params? ~ "{" ~ font_def? ~ view_nodes? ~ "}" }
+component_params = { "(" ~ (component_param ~ ("," ~ component_param)*)? ~ ")" }
+component_param = { style_param | ident }
+style_param = { "style" ~ ":" ~ expr }
 
 view_nodes = { view_node* }
 
@@ -140,7 +147,7 @@ expr_default_arm = { "default" ~ "{" ~ expr ~ "}" }
 
 navigate_action = { "navigate_to" ~ "(" ~ qualified_ident ~ ")" }
 
-spacing_node = { "Spacing" ~ "(" ~ number? ~ ")" | "SpacingAuto" }
+spacing_node = { "Spacing" ~ "(" ~ (dimension_value | number)? ~ ")" | "SpacingAuto" }
 
 rust_call = { ident ~ "!" ~ "(" ~ (arg_item ~ ("," ~ arg_item)*)? ~ ")" }
 
@@ -167,7 +174,9 @@ user_event = { "user" ~ "." ~ event_kind ~ "(" ~ ident ~ ")" }
 event_kind = { "click" }
 
 // 制御フロー構文の追加
-foreach_node = { "foreach" ~ ident ~ "in" ~ expr ~ ("(" ~ style_arg? ~ ")")? ~ "{" ~ view_nodes? ~ "}" }
+foreach_node = { "foreach" ~ ident ~ "in" ~ foreach_iterable ~ foreach_style? ~ "{" ~ view_nodes? ~ "}" }
+foreach_iterable = { path | ident }
+foreach_style = { "(" ~ style_arg ~ ")" }
 if_node = { "if" ~ expr ~ ("(" ~ style_arg? ~ ")")? ~ "{" ~ view_nodes? ~ "}" ~ ("else" ~ "{" ~ view_nodes? ~ "}")? }
 
 // パス識別子の定義

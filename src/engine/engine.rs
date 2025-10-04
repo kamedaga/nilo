@@ -1,5 +1,5 @@
 // src/engine/engine.rs の軽量化版
-use crate::parser::ast::{App, ViewNode, WithSpan, Expr, EventExpr, Component};
+use crate::parser::ast::{App, ViewNode, WithSpan, Expr, EventExpr, Component, Style};
 use crate::stencil::stencil::Stencil;
 use crate::ui::{LayoutParams, layout_vstack};
 use crate::ui::event::UIEvent;
@@ -273,6 +273,7 @@ impl Engine {
                 size: font_size,
                 color: effective_text_color,
                 font: style.font.unwrap_or_else(|| "default".to_string()),
+                max_width: None, // TextInputでは改行しない
                 scroll: true,
                 depth: (1.0 - *depth_counter).max(0.0),
             });
@@ -313,12 +314,16 @@ impl Engine {
                 }
             }
 
-            // ★ 修正: 背景色が明示的に指定されている場合のみ適用
+            // ★ 修正: 背景色処理を改善
             let bg_color = if let Some(ref bg) = style.background {
                 Some(Self::convert_to_rgba(bg))
             } else {
-                // 背景色が指定されていない場合はNoneとして、背景を描画しない
-                None
+                // ★ デフォルトのボタン背景色を設定（透明ではなく実際の色）
+                if is_hover {
+                    Some([0.09, 0.46, 0.82, 1.0]) // ホバー時の青色
+                } else {
+                    Some([0.13, 0.59, 0.95, 1.0]) // 通常時の青色
+                }
             };
 
             let radius = style.rounded
@@ -329,13 +334,45 @@ impl Engine {
                 .unwrap_or(6.0);
 
             let font_size = style.font_size.unwrap_or(16.0);
+
+            // ★ 修正: テキスト色のデフォルト値を改善
             let text_color = style.color.as_ref()
                 .map(|c| Self::convert_to_rgba(c))
-                .unwrap_or([0.0, 0.0, 0.0, 1.0]); // ★ 修正: デフォルトのテキスト色を黒に変更
+                .unwrap_or_else(|| {
+                    // 背景色に応じてテキスト色を決定
+                    if bg_color.is_some() {
+                        [1.0, 1.0, 1.0, 1.0] // 背景がある場合は白文字
+                    } else {
+                        [0.0, 0.0, 0.0, 1.0] // 背景がない場合は黒文字
+                    }
+                });
 
-            // ★ 修正: 背景色が指定されている場合のみ背景を描画
+            // ★ 背景を描画（指定されている場合または透明でない場合のみ）
             if let Some(bg_rgba) = bg_color {
                 if bg_rgba[3] > 0.0 {
+                    // 影の描画
+                    if let Some(sh) = style.shadow.clone() {
+                        let (off, scol) = match sh {
+                            crate::parser::ast::Shadow::On => ([0.0, 2.0], [0.0, 0.0, 0.0, 0.25]),
+                            crate::parser::ast::Shadow::Spec { offset, color, .. } => {
+                                let scol = color.as_ref().map(|c| Self::convert_to_rgba(c)).unwrap_or([0.0, 0.0, 0.0, 0.25]);
+                                (offset, scol)
+                            }
+                        };
+
+                        *depth_counter += 0.001;
+                        stencils.push(Stencil::RoundedRect {
+                            position: [lnode.position[0] + off[0], lnode.position[1] + off[1]],
+                            width: lnode.size[0],
+                            height: lnode.size[1],
+                            radius,
+                            color: [scol[0], scol[1], scol[2], (scol[3] * 0.9).min(1.0)],
+                            scroll: true,
+                            depth: (1.0 - *depth_counter).max(0.0),
+                        });
+                    }
+
+                    // 背景色の描画
                     *depth_counter += 0.001;
                     stencils.push(Stencil::RoundedRect {
                         position: lnode.position,
@@ -349,8 +386,31 @@ impl Engine {
                 }
             }
 
-            let text_w = Self::calculate_text_width_accurate(label, font_size);
-            let text_h = font_size * 1.2;
+            // ボーダーの描画（指定されている場合）
+            if let Some(border_color_ref) = &style.border_color {
+                let border_color = Self::convert_to_rgba(border_color_ref);
+                let border_width = 1.0; // デフォルト値を使用
+
+                if border_color[3] > 0.0 && border_width > 0.0 {
+                    *depth_counter += 0.001;
+                    stencils.push(Stencil::RoundedRect {
+                        position: [
+                            lnode.position[0] - border_width / 2.0,
+                            lnode.position[1] - border_width / 2.0
+                        ],
+                        width: lnode.size[0] + border_width,
+                        height: lnode.size[1] + border_width,
+                        radius: radius + border_width / 2.0,
+                        color: border_color,
+                        scroll: true,
+                        depth: (1.0 - *depth_counter).max(0.0),
+                    });
+                }
+            }
+
+            // テキストの位置計算（中央寄せ）
+            use crate::ui::text_measurement::measure_text_size;
+            let (text_w, text_h) = measure_text_size(label, font_size, "default", None);
             let tx = lnode.position[0] + (lnode.size[0] - text_w) * 0.5;
             let ty = lnode.position[1] + (lnode.size[1] - text_h) * 0.5;
 
@@ -358,6 +418,7 @@ impl Engine {
                 .map(|f| f.clone())
                 .unwrap_or_else(|| default_font.to_string());
 
+            // テキストの描画
             *depth_counter += 0.001;
             stencils.push(Stencil::Text {
                 content: label.clone(),
@@ -365,6 +426,7 @@ impl Engine {
                 size: font_size,
                 color: text_color,
                 font,
+                max_width: None, // Buttonでは改行しない
                 scroll: true,
                 depth: (1.0 - *depth_counter).max(0.0),
             });
@@ -398,6 +460,8 @@ impl Engine {
                 style.font_size.unwrap_or(16.0)
             };
 
+            let text_align = style.text_align.as_deref().unwrap_or("left");
+
             let text_color = style.color.as_ref()
                 .map(|c| Self::convert_to_rgba(c))
                 .unwrap_or([0.0, 0.0, 0.0, 1.0]);
@@ -405,10 +469,11 @@ impl Engine {
             let padding = style.padding.unwrap_or_default();
 
             let font = style.font.as_ref()
+                .or(style.font_family.as_ref())
                 .map(|f| f.clone())
                 .unwrap_or_else(|| default_font.to_string());
 
-            // ★ 修正: 背景色と角丸の描画を追加
+            // ★ 修正: 背景を一度だけ描画（背景が指定されている場合のみ）
             if let Some(bg) = &style.background {
                 let bg_color = Self::convert_to_rgba(bg);
 
@@ -421,7 +486,7 @@ impl Engine {
                         })
                         .unwrap_or(0.0);
 
-                    // 影の描画
+                    // 影の描画（一度だけ）
                     if let Some(sh) = style.shadow.clone() {
                         let (off, scol) = match sh {
                             crate::parser::ast::Shadow::On => ([0.0, 2.0], [0.0, 0.0, 0.0, 0.2]),
@@ -443,7 +508,7 @@ impl Engine {
                         });
                     }
 
-                    // 背景の描画
+                    // 背景の描画（一度だけ）
                     *depth_counter += 0.001;
                     stencils.push(Stencil::RoundedRect {
                         position: lnode.position,
@@ -457,14 +522,40 @@ impl Engine {
                 }
             }
 
-            // テキストの描画
+            // ★ テキストアライメントに応じた位置計算
+            use crate::ui::text_measurement::measure_text_size;
+            let (text_width, _) = measure_text_size(&content, font_size, "default", None);
+            let text_x = match text_align {
+                "center" => lnode.position[0] + (lnode.size[0] - text_width) * 0.5 + padding.left,
+                "right" => lnode.position[0] + lnode.size[0] - text_width - padding.right,
+                _ => lnode.position[0] + padding.left, // "left" or default
+            };
+
+            // テキストの描画（一度だけ）
+            // ★ max_width情報を取得（レイアウトで計算されたサイズを使用）
+            let max_width = if let Some(max_w) = style.max_width.as_ref() {
+                if max_w.unit == crate::parser::ast::Unit::Auto {
+                    // max-width: autoの場合は親要素のサイズを使用
+                    Some(lnode.size[0])
+                } else {
+                    Some(max_w.to_px(
+                        window_size[0], window_size[1],
+                        lnode.size[0], lnode.size[1],
+                        16.0, font_size,
+                    ))
+                }
+            } else {
+                None // max_widthが指定されていない場合は改行しない
+            };
+            
             *depth_counter += 0.001;
             stencils.push(Stencil::Text {
                 content,
-                position: [lnode.position[0] + padding.left, lnode.position[1] + padding.top],
+                position: [text_x, lnode.position[1] + padding.top],
                 size: font_size,
                 color: text_color,
                 font,
+                max_width,
                 scroll: true,
                 depth: (1.0 - *depth_counter).max(0.0),
             });
@@ -601,6 +692,7 @@ impl Engine {
                         size: font_size,
                         color: style.color.as_ref().map(|c| Self::convert_to_rgba(c)).unwrap_or([0.0,0.0,0.0,1.0]),
                         font: style.font.unwrap_or_else(||"default".into()),
+                        max_width: None, // DynamicSectionでは改行しない
                         scroll: true,
                         depth: (1.0-*depth_counter).max(0.0)
                     });
@@ -657,6 +749,7 @@ impl Engine {
                     size: font_size, 
                     color, 
                     font: style.font.unwrap_or_else(||"default".into()), 
+                    max_width: None, // Label表示では改行しない
                     scroll: true, 
                     depth: (1.0 - *depth_counter).max(0.0)
                 });
@@ -691,6 +784,7 @@ impl Engine {
                     size: font_size,
                     color: text_color,
                     font: style.font.unwrap_or_else(||"default".into()),
+                    max_width: None, // CheckBoxでは改行しない
                     scroll: true,
                     depth: (1.0-*depth_counter).max(0.0)
                 });
@@ -811,19 +905,6 @@ impl Engine {
     fn is_point_in_rect(point: [f32; 2], pos: [f32; 2], size: [f32; 2]) -> bool {
         point[0] >= pos[0] && point[0] <= pos[0] + size[0] &&
             point[1] >= pos[1] && point[1] <= pos[1] + size[1]
-    }
-
-    #[inline]
-    fn calculate_text_width_accurate(text: &str, font_size: f32) -> f32 {
-        let mut width = 0.0;
-        for ch in text.chars() {
-            if ch.is_ascii() {
-                width += font_size * 0.6;
-            } else {
-                width += font_size * 1.0;
-            }
-        }
-        width
     }
 
     #[inline]
@@ -1083,10 +1164,61 @@ where
 
     for node in nodes {
         match &node.node {
-            ViewNode::ComponentCall { name, .. } => {
+            ViewNode::ComponentCall { name, args } => {
                 if let Some(comp) = app.components.iter().find(|c| c.name == *name) {
-                    result.extend(comp.body.clone());
+                    
+                    // コンポーネントのボディをクローンして引数を適用
+                    let mut expanded_body = comp.body.clone();
+                    
+                    // パラメータの置換を実行
+                    for (i, arg) in args.iter().enumerate() {
+                        if let Some(param_name) = comp.params.get(i) {
+                            // Parameter substitution
+                            substitute_parameter_in_nodes(&mut expanded_body, param_name, arg);
+                        }
+                    }
+                    
+                    // デフォルトスタイルを適用（ComponentCallのスタイルがない場合のみ）
+                    if let Some(default_style) = &comp.default_style {
+                        apply_default_style_to_nodes(&mut expanded_body, default_style);
+                    }
+                    
+                    // ComponentCallにスタイルがある場合は、それを最初のノードに適用（優先）
+                    if let Some(call_style) = &node.style {
+                        if let Some(first_node) = expanded_body.first_mut() {
+                            // ComponentCallのスタイルを最優先で適用
+                            match &mut first_node.style {
+                                Some(existing_style) => {
+                                    // ComponentCallのスタイルを既存のスタイルにマージ（ComponentCallが優先）
+                                    merge_styles_prioritize_override(existing_style, call_style);
+                                }
+                                None => {
+                                    first_node.style = Some(call_style.clone());
+                                }
+                            }
+                        }
+                    }
+                    
+                    result.extend(expanded_body);
                 }
+            }
+            ViewNode::VStack(children) => {
+                let expanded_children = expand_component_calls_lightweight(children, app, _state);
+                result.push(WithSpan {
+                    node: ViewNode::VStack(expanded_children),
+                    line: node.line,
+                    column: node.column,
+                    style: node.style.clone(),
+                });
+            }
+            ViewNode::HStack(children) => {
+                let expanded_children = expand_component_calls_lightweight(children, app, _state);
+                result.push(WithSpan {
+                    node: ViewNode::HStack(expanded_children),
+                    line: node.line,
+                    column: node.column,
+                    style: node.style.clone(),
+                });
             }
             _ => {
                 result.push(node.clone());
@@ -1095,4 +1227,114 @@ where
     }
 
     result
+}
+
+/// ノード内のパラメータを置換する
+fn substitute_parameter_in_nodes(nodes: &mut [WithSpan<ViewNode>], param_name: &str, arg: &Expr) {
+    for node in nodes {
+        substitute_parameter_in_node(&mut node.node, param_name, arg);
+    }
+}
+
+/// 単一ノード内のパラメータを置換する
+fn substitute_parameter_in_node(node: &mut ViewNode, param_name: &str, arg: &Expr) {
+    match node {
+        ViewNode::Text { format, args, .. } => {
+            // Text argsの中でパラメータを探す
+            for text_arg in args {
+                if let Expr::Path(path) = text_arg {
+                    if path == param_name {
+                        // Text parameter replacement
+                        *text_arg = arg.clone();
+                    }
+                }
+            }
+        }
+        ViewNode::VStack(children) | ViewNode::HStack(children) => {
+            substitute_parameter_in_nodes(children, param_name, arg);
+        }
+        // 他のノードタイプも必要に応じて追加
+        _ => {}
+    }
+}
+
+/// ComponentCallのスタイルを既存のスタイルにマージ（ComponentCallが優先）
+fn merge_styles_prioritize_override(existing: &mut Style, override_style: &Style) {
+    // ComponentCallで指定されたスタイルを最優先で適用
+    if override_style.relative_width.is_some() {
+        existing.relative_width = override_style.relative_width;
+    }
+    if override_style.relative_height.is_some() {
+        existing.relative_height = override_style.relative_height;
+    }
+    if override_style.width.is_some() {
+        existing.width = override_style.width;
+    }
+    if override_style.height.is_some() {
+        existing.height = override_style.height;
+    }
+    if override_style.background.is_some() {
+        existing.background = override_style.background.clone();
+    }
+    if override_style.color.is_some() {
+        existing.color = override_style.color.clone();
+    }
+    if override_style.padding.is_some() {
+        existing.padding = override_style.padding.clone();
+    }
+    if override_style.margin.is_some() {
+        existing.margin = override_style.margin.clone();
+    }
+    if override_style.relative_padding.is_some() {
+        existing.relative_padding = override_style.relative_padding.clone();
+    }
+    if override_style.relative_margin.is_some() {
+        existing.relative_margin = override_style.relative_margin.clone();
+    }
+}
+
+/// ノードにデフォルトスタイルを適用する
+fn apply_default_style_to_nodes(nodes: &mut [WithSpan<ViewNode>], default_style: &Style) {
+    for node in nodes {
+        // ルートノードにデフォルトスタイルをマージ
+        match &mut node.style {
+            Some(existing_style) => {
+                // デフォルトスタイルの値を既存のスタイルにマージ（既存の値を優先）
+                if existing_style.relative_width.is_none() && default_style.relative_width.is_some() {
+                    existing_style.relative_width = default_style.relative_width;
+                }
+                if existing_style.relative_height.is_none() && default_style.relative_height.is_some() {
+                    existing_style.relative_height = default_style.relative_height;
+                }
+                if existing_style.width.is_none() && default_style.width.is_some() {
+                    existing_style.width = default_style.width;
+                }
+                if existing_style.height.is_none() && default_style.height.is_some() {
+                    existing_style.height = default_style.height;
+                }
+                if existing_style.background.is_none() && default_style.background.is_some() {
+                    existing_style.background = default_style.background.clone();
+                }
+                if existing_style.color.is_none() && default_style.color.is_some() {
+                    existing_style.color = default_style.color.clone();
+                }
+                if existing_style.padding.is_none() && default_style.padding.is_some() {
+                    existing_style.padding = default_style.padding.clone();
+                }
+                if existing_style.margin.is_none() && default_style.margin.is_some() {
+                    existing_style.margin = default_style.margin.clone();
+                }
+                if existing_style.relative_padding.is_none() && default_style.relative_padding.is_some() {
+                    existing_style.relative_padding = default_style.relative_padding.clone();
+                }
+                if existing_style.relative_margin.is_none() && default_style.relative_margin.is_some() {
+                    existing_style.relative_margin = default_style.relative_margin.clone();
+                }
+            }
+            None => {
+                // Applying default style to node without existing style
+                node.style = Some(default_style.clone());
+            }
+        }
+    }
 }

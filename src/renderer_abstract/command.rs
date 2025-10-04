@@ -31,6 +31,7 @@ pub enum DrawCommand {
         size: f32,
         color: [f32; 4],
         font: String, // フォント名 or ID
+        max_width: Option<f32>, // ★ max_width制約を追加
         scroll: bool,
         depth: f32, // ★ depth値を追加
     },

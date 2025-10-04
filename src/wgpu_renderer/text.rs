@@ -61,7 +61,7 @@ impl TextRenderer {
     pub fn render_multiple_texts(
         &mut self,
         pass: &mut RenderPass,
-        text_commands: &[(String, [f32; 2], f32, [f32; 4], String)], // ★ フォント名を追加
+        text_commands: &[(String, [f32; 2], f32, [f32; 4], String, Option<f32>)], // ★ max_width情報を追加
         scroll_offset: [f32; 2],
         scale_factor: f32,
         queue: &Queue,
@@ -72,16 +72,16 @@ impl TextRenderer {
         let mut buffers = Vec::new();
         let mut text_areas = Vec::new();
 
-        for (content, _position, size, _color, font_name) in text_commands {
+        for (content, _position, size, _color, font_name, max_width) in text_commands {
             let scaled_size = *size * scale_factor;
             let metrics = Metrics::new(scaled_size, scaled_size * 1.4);
             let mut buffer = Buffer::new(&mut self.font_system, metrics);
 
-            buffer.set_size(
-                &mut self.font_system,
-                Some(screen_width as f32),
-                Some(screen_height as f32),
-            );
+            if let Some(width) = max_width {
+                buffer.set_size(&mut self.font_system, Some(*width * scale_factor), None);
+            } else {
+                buffer.set_size(&mut self.font_system, None, None);
+            }
 
             // ★ 修正: 指定されたフォント名を使用
             let family = if font_name == "default" || font_name.is_empty() {
@@ -102,7 +102,7 @@ impl TextRenderer {
             buffers.push((buffer, metrics));
         }
 
-        for (i, (_, position, _, color, _)) in text_commands.iter().enumerate() {
+        for (i, (_, position, _, color, _, _)) in text_commands.iter().enumerate() {
             let (buffer, metrics) = &buffers[i];
 
             // DPI対応: スクロールオフセットと位置にスケーリングを適用
@@ -321,7 +321,7 @@ impl TextRenderer {
     pub fn render_multiple_texts_with_depth(
         &mut self,
         pass: &mut RenderPass,
-        text_commands: &[(String, [f32; 2], f32, [f32; 4], String)], // ★ フォント情報を追加
+        text_commands: &[(String, [f32; 2], f32, [f32; 4], String, Option<f32>)], // ★ max_width情報を追加
         scroll_offset: [f32; 2],
         scale_factor: f32,
         queue: &Queue,

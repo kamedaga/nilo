@@ -1,4 +1,4 @@
-use crate::renderer::command::{DrawCommand, DrawList};
+use crate::renderer_abstract::command::{DrawCommand, DrawList};
 
 #[derive(Clone, Debug)]
 pub enum Stencil {
@@ -31,6 +31,7 @@ pub enum Stencil {
         size: f32,
         color: [f32; 4],
         font: String,
+        max_width: Option<f32>, // ★ max_width制約を追加
         scroll: bool,
         depth: f32, // ★ Z値追加
     },
@@ -85,8 +86,8 @@ pub fn stencil_to_wgpu_draw_list(stencils: &[Stencil]) -> DrawList {
             Stencil::Triangle { p1, p2, p3, color, scroll, depth } => draw_list.push(DrawCommand::Triangle {
                 p1: *p1, p2: *p2, p3: *p3, color: *color, scroll: *scroll, depth: *depth,
             }),
-            Stencil::Text { content, position, size, color, font, scroll, depth } => draw_list.push(DrawCommand::Text {
-                content: content.clone(), position: *position, size: *size, color: *color, font: font.clone(), scroll: *scroll, depth: *depth,
+            Stencil::Text { content, position, size, color, font, max_width, scroll, depth } => draw_list.push(DrawCommand::Text {
+                content: content.clone(), position: *position, size: *size, color: *color, font: font.clone(), max_width: *max_width, scroll: *scroll, depth: *depth,
             }),
             Stencil::Image { position, width, height, path, scroll, depth } => {
                 draw_list.push(DrawCommand::Image {

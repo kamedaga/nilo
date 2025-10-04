@@ -46,6 +46,7 @@ pub struct Component {
     pub name: String,
     pub params: Vec<String>,
     pub font: Option<String>,  // ★ 追加: コンポーネント全体で使用するフォント
+    pub default_style: Option<Style>,  // ★ 追加: デフォルトスタイル
     pub body: Vec<WithSpan<ViewNode>>,
     pub whens: Vec<When>,
 }
@@ -112,7 +113,7 @@ pub enum ViewNode {
     HStack(Vec<WithSpan<ViewNode>>),
     
     // スペーシング
-    Spacing(f32),
+    Spacing(DimensionValue),
     SpacingAuto,
     
     // コンポーネント
@@ -180,6 +181,13 @@ pub enum BinaryOperator {
     Sub,
     Mul,
     Div,
+    // 比較演算子
+    Eq,   // ==
+    Ne,   // !=
+    Lt,   // <
+    Le,   // <=
+    Gt,   // >
+    Ge,   // >=
 }
 
 #[derive(Debug, Clone)]
@@ -217,10 +225,21 @@ impl DimensionValue {
                 debug!("🔍 VH DEBUG: {}vh with viewport_h:{} = {}px", self.value, viewport_h, calculated);
                 calculated
             }
+            Unit::Ww => {
+                let calculated = self.value * viewport_w / 100.0;
+                debug!("🔍 WW DEBUG: {}ww with viewport_w:{} = {}px", self.value, viewport_w, calculated);
+                calculated
+            }
+            Unit::Wh => {
+                let calculated = self.value * viewport_h / 100.0;
+                debug!("🔍 WH DEBUG: {}wh with viewport_h:{} = {}px", self.value, viewport_h, calculated);
+                calculated
+            }
             Unit::Percent => self.value / 100.0, // 通常は親要素のサイズに対する割合
             Unit::PercentHeight => self.value / 100.0, // PercentHeightケースを追加
             Unit::Rem => self.value * 16.0, // 仮のroot font-size
             Unit::Em => self.value * 16.0,  // 仮のcurrent font-size
+            Unit::Auto => viewport_w, // Autoの場合はビューポート幅をデフォルトとする
         }
     }
 
@@ -230,23 +249,29 @@ impl DimensionValue {
             Unit::Px => self.value,
             Unit::Vw => self.value * viewport_w / 100.0,
             Unit::Vh => self.value * viewport_h / 100.0,
+            Unit::Ww => self.value * viewport_w / 100.0,  // 画面幅基準
+            Unit::Wh => self.value * viewport_h / 100.0,  // 画面高さ基準
             Unit::Percent => self.value * parent_w / 100.0,
             Unit::PercentHeight => self.value * parent_h / 100.0,
             Unit::Rem => self.value * root_font_size,
             Unit::Em => self.value * font_size,
+            Unit::Auto => parent_w, // Autoの場合は親要素の幅を使用
         }
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Unit {
     Px,
     Vw,
     Vh,
+    Ww,    // 画面幅基準の単位
+    Wh,    // 画面高さ基準の単位  
     Percent,
     PercentHeight,
     Rem,
     Em,
+    Auto,  // 親要素のサイズを自動取得
 }
 
 // ========================================
@@ -278,6 +303,31 @@ pub struct Style {
     pub spacing: Option<f32>,
     pub relative_spacing: Option<DimensionValue>,
     pub hover: Option<Box<Style>>,
+
+    // ★ 新規追加: レイアウト関連プロパティ
+    pub justify_content: Option<String>,
+    pub align_items: Option<String>,
+    pub position: Option<String>,
+    pub top: Option<DimensionValue>,
+    pub left: Option<DimensionValue>,
+    pub right: Option<DimensionValue>,
+    pub bottom: Option<DimensionValue>,
+    pub z_index: Option<i32>,
+    pub flex_wrap: Option<String>,
+    pub gap: Option<DimensionValue>,
+    pub max_width: Option<DimensionValue>,
+    pub min_width: Option<DimensionValue>,
+    pub min_height: Option<DimensionValue>,
+    pub margin_top: Option<DimensionValue>,
+    pub margin_bottom: Option<DimensionValue>,
+    pub margin_left: Option<DimensionValue>,
+    pub margin_right: Option<DimensionValue>,
+    pub line_height: Option<f32>,
+    pub text_align: Option<String>,
+    pub font_weight: Option<String>,
+    pub font_family: Option<String>,
+    pub backdrop_filter: Option<String>,
+    pub border: Option<String>,
 }
 
 impl Style {
@@ -306,6 +356,32 @@ impl Style {
         if other.spacing.is_some() { result.spacing = other.spacing; }
         if other.relative_spacing.is_some() { result.relative_spacing = other.relative_spacing; }
         if other.hover.is_some() { result.hover = other.hover.clone(); }
+
+        // ★ 新規追加: 新しいプロパティのマージ
+        if other.justify_content.is_some() { result.justify_content = other.justify_content.clone(); }
+        if other.align_items.is_some() { result.align_items = other.align_items.clone(); }
+        if other.position.is_some() { result.position = other.position.clone(); }
+        if other.top.is_some() { result.top = other.top.clone(); }
+        if other.left.is_some() { result.left = other.left.clone(); }
+        if other.right.is_some() { result.right = other.right.clone(); }
+        if other.bottom.is_some() { result.bottom = other.bottom.clone(); }
+        if other.z_index.is_some() { result.z_index = other.z_index; }
+        if other.flex_wrap.is_some() { result.flex_wrap = other.flex_wrap.clone(); }
+        if other.gap.is_some() { result.gap = other.gap.clone(); }
+        if other.max_width.is_some() { result.max_width = other.max_width.clone(); }
+        if other.min_width.is_some() { result.min_width = other.min_width.clone(); }
+        if other.min_height.is_some() { result.min_height = other.min_height.clone(); }
+        if other.margin_top.is_some() { result.margin_top = other.margin_top.clone(); }
+        if other.margin_bottom.is_some() { result.margin_bottom = other.margin_bottom.clone(); }
+        if other.margin_left.is_some() { result.margin_left = other.margin_left.clone(); }
+        if other.margin_right.is_some() { result.margin_right = other.margin_right.clone(); }
+        if other.line_height.is_some() { result.line_height = other.line_height; }
+        if other.text_align.is_some() { result.text_align = other.text_align.clone(); }
+        if other.font_weight.is_some() { result.font_weight = other.font_weight.clone(); }
+        if other.font_family.is_some() { result.font_family = other.font_family.clone(); }
+        if other.backdrop_filter.is_some() { result.backdrop_filter = other.backdrop_filter.clone(); }
+        if other.border.is_some() { result.border = other.border.clone(); }
+
         result
     }
 }

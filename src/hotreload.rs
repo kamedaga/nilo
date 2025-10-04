@@ -4,7 +4,7 @@ use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
-use log::{error, info}; // ログマクロを追加
+use log::error;
 
 pub struct HotReloader {
     _watcher: RecommendedWatcher,
@@ -30,7 +30,7 @@ impl HotReloader {
 
         watcher.watch(watch_path.as_ref(), RecursiveMode::Recursive)?;
 
-        info!("🔥 Hot reload enabled for: {}", watch_path.as_ref().display()); // println!をinfo!に変更、coloredの使用を削除
+        println!("🔥 Hot reload enabled for: {}", watch_path.as_ref().display());
 
         let reload_callback: Arc<Mutex<Option<Box<dyn Fn() + Send + 'static>>>> = Arc::new(Mutex::new(None));
 
@@ -41,7 +41,7 @@ impl HotReloader {
                 match rx.recv_timeout(Duration::from_millis(50)) {
                     Ok(Ok(event)) => {
                         if should_reload(&event) {
-                            info!("🔄 File changed, reloading..."); // println!をinfo!に変更、coloredの使用を削除
+                            println!("🔄 File changed, reloading...");
 
                             // 少し待ってからリロード（ファイル書き込みが完了するのを待つ）
                             thread::sleep(Duration::from_millis(100));

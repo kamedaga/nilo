@@ -1,7 +1,9 @@
 // foreach文の修正版処理
 use crate::parser::ast::{ViewNode, WithSpan, Expr};
 use crate::ui::layout::{LayoutedNode, LayoutParams};
-use log::debug; // ログマクロを追加
+use crate::ui::text_measurement::measure_text_size;
+use crate::engine::state::format_text;
+use log::debug;
 
 /// foreach文専用のレイアウト処理関数
 pub fn layout_foreach_impl<'a, F, G>(
@@ -74,39 +76,25 @@ pub fn layout_foreach_impl<'a, F, G>(
     }
 }
 
-/// foreach文用のノードサイズ計算
+/// foreach文用のノードサイズ計算（正確なテキスト測定使用）
 fn calculate_node_size_foreach<F, G>(
     node: &WithSpan<ViewNode>,
-    params: &LayoutParams,
+    _params: &LayoutParams,
     eval: &F,
-    get_image_size: &G,
+    _get_image_size: &G,
 ) -> [f32; 2]
 where
     F: Fn(&Expr) -> String,
     G: Fn(&str) -> (u32, u32),
 {
-    use crate::engine::state::format_text;
-    
     match &node.node {
         ViewNode::Text { format, args } => {
             let values: Vec<String> = args.iter().map(|e| eval(e)).collect();
             let text = format_text(format, &values);
-            let width = calculate_text_width_simple(&text);
-            [width.clamp(100.0, 400.0), 24.0]
+            // 正確なテキスト測定を使用
+            let (width, height) = measure_text_size(&text, 18.0, "default", None);
+            [width.clamp(100.0, 400.0), height]
         }
         _ => [160.0, 24.0],
     }
-}
-
-/// 簡単なテキスト幅計算
-fn calculate_text_width_simple(text: &str) -> f32 {
-    let mut width = 0.0;
-    for ch in text.chars() {
-        if ch.is_ascii() {
-            width += 10.8; // 18 * 0.6
-        } else {
-            width += 18.0;
-        }
-    }
-    width
 }

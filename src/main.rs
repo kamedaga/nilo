@@ -1,3 +1,5 @@
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+
 use nilo;
 use nilo::engine::rust_call::register_rust_call;
 use nilo::parser::ast::Expr;
@@ -7,7 +9,8 @@ nilo::nilo_state! {
     struct State {
         name: String,
         counter: u32,
-        items: Vec<i32>
+        items: Vec<i32>,
+        ifbool: bool
     }
 }
 
@@ -29,7 +32,9 @@ fn main() {
         name: "Nilo".to_string(),
         counter: 1,
         items: vec![1, 2, 3],
+        ifbool: true
     };
 
-    nilo::run_application("src/tutorial.nilo", state, &cli_args, Some("Nilo Tutorial"));
+    // 自動で埋め込みファイルを使用するマクロを呼び出し
+    nilo::run_nilo_app!("app.nilo", state, &cli_args, Some("Nilo Tutorial"));
 }

@@ -1,7 +1,7 @@
 use crate::parser::ast::{App, ViewNode};
 use crate::stencil::stencil::stencil_to_wgpu_draw_list;
 use crate::ui::event::{UIEvent, EventQueue};
-use crate::renderer::wgpu::WgpuRenderer;
+use crate::wgpu_renderer::wgpu::WgpuRenderer;
 use crate::ui::viewport;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};

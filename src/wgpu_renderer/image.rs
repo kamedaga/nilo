@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use wgpu::*;
 use wgpu::util::DeviceExt;
 use winit::dpi::PhysicalSize;
-use crate::renderer::command::{DrawCommand, DrawList};
+use crate::renderer_abstract::command::{DrawCommand, DrawList};
 use std::path::Path;
 use log::error; // ログマクロを追加
 

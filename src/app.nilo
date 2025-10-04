@@ -1,120 +1,46 @@
 flow {
-    start: UserForm
-    CheckDimensions -> [CheckDimensions]
+    start: MainMenu
 }
 
-timeline CheckDimensions {
-    test!()
-}
-
-timeline UserForm {
-    VStack(style: {
-        width: 90vw,
-        max_width: 600px,
-        padding: 2rem,
-        background: "#ffffff",
-        rounded: 1rem,
-        shadow: true,
-        align: "center"
-    }) {
-        Text("ユーザー登録", style: {
-            font_size: 2rem,
-            font_weight: "bold",
-            margin_bottom: 2rem,
-            color: "#343a40"
-        })
-
-        VStack(style: { gap: 1.5rem, width: 100% }) {
-            VStack(style: { gap: 0.5rem, width: 100% }) {
-                Text("ユーザー名", style: {
-                    font_weight: "bold",
-                    color: "#495057",
-                    text_align: "left",
-                    width: 100%
-                })
-                TextInput(state.username, style: {
-                    width: 100%,
-                    padding: 0.8rem,
-                    border: "1px solid #ced4da",
-                    rounded: 0.5rem,
-                    font_size: 1rem
-                })
-            }
-
-            VStack(style: { gap: 0.5rem, width: 100% }) {
-                Text("メールアドレス", style: {
-                    font_weight: "bold",
-                    color: "#495057",
-                    text_align: "left",
-                    width: 100%
-                })
-                TextInput(state.email, style: {
-                    width: 100%,
-                    padding: 0.8rem,
-                    border: "1px solid #ced4da",
-                    rounded: 0.5rem,
-                    font_size: 1rem
-                })
-            }
-
-            VStack(style: { gap: 0.5rem, width: 100% }) {
-                Text("パスワード", style: {
-                    font_weight: "bold",
-                    color: "#495057",
-                    text_align: "left",
-                    width: 100%
-                })
-                TextInput(state.password, style: {
-                    width: 100%,
-                    padding: 0.8rem,
-                    border: "1px solid #ced4da",
-                    rounded: 0.5rem,
-                    font_size: 1rem
-                })
-            }
+timeline MainMenu {
+    VStack(style: {width: 90ww, background: "#000000"}) {
+        Text("Hello Nilo", style: {font_size: 40px, color: "#ffffff"})
+        Spacing(4px)
+        Text("🚀Niloと創る新しいUIは完璧ニロ！！！", style: {font_size: 24px, color: "#a7edffff"})
+        HStack(style: {width: 90ww}) {
+            Spacing(12px)
+            SimpleUICard()
+            LikeRustCard()
+            minimalUICard()
+        }
+        Text("あなたに寄り添うニロ！！")
+        VStack(style: {width: 100%, background: "#0B1A2A"}) {
+            HotreloadCard()
         }
 
-        Spacing(2rem)
-
-        HStack(style: { gap: 1rem, width: 100%, justify_content: "center" }) {
-            Button(
-                id: submit_btn,
-                label: "登録",
-                onclick: register_user!(),
-                style: {
-                    background: "#28a745",
-                    color: "white",
-                    padding: "0.8rem 2rem",
-                    rounded: 0.5rem,
-                    font_size: 1rem,
-                    font_weight: "bold"
-                }
-            )
-
-            Button(
-                id: cancel_btn,
-                label: "キャンセル",
-                style: {
-                    background: "#6c757d",
-                    color: "white",
-                    padding: "0.8rem 2rem",
-                    rounded: 0.5rem,
-                    font_size: 1rem
-                }
-            )
-        }
-
-        if state.validation_error {
-            Text(state.error_message, style: {
-                color: "#dc3545",
-                font_size: 0.9rem,
-                margin_top: 1rem,
-                text_align: "center"
-            })
-        }
     }
+}
 
-    when user.click(cancel_btn) {
-        navigate_to(MainMenu)
+component SimpleUICard(style: {width: 30%}) {
+    VStack(style: {height: 120px, background: "#a7edffff", rounded: 2.5px}) {
+        Text("シンプルで宣言的ニロ！！", style: {max_width: auto, font_size: 25px})
+    }
+}
+
+component LikeRustCard(style: {width: 30%}) {
+    VStack(style: {height: 120px, background: "#a7edffff", rounded: 2.5px}) {
+        Text("Rustとの連携も簡単ニロ！", style: {max_width: auto, font_size: 25px})
+    }
+}
+
+component minimalUICard(style: {width: 30%}) {
+    VStack(style: {height: 120px, background: "#a7edffff", rounded: 2.5px}) {
+        Text("簡潔な動的UIニロ！！", style: {max_width: auto, font_size: 25px})
+    }
+}
+
+component HotreloadCard(style: {width: 90%}) {
+    VStack(style: {height: 120px, rounded: 2.5px}) {
+        Text("ホットリロード対応ニロ！！", style: {max_width: auto, font_size: 25px, color: "white"})
     }
 }

@@ -1,6 +1,6 @@
 // CircleRenderer の修正版（DPI対応）
 
-use crate::renderer::command::{DrawCommand, DrawList};
+use crate::renderer_abstract::command::{DrawCommand, DrawList};
 use winit::dpi::PhysicalSize;
 
 #[repr(C)]

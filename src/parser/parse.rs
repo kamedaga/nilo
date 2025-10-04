@@ -148,6 +148,8 @@ pub fn parse_nilo(source: &str) -> Result<App, String> {
     // Pestパーサーでファイル全体を解析
     let mut pairs = NiloParser::parse(Rule::file, source)
         .map_err(|e| format!("構文解析エラー: {}", e))?;
+    
+    println!("🔍 Successfully parsed {} rule pairs", pairs.len());
 
     let file_pair = pairs.next().expect("ファイルペアが見つかりません");
     assert_eq!(file_pair.as_rule(), Rule::file);
@@ -162,6 +164,7 @@ pub fn parse_nilo(source: &str) -> Result<App, String> {
 
     // ファイル内の各定義を解析
     for pair in file_pair.into_inner() {
+        println!("🔍 Processing rule: {:?}", pair.as_rule());
         match pair.as_rule() {
             Rule::flow_def => {
                 // フロー定義は1つまで
@@ -181,7 +184,11 @@ pub fn parse_nilo(source: &str) -> Result<App, String> {
                 timelines.push(parse_timeline_def(pair));
             }
             Rule::component_def => {
-                components.push(parse_component_def(pair));
+                println!("🔍 FOUND component_def at top level");
+                let component = parse_component_def(pair);
+                println!("🔍 Parsed component: name='{}', default_style={:?}", 
+                    component.name, component.default_style);
+                components.push(component);
             }
             _ => {} // その他のルールは無視
         }
@@ -196,6 +203,13 @@ pub fn parse_nilo(source: &str) -> Result<App, String> {
 
     // フロー定義は必須
     let flow = flow.ok_or_else(|| "フロー定義が見つかりません".to_string())?;
+    
+    println!("📋 PARSE COMPLETE: Found {} components", components.len());
+    for comp in &components {
+        println!("📋   - Component '{}' with {} params, default_style: {:?}", 
+            comp.name, comp.params.len(), comp.default_style);
+    }
+    
     Ok(App { flow, timelines, components })
 }
 
@@ -224,9 +238,10 @@ pub fn parse_flow_def(pair: Pair<Rule>) -> Result<Flow, String> {
 
     // バリデーション
     let start = start.ok_or_else(|| "フロー定義にはstart:が必要です".to_string())?;
-    if transitions.is_empty() {
-        return Err("フロー定義には少なくとも1つの遷移が必要です".to_string());
-    }
+    // ★ 単一ページアプリ対応: 遷移は必須ではない
+    // if transitions.is_empty() {
+    //     return Err("フロー定義には少なくとも1つの遷移が必要です".to_string());
+    // }
     Ok(Flow { start, transitions })
 }
 
@@ -304,7 +319,9 @@ pub fn parse_timeline_def(pair: Pair<Rule>) -> Timeline {
     let mut body: Vec<WithSpan<ViewNode>> = Vec::new();
     let mut whens = Vec::new(); // whenイベントを正しく解析するように修正
 
+    println!("🔍 PARSING COMPONENT DEF - parsing inner pairs");
     for node_pair in inner {
+        println!("🔍 Processing rule: {:?}", node_pair.as_rule());
         match node_pair.as_rule() {
             // Rule::font_def => {  // 一時的にコメントアウト
             //     // font: "fonts/font" の形式を解析
@@ -339,10 +356,47 @@ pub fn parse_component_def(pair: Pair<Rule>) -> Component {
     let mut inner = pair.into_inner();
     let name = inner.next().unwrap().as_str().to_string();
 
-    let params = match inner.peek().map(|p| p.as_rule()) {
-        Some(Rule::param_list) => inner.next().unwrap().into_inner().map(|p| p.as_str().to_string()).collect(),
-        _ => vec![],
-    };
+    let mut params = vec![];
+    let mut default_style = None;
+
+    // component_paramsを処理
+    if let Some(Rule::component_params) = inner.peek().map(|p| p.as_rule()) {
+        let params_pair = inner.next().unwrap();
+        for param_pair in params_pair.into_inner() {
+            match param_pair.as_rule() {
+                Rule::component_param => {
+                    println!("🔍 Processing component_param: {:?}", param_pair.as_str());
+                    let param_inner = param_pair.into_inner().next().unwrap();
+                    println!("🔍 param_inner rule: {:?}, content: {:?}", param_inner.as_rule(), param_inner.as_str());
+                    match param_inner.as_rule() {
+                        Rule::style_param => {
+                            // スタイル定義: "style" ":" expr
+                            let style_inner = param_inner.into_inner();
+                            println!("🔧 style_param contains elements");
+                            // Rule::style_param = { "style" ~ ":" ~ expr }の構造なので、最後の要素がexpr
+                            let mut elements: Vec<_> = style_inner.collect();
+                            println!("🔧 style_param elements: {:?}", elements.iter().map(|e| (e.as_rule(), e.as_str())).collect::<Vec<_>>());
+                            if let Some(style_expr) = elements.pop() {
+                                let parsed_style = style_from_expr(parse_expr(style_expr));
+                                println!("🔧 Parsed default style for component '{}': {:?}", name, parsed_style);
+                                default_style = Some(parsed_style);
+                            } else {
+                                println!("⚠️ No style expression found in style_param for component '{}'", name);
+                            }
+                        }
+                        Rule::ident => {
+                            // パラメータ名
+                            let param_name = param_inner.as_str().to_string();
+                            println!("🔧 Added parameter '{}' to component '{}'", param_name, name);
+                            params.push(param_name);
+                        }
+                        _ => {}
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
 
     let font: Option<String> = None;
     let mut body: Vec<WithSpan<ViewNode>> = Vec::new();
@@ -363,7 +417,7 @@ pub fn parse_component_def(pair: Pair<Rule>) -> Component {
             _ => body.push(parse_view_node(node_pair)),
         }
     }
-    Component { name, params, font, body, whens }
+    Component { name, params, font, default_style, body, whens }
 }
 
 
@@ -398,8 +452,23 @@ fn parse_view_node(pair: Pair<Rule>) -> WithSpan<ViewNode> {
                 // "Spacing(...)" の場合は値を解析
                 let mut it = pair.into_inner();
                 if let Some(p) = it.next() {
-                    let v = p.as_str().parse::<f32>().unwrap_or(12.0);
-                    ViewNode::Spacing(v)
+                    let dimension_value = match p.as_rule() {
+                        Rule::dimension_value => {
+                            // dimension_valueから実際のDimensionValueを抽出
+                            let expr = parse_expr(p);
+                            match expr {
+                                Expr::Dimension(dim_val) => dim_val,
+                                Expr::Number(n) => DimensionValue { value: n, unit: Unit::Px },
+                                _ => DimensionValue { value: 12.0, unit: Unit::Px }
+                            }
+                        },
+                        Rule::number => {
+                            let v = p.as_str().parse::<f32>().unwrap_or(12.0);
+                            DimensionValue { value: v, unit: Unit::Px }
+                        },
+                        _ => DimensionValue { value: 12.0, unit: Unit::Px }
+                    };
+                    ViewNode::Spacing(dimension_value)
                 } else {
                     ViewNode::SpacingAuto
                 }
@@ -833,35 +902,55 @@ fn parse_expr(pair: Pair<Rule>) -> Expr {
             Expr::Number(v)
         }
         Rule::dimension_value => {
-            // dimension_valueは number ~ unit_suffix? の形
             let mut inner = pair.into_inner();
-            let number_str = inner.next().unwrap().as_str();
-            let value: f32 = number_str.parse().unwrap();
+            let first_token = inner.next().unwrap();
+            
+            match first_token.as_rule() {
+                Rule::auto_keyword => {
+                    // "auto"キーワードが指定された場合
+                    Expr::Dimension(DimensionValue { value: 0.0, unit: Unit::Auto })
+                }
+                Rule::number => {
+                    // 数値が指定された場合
+                    let value: f32 = first_token.as_str().parse().unwrap();
 
-            // unit_suffixがあるかチェック
-            if let Some(unit_pair) = inner.next() {
-                let unit_str = unit_pair.as_str();
-                let unit = match unit_str {
-                    "px" => Unit::Px,
-                    "vw" => {
-                        log::debug!("🔍 PARSER DEBUG: Found {}vw in parsing", value);
-                        Unit::Vw
-                    },
-                    "vh" => {
-                        log::debug!("🔍 PARSER DEBUG: Found {}vh in parsing", value);
-                        Unit::Vh
-                    },
-                    "%" => Unit::Percent,
-                    "rem" => Unit::Rem,
-                    "em" => Unit::Em,
-                    _ => Unit::Px, // デフォルト
-                };
-                let result = Expr::Dimension(DimensionValue { value, unit });
-                log::debug!("🔍 PARSER DEBUG: Created DimensionValue: {:?}", result);
-                result
-            } else {
-                // ★ 修正: 単位がない場合は純粋な数値として扱う（pxに変換しない）
-                Expr::Number(value)
+                    // unit_suffixがあるかチェック
+                    if let Some(unit_pair) = inner.next() {
+                        let unit_str = unit_pair.as_str();
+                        let unit = match unit_str {
+                            "px" => Unit::Px,
+                            "vw" => {
+                                log::debug!("🔍 PARSER DEBUG: Found {}vw in parsing", value);
+                                Unit::Vw
+                            },
+                            "vh" => {
+                                log::debug!("🔍 PARSER DEBUG: Found {}vh in parsing", value);
+                                Unit::Vh
+                            },
+                            "ww" => {
+                                log::debug!("🔍 PARSER DEBUG: Found {}ww in parsing", value);
+                                Unit::Ww
+                            },
+                            "wh" => {
+                                log::debug!("🔍 PARSER DEBUG: Found {}wh in parsing", value);
+                                Unit::Wh
+                            },
+                            "%" => Unit::Percent,
+                            "rem" => Unit::Rem,
+                            "em" => Unit::Em,
+                            _ => Unit::Px, // デフォルト
+                        };
+                        let result = Expr::Dimension(DimensionValue { value, unit });
+                        log::debug!("🔍 PARSER DEBUG: Created DimensionValue: {:?}", result);
+                        result
+                    } else {
+                        // ★ 修正: 単位がない場合は純粋な数値として扱う（pxに変換しない）
+                        Expr::Number(value)
+                    }
+                }
+                _ => {
+                    panic!("Unexpected token in dimension_value: {:?}", first_token.as_rule());
+                }
             }
         }
         Rule::bool => Expr::Bool(pair.as_str() == "true"),
@@ -908,10 +997,82 @@ fn parse_expr(pair: Pair<Rule>) -> Expr {
             Expr::Match { expr, arms, default }
         }
         _ => {
-            // 算術式として解析を試行
-            parse_arithmetic_expr(pair)
+            // 比較式として解析を試行
+            parse_comparison_expr(pair)
         }
     }
+}
+
+fn parse_comparison_expr(pair: Pair<Rule>) -> Expr {
+    let mut inner = pair.into_inner();
+    let mut left = parse_arithmetic_expr_direct(inner.next().unwrap());
+
+    while let Some(op_pair) = inner.next() {
+        let op = op_pair.as_str();
+        let right = parse_arithmetic_expr_direct(inner.next().unwrap());
+
+        left = match op {
+            "==" => Expr::BinaryOp {
+                left: Box::new(left),
+                op: BinaryOperator::Eq,
+                right: Box::new(right),
+            },
+            "!=" => Expr::BinaryOp {
+                left: Box::new(left),
+                op: BinaryOperator::Ne,
+                right: Box::new(right),
+            },
+            "<" => Expr::BinaryOp {
+                left: Box::new(left),
+                op: BinaryOperator::Lt,
+                right: Box::new(right),
+            },
+            "<=" => Expr::BinaryOp {
+                left: Box::new(left),
+                op: BinaryOperator::Le,
+                right: Box::new(right),
+            },
+            ">" => Expr::BinaryOp {
+                left: Box::new(left),
+                op: BinaryOperator::Gt,
+                right: Box::new(right),
+            },
+            ">=" => Expr::BinaryOp {
+                left: Box::new(left),
+                op: BinaryOperator::Ge,
+                right: Box::new(right),
+            },
+            _ => panic!("不明な比較演算子: {}", op),
+        };
+    }
+
+    left
+}
+
+fn parse_arithmetic_expr_direct(pair: Pair<Rule>) -> Expr {
+    let mut inner = pair.into_inner();
+    let mut left = parse_term(inner.next().unwrap());
+
+    while let Some(op_pair) = inner.next() {
+        let op = op_pair.as_str();
+        let right = parse_term(inner.next().unwrap());
+
+        left = match op {
+            "+" => Expr::BinaryOp {
+                left: Box::new(left),
+                op: BinaryOperator::Add,
+                right: Box::new(right),
+            },
+            "-" => Expr::BinaryOp {
+                left: Box::new(left),
+                op: BinaryOperator::Sub,
+                right: Box::new(right),
+            },
+            _ => panic!("不明な算術演算: {}", op),
+        };
+    }
+
+    left
 }
 
 fn parse_arithmetic_expr(pair: Pair<Rule>) -> Expr {
@@ -1001,23 +1162,37 @@ fn parse_primary(pair: Pair<Rule>) -> Expr {
         Rule::string => Expr::String(unquote(pair.as_str())),
         Rule::dimension_value => {
             let mut inner = pair.into_inner();
-            let number_str = inner.next().unwrap().as_str();
-            let value: f32 = number_str.parse().unwrap();
+            let first_token = inner.next().unwrap();
+            
+            match first_token.as_rule() {
+                Rule::auto_keyword => {
+                    // "auto"キーワードが指定された場合
+                    Expr::Dimension(DimensionValue { value: 0.0, unit: Unit::Auto })
+                }
+                Rule::number => {
+                    let value: f32 = first_token.as_str().parse().unwrap();
 
-            if let Some(unit_pair) = inner.next() {
-                let unit_str = unit_pair.as_str();
-                let unit = match unit_str {
-                    "px" => Unit::Px,
-                    "vw" => Unit::Vw,
-                    "vh" => Unit::Vh,
-                    "%" => Unit::Percent,
-                    "rem" => Unit::Rem,
-                    "em" => Unit::Em,
-                    _ => Unit::Px,
-                };
-                Expr::Dimension(DimensionValue { value, unit })
-            } else {
-                Expr::Number(value)
+                    if let Some(unit_pair) = inner.next() {
+                        let unit_str = unit_pair.as_str();
+                        let unit = match unit_str {
+                            "px" => Unit::Px,
+                            "vw" => Unit::Vw,
+                            "vh" => Unit::Vh,
+                            "ww" => Unit::Ww,
+                            "wh" => Unit::Wh,
+                            "%" => Unit::Percent,
+                            "rem" => Unit::Rem,
+                            "em" => Unit::Em,
+                            _ => Unit::Px,
+                        };
+                        Expr::Dimension(DimensionValue { value, unit })
+                    } else {
+                        Expr::Number(value)
+                    }
+                }
+                _ => {
+                    panic!("Unexpected token in dimension_value: {:?}", first_token.as_rule());
+                }
             }
         }
         Rule::number => {
@@ -1158,6 +1333,7 @@ fn parse_stencil_call(pair: Pair<Rule>) -> Stencil {
                 get_f32!("b", 0.0), get_f32!("a", 1.0),
             ],
             font: get_str!("font", "sans"),
+            max_width: None, // パーサーでは改行制御なし
             scroll: get_bool!("scroll", true),
             depth: get_f32!("depth", 0.1),
         },
@@ -1336,34 +1512,97 @@ fn parse_foreach_node(pair: Pair<Rule>) -> WithSpan<ViewNode> {
 
     let mut inner = pair.into_inner();
 
-    // foreach variable in expression の解析
-    var = Some(inner.next().unwrap().as_str().to_string());
-    let _in_keyword = inner.next(); // "in" キーワードをスキップ
-    iterable = Some(parse_expr(inner.next().unwrap()));
-
-    // 残りの引数を処理
-    for p in inner {
-        match p.as_rule() {
-            Rule::style_arg => {
-                style = Some(style_from_expr(parse_expr(p.into_inner().next().unwrap())));
+    log::debug!("🔍 FOREACH DEBUG: Parsing foreach node with grammar rules");
+    
+    // foreach variable の解析
+    if let Some(var_pair) = inner.next() {
+        if var_pair.as_rule() == Rule::ident {
+            var = Some(var_pair.as_str().to_string());
+            log::debug!("🔍 FOREACH DEBUG: var = '{}'", var.as_ref().unwrap());
+        }
+    }
+    
+    // "in" キーワード（暗黙的にスキップ - 文法で処理済み）
+    
+    // foreach_iterable の解析
+    if let Some(iterable_pair) = inner.next() {
+        log::debug!("🔍 FOREACH DEBUG: iterable_pair rule = {:?}, content = '{}'", iterable_pair.as_rule(), iterable_pair.as_str());
+        
+        match iterable_pair.as_rule() {
+            Rule::foreach_iterable => {
+                // foreach_iterable内部の実際のpath/identを取得
+                let mut iterable_inner = iterable_pair.into_inner();
+                if let Some(actual_iterable) = iterable_inner.next() {
+                    match actual_iterable.as_rule() {
+                        Rule::path => {
+                            iterable = Some(Expr::Path(actual_iterable.as_str().to_string()));
+                            log::debug!("🔍 FOREACH DEBUG: parsed as path = '{}'", actual_iterable.as_str());
+                        }
+                        Rule::ident => {
+                            iterable = Some(Expr::Ident(actual_iterable.as_str().to_string()));
+                            log::debug!("🔍 FOREACH DEBUG: parsed as ident = '{}'", actual_iterable.as_str());
+                        }
+                        _ => {
+                            iterable = Some(parse_expr(actual_iterable));
+                            log::debug!("🔍 FOREACH DEBUG: parsed as expr = {:?}", iterable.as_ref().unwrap());
+                        }
+                    }
+                }
             }
-            Rule::view_nodes => {
-                body = p.into_inner().map(parse_view_node).collect();
+            _ => {
+                // fallback: 既存の処理
+                iterable = Some(parse_expr(iterable_pair));
+                log::debug!("🔍 FOREACH DEBUG: fallback parsed iterable = {:?}", iterable.as_ref().unwrap());
             }
-            _ => {}
         }
     }
 
-    WithSpan {
+    // 残りの要素を処理
+    for p in inner {
+        log::debug!("🔍 FOREACH DEBUG: processing rule: {:?}, content: '{}'", p.as_rule(), p.as_str());
+        match p.as_rule() {
+            Rule::foreach_style => {
+                // foreach_style内部のstyle_argを取得
+                let mut style_inner = p.into_inner();
+                if let Some(style_arg) = style_inner.next() {
+                    if style_arg.as_rule() == Rule::style_arg {
+                        let mut style_arg_inner = style_arg.into_inner();
+                        if let Some(expr_pair) = style_arg_inner.next() {
+                            style = Some(style_from_expr(parse_expr(expr_pair)));
+                            log::debug!("🔍 FOREACH DEBUG: parsed foreach_style = {:?}", style.as_ref().unwrap());
+                        }
+                    }
+                }
+            }
+            Rule::view_nodes => {
+                body = p.into_inner().map(parse_view_node).collect();
+                log::debug!("🔍 FOREACH DEBUG: parsed {} view_nodes", body.len());
+            }
+            _ => {
+                log::debug!("🔍 FOREACH DEBUG: ignoring rule: {:?}", p.as_rule());
+            }
+        }
+    }
+
+    let result = WithSpan {
         node: ViewNode::ForEach {
-            var: var.unwrap(),
-            iterable: iterable.unwrap(),
+            var: var.expect("foreach variable not found"),
+            iterable: iterable.expect("foreach iterable not found"),
             body
         },
         line,
         column: col,
         style
-    }
+    };
+
+    log::debug!("🔍 FOREACH DEBUG: Final result - var: {:?}, iterable: {:?}, style: {:?}, body_len: {}", 
+        result.node.clone(), 
+        match &result.node { ViewNode::ForEach { iterable, .. } => Some(iterable), _ => None },
+        result.style.as_ref().map(|_| "Some(Style)"),
+        match &result.node { ViewNode::ForEach { body, .. } => body.len(), _ => 0 }
+    );
+
+    result
 }
 
 fn parse_if_node(pair: Pair<Rule>) -> WithSpan<ViewNode> {
@@ -1489,6 +1728,64 @@ fn style_from_expr(expr: Expr) -> Style {
                                 s.rounded = Some(Rounded::Px(d.value));
                             }
                             _ => {}
+                        }
+                    }
+                    // ★ 新規追加: max_width, min_width, min_height プロパティの処理
+                    "max_width" => {
+                        if let Some(Expr::Dimension(d)) = Some(&resolved_value) {
+                            s.max_width = Some(*d);
+                        }
+                    }
+                    "min_width" => {
+                        if let Some(Expr::Dimension(d)) = Some(&resolved_value) {
+                            s.min_width = Some(*d);
+                        }
+                    }
+                    "min_height" => {
+                        if let Some(Expr::Dimension(d)) = Some(&resolved_value) {
+                            s.min_height = Some(*d);
+                        }
+                    }
+                    // マージン系プロパティ
+                    "margin_top" => {
+                        if let Some(Expr::Dimension(d)) = Some(&resolved_value) {
+                            s.margin_top = Some(*d);
+                        }
+                    }
+                    "margin_bottom" => {
+                        if let Some(Expr::Dimension(d)) = Some(&resolved_value) {
+                            s.margin_bottom = Some(*d);
+                        }
+                    }
+                    "margin_left" => {
+                        if let Some(Expr::Dimension(d)) = Some(&resolved_value) {
+                            s.margin_left = Some(*d);
+                        }
+                    }
+                    "margin_right" => {
+                        if let Some(Expr::Dimension(d)) = Some(&resolved_value) {
+                            s.margin_right = Some(*d);
+                        }
+                    }
+                    // その他のプロパティ
+                    "line_height" => {
+                        if let Some(Expr::Number(lh)) = Some(&resolved_value) {
+                            s.line_height = Some(*lh);
+                        }
+                    }
+                    "text_align" => {
+                        if let Some(Expr::String(ta)) = Some(&resolved_value) {
+                            s.text_align = Some(ta.clone());
+                        }
+                    }
+                    "font_weight" => {
+                        if let Some(Expr::String(fw)) = Some(&resolved_value) {
+                            s.font_weight = Some(fw.clone());
+                        }
+                    }
+                    "font_family" => {
+                        if let Some(Expr::String(ff)) = Some(&resolved_value) {
+                            s.font_family = Some(ff.clone());
                         }
                     }
                     _ => {

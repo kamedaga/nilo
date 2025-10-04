@@ -1,435 +1,320 @@
 flow {
-    start: main
-    start -> [main]
-    main -> [start]
+  start: StartPage
+  StartPage -> [Dashboard, Settings, About]
+  [Dashboard, Settings, About] -> StartPage
 }
 
-timeline start {
+timeline StartPage {
+  font: "Arial"
+
+  VStack(style: {
+    spacing: 24px,
+    align: "center",
+    padding: 40,
+    background: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)"
+  }) {
+
+    // ヘッダーセクション
+    VStack(style: { spacing: 16px, align: "center", margin: [0, 0, 40, 0] }) {
+      Text("Nilo DSL", style: {
+        font_size: 48,
+        color: "white",
+        font: "Arial"
+      })
+      Text("Modern UI Framework", style: {
+        font_size: 18,
+        color: "#e8e8ff",
+        font: "Arial"
+      })
+    }
+
+    // メインナビゲーションカード
     VStack(style: {
-        background: "#282c34",
-        padding: 20px,
-        align: "center",
-        min_height: "100vh",
-        width: "100vw"
+      spacing: 16px,
+      padding: 32,
+      background: "white",
+      rounded: 12,
+      shadow: { blur: 20, offset: [0, 8], color: "#00000020" },
+      width: 400
     }) {
-        Spacing(20)
 
-        // タイトル
-        Text("Nilo基本仕様デモ", style: {
-            font_size: 32px,
-            color: "#61dafb",
-            font_weight: "bold"
-        })
-7
-        Spacing(30)
+      Text("Get Started", style: {
+        font_size: 24,
+        color: "#333",
+        align: "center",
+        margin: [0, 0, 16, 0]
+      })
 
-        // Text要素のデモ
-        VStack(style: {
-            background: "#3c4043",
-            padding: 15px,
-            rounded: 8px,
-            max_width: 600px,
-            margin: 10px
-        }) {
-            Text("1. Text要素", style: {
-                font_size: 20px,
-                color: "#61dafb",
-                font_weight: "bold"
-            })
-            Text("通常のテキスト", style: {
-                color: "#ffffff",
-                font_size: 16px
-            })
-            Text("スタイル付きテキスト", style: {
-                color: "#ff6b6b",
-                font_size: 18px,
-                font_weight: "bold"
-            })
-        }
-
-        Spacing(20)
-
-        // Button要素のデ��
-        VStack(style: {
-            background: "#3c4043",
-            padding: 15px,
-            rounded: 8px,
-            max_width: 600px,
-            margin: 10px
-        }) {
-            Text("2. Button要素", style: {
-                font_size: 20px,
-                color: "#61dafb",
-                font_weight: "bold"
-            })
-
-            HStack(style: {
-                gap: 10px,
-                margin_top: 10px
-            }) {
-                Button(id: primary_btn, label: "プライマリ", style: {
-                    background: "#61dafb",
-                    color: "#282c34",
-                    padding: "10px 20px",
-                    rounded: 6px,
-                    font_weight: "bold"
-                })
-
-                Button(id: secondary_btn, label: "セカンダリ", style: {
-                    background: "transparent",
-                    color: "#61dafb",
-                    padding: "10px 20px",
-                    rounded: 6px,
-                    border: "2px solid #61dafb"
-                })
-            }
-        }
-
-        Spacing(20)
-
-        // TextInput要素のデモ
-        VStack(style: {
-            background: "#3c4043",
-            padding: 15px,
-            rounded: 8px,
-            max_width: 600px,
-            margin: 10px
-        }) {
-            Text("3. TextInput要素", style: {
-                font_size: 20px,
-                color: "#61dafb",
-                font_weight: "bold"
-            })
-
-            VStack(style: {
-                gap: 10px,
-                margin_top: 10px,
-                align: "start",
-                width: "100%"
-            }) {
-                Text("名前:", style: {
-                    color: "#ffffff",
-                    font_size: 14px
-                })
-                TextInput("", style: {
-                    background: "#ffffff",
-                    color: "#000000",
-                    padding: 8px,
-                    rounded: 4px,
-                    width: "100%",
-                    font_size: 16px
-                })
-
-                Text("メッセージ:", style: {
-                    color: "#ffffff",
-                    font_size: 14px,
-                    margin_top: 10px
-                })
-                TextInput("", style: {
-                    background: "#ffffff",
-                    color: "#000000",
-                    padding: 8px,
-                    rounded: 4px,
-                    width: "100%",
-                    height: 80px,
-                    font_size: 16px
-                })
-            }
-        }
-
-        Spacing(20)
-
-        // レイアウトのデモ
-        VStack(style: {
-            background: "#3c4043",
-            padding: 15px,
-            rounded: 8px,
-            max_width: 600px,
-            margin: 10px
-        }) {
-            Text("4. レイアウト（VStack & HStack）", style: {
-                font_size: 20px,
-                color: "#61dafb",
-                font_weight: "bold"
-            })
-
-            Text("HStack（水平レイアウト）:", style: {
-                color: "#ffffff",
-                font_size: 14px,
-                margin_top: 10px
-            })
-
-            HStack(style: {
-                gap: 10px,
-                margin_top: 5px
-            }) {
-                VStack(style: {
-                    background: "#ff6b6b",
-                    padding: 10px,
-                    rounded: 4px,
-                    width: 80px,
-                    height: 60px,
-                    align: "center"
-                }) {
-                    Text("Box 1", style: {
-                        color: "#ffffff",
-                        font_size: 12px
-                    })
-                }
-
-                VStack(style: {
-                    background: "#4ecdc4",
-                    padding: 10px,
-                    rounded: 4px,
-                    width: 80px,
-                    height: 60px,
-                    align: "center"
-                }) {
-                    Text("Box 2", style: {
-                        color: "#ffffff",
-                        font_size: 12px
-                    })
-                }
-
-                VStack(style: {
-                    background: "#45b7d1",
-                    padding: 10px,
-                    rounded: 4px,
-                    width: 80px,
-                    height: 60px,
-                    align: "center"
-                }) {
-                    Text("Box 3", style: {
-                        color: "#ffffff",
-                        font_size: 12px
-                    })
-                }
-            }
-        }
-
-        Spacing(20)
-
-        // スタイルシステムのデモ
-        VStack(style: {
-            background: "#3c4043",
-            padding: 15px,
-            rounded: 8px,
-            max_width: 600px,
-            margin: 10px
-        }) {
-            Text("5. スタイルシステム", style: {
-                font_size: 20px,
-                color: "#61dafb",
-                font_weight: "bold"
-            })
-
-            Text("色とサイズ:", style: {
-                color: "#ffffff",
-                font_size: 14px,
-                margin_top: 10px
-            })
-
-            VStack(style: {
-                gap: 5px,
-                margin_top: 5px
-            }) {
-                Text("16px 通常", style: { color: "#ffffff", font_size: 16px })
-                Text("20px 太字", style: { color: "#61dafb", font_size: 20px, font_weight: "bold" })
-                Text("背景付きテキスト", style: {
-                    color: "#ffffff",
-                    background: "#ff6b6b",
-                    padding: 5px,
-                    rounded: 4px
-                })
-            }
-        }
-
-        Spacing(30)
-
-        Button(id: next_btn, label: "戻る →", style: {
-            background: "#61dafb",
-            color: "#282c34",
-            padding: "12px 24px",
-            font_size: 16px,
-            font_weight: "bold",
-            rounded: 6px
+      // ナビゲーションボタン
+      VStack(style: { spacing: 12px }) {
+        Button(dashboard_btn, "Dashboard", style: {
+          background: "#667eea",
+          color: "white",
+          padding: 16,
+          rounded: 8,
+          width: "100%",
+          font_size: 16,
+          hover: { background: "#5a6fd8" }
         })
 
-        Spacing(20)
+        Button(settings_btn, "Settings", style: {
+          background: "#f8f9fa",
+          color: "#495057",
+          padding: 16,
+          rounded: 8,
+          width: "100%",
+          font_size: 16,
+          border_color: "#dee2e6",
+          hover: { background: "#e9ecef" }
+        })
+
+        Button(about_btn, "About", style: {
+          background: "#28a745",
+          color: "white",
+          padding: 16,
+          rounded: 8,
+          width: "100%",
+          font_size: 16,
+          hover: { background: "#218838" }
+        })
+      }
     }
 
-    when user.click(next_btn) {
-        navigate_to(main)
+    SpacingAuto
+
+    // フッター情報
+    VStack(style: { spacing: 8px, align: "center" }) {
+      HStack(style: { spacing: 24px, align: "center" }) {
+        Text("Features", style: { color: "#e8e8ff", font_size: 14 })
+        Text("Documentation", style: { color: "#e8e8ff", font_size: 14 })
+        Text("Community", style: { color: "#e8e8ff", font_size: 14 })
+      }
+
+      Text("© 2025 Nilo Framework", style: {
+        color: "#b8b8d8",
+        font_size: 12,
+        margin: [16, 0, 0, 0]
+      })
     }
+  }
+
+  when user.click(dashboard_btn) {
+    navigate_to(Dashboard)
+  }
+
+  when user.click(settings_btn) {
+    navigate_to(Settings)
+  }
+
+  when user.click(about_btn) {
+    navigate_to(About)
+  }
 }
 
-timeline main {
+timeline Dashboard {
+  VStack(style: {
+    spacing: 20px,
+    padding: 32,
+    background: "#f8f9fa"
+  }) {
+
+    HStack(style: { spacing: 16px, align: "center" }) {
+      Text("Dashboard", style: {
+        font_size: 32,
+        color: "#212529"
+      })
+      SpacingAuto
+      Button(back_to_home1, "← Home", style: {
+        background: "#6c757d",
+        color: "white",
+        padding: [8, 16],
+        rounded: 6
+      })
+    }
+
+    // ダッシュボードカード
+    HStack(style: { spacing: 20px }) {
+      VStack(style: {
+        spacing: 12px,
+        padding: 24,
+        background: "white",
+        rounded: 8,
+        shadow: true,
+        width: "33%"
+      }) {
+        Text("Users", style: { font_size: 18, color: "#495057" })
+        Text("1,234", style: { font_size: 36, color: "#007bff" })
+        Text("+12% from last month", style: { font_size: 12, color: "#28a745" })
+      }
+
+      VStack(style: {
+        spacing: 12px,
+        padding: 24,
+        background: "white",
+        rounded: 8,
+        shadow: true,
+        width: "33%"
+      }) {
+        Text("Revenue", style: { font_size: 18, color: "#495057" })
+        Text("$45.2K", style: { font_size: 36, color: "#28a745" })
+        Text("+8% from last month", style: { font_size: 12, color: "#28a745" })
+      }
+
+      VStack(style: {
+        spacing: 12px,
+        padding: 24,
+        background: "white",
+        rounded: 8,
+        shadow: true,
+        width: "33%"
+      }) {
+        Text("Orders", style: { font_size: 18, color: "#495057" })
+        Text("892", style: { font_size: 36, color: "#ffc107" })
+        Text("-3% from last month", style: { font_size: 12, color: "#dc3545" })
+      }
+    }
+  }
+
+  when user.click(back_to_home1) {
+    navigate_to(StartPage)
+  }
+}
+
+timeline Settings {
+  VStack(style: {
+    spacing: 20px,
+    padding: 32,
+    background: "#f8f9fa"
+  }) {
+
+    HStack(style: { spacing: 16px, align: "center" }) {
+      Text("Settings", style: {
+        font_size: 32,
+        color: "#212529"
+      })
+      SpacingAuto
+      Button(back_to_home2, "← Home", style: {
+        background: "#6c757d",
+        color: "white",
+        padding: [8, 16],
+        rounded: 6
+      })
+    }
+
+    // 設定パネル
     VStack(style: {
-        background: "#282c34",
-        padding: 20px,
-        align: "center",
-        min_height: "100vh",
-        width: "100vw",
-        rounded: 4px
+      spacing: 16px,
+      padding: 24,
+      background: "white",
+      rounded: 8,
+      shadow: true,
+      width: 600
     }) {
-        Spacing(60)
+      Text("Preferences", style: {
+        font_size: 20,
+        color: "#495057",
+        margin: [0, 0, 12, 0]
+      })
 
-        // Niloロゴ（アイコン風）
-        Text("⚡", style: {
-            font_size: 80px,
-            color: "#61dafb",
-            padding: 5px
+      HStack(style: { spacing: 16px, align: "center" }) {
+        Text("Theme:", style: { font_size: 16, color: "#6c757d" })
+        Button(theme_light, "Light", style: {
+          background: "#e9ecef",
+          color: "#495057",
+          padding: [6, 12],
+          rounded: 4,
+          font_size: 14
         })
-
-        Spacing(20)
-
-        Text("Welcome to Nilo", style: {
-            color: "#61dafb",
-            font_size: 48px,
-            font_weight: "bold",
-            right: 10px
+        Button(theme_dark, "Dark", style: {
+          background: "#495057",
+          color: "white",
+          padding: [6, 12],
+          rounded: 4,
+          font_size: 14
         })
+      }
 
-        Text("{}", state.name, style: {
-            color: "#ffffff",
-            font_size: 24px,
-            margin_top: 10px
+      HStack(style: { spacing: 16px, align: "center" }) {
+        Text("Language:", style: { font_size: 16, color: "#6c757d" })
+        Button(lang_en, "English", style: {
+          background: "#007bff",
+          color: "white",
+          padding: [6, 12],
+          rounded: 4,
+          font_size: 14
         })
-
-        Spacing(10)
-
-        Text("A modern UI framework for building fast applications", style: {
-            color: "#ffffff",
-            font_size: 18px,
-            text_align: "center",
-            max_width: 400px
+        Button(lang_ja, "日本語", style: {
+          background: "#e9ecef",
+          color: "#495057",
+          padding: [6, 12],
+          rounded: 4,
+          font_size: 14
         })
+      }
+    }
+  }
 
-        Spacing(40)
+  when user.click(back_to_home2) {
+    navigate_to(StartPage)
+  }
+}
 
-        HStack(style: {
-            gap: 20px
-        }) {
-            Button(
-                id: learn_btn,
-                label: "Get Started",
-                style: {
-                    background: "#61dafb",
-                    color: "#282c34",
-                    padding: "14px 28px",
-                    rounded: 8px,
-                    font_weight: "bold",
-                    border: "none",
-                    font_size: 16px
-                }
-            )
+timeline About {
+  VStack(style: {
+    spacing: 20px,
+    padding: 32,
+    background: "#f8f9fa"
+  }) {
 
-            Button(
-                id: docs_btn,
-                label: "Learn More",
-                style: {
-                    background: "transparent",
-                    color: "#61dafb",
-                    padding: "14px 28px",
-                    rounded: 8px,
-                    border: "2px solid #61dafb",
-                    font_size: 16px
-                }
-            )
-        }
-
-        Spacing(60)
-
-        // 機能紹介セクション
-        VStack(style: {
-            gap: 30px,
-            max_width: 600px
-        }) {
-            HStack(style: {
-                gap: 20px,
-                align: "center"
-            }) {
-                Text("🚀", style: {
-                    font_size: 24px
-                })
-                VStack(style: {
-                    align: "start"
-                }) {
-                    Text("Fast Development", style: {
-                        color: "#ffffff",
-                        font_size: 18px,
-                        font_weight: "bold"
-                    })
-                    Text("Hot reload and instant feedback", style: {
-                        color: "#aaaaaa",
-                        font_size: 14px
-                    })
-                }
-            }
-
-            HStack(style: {
-                gap: 20px,
-                align: "center"
-            }) {
-                Text("⚡", style: {
-                    font_size: 24px
-                })
-                VStack(style: {
-                    align: "start"
-                }) {
-                    Text("High Performance", style: {
-                        color: "#ffffff",
-                        font_size: 18px,
-                        font_weight: "bold"
-                    })
-                    Text("Built with Rust for maximum speed", style: {
-                        color: "#aaaaaa",
-                        font_size: 14px
-                    })
-                }
-            }
-
-            HStack(style: {
-                gap: 20px,
-                align: "center"
-            }) {
-                Text("🎨", style: {
-                    font_size: 24px
-                })
-                VStack(style: {
-                    align: "start"
-                }) {
-                    Text("Beautiful UI", style: {
-                        color: "#ffffff",
-                        font_size: 18px,
-                        font_weight: "bold"
-                    })
-                    Text("Modern design system included", style: {
-                        color: "#aaaaaa",
-                        font_size: 14px
-                    })
-                }
-            }
-        }
-
-        Spacing(60)
-
-        Text("Edit src/app.nilo to get started", style: {
-            color: "#1E93AB",
-            font_size: 16px,
-            font_family: "monospace",
-            background: "#1e1e1e",
-            padding: "8px 16px",
-            rounded: 6px,
-            border: "1px solid #444"
-        })
-
-        Spacing(40)
-
-        Text("")
+    HStack(style: { spacing: 16px, align: "center" }) {
+      Text("About Nilo", style: {
+        font_size: 32,
+        color: "#212529"
+      })
+      SpacingAuto
+      Button(back_to_home3, "← Home", style: {
+        background: "#6c757d",
+        color: "white",
+        padding: [8, 16],
+        rounded: 6
+      })
     }
 
-    when user.click(learn_btn) {
-        navigate_to(start)
+    // About コンテンツ
+    VStack(style: {
+      spacing: 16px,
+      padding: 32,
+      background: "white",
+      rounded: 8,
+      shadow: true,
+      width: 700
+    }) {
+      Text("Nilo DSL Framework", style: {
+        font_size: 24,
+        color: "#212529",
+        align: "center"
+      })
+
+      Text("Nilo is a modern UI framework designed for creating beautiful, responsive applications with a declarative syntax.",
+           style: {
+             font_size: 16,
+             color: "#6c757d",
+             padding: [16, 0],
+             align: "center"
+           })
+
+      VStack(style: { spacing: 12px, padding: [20, 0] }) {
+        Text("Features:", style: { font_size: 18, color: "#495057" })
+        Text("• Declarative UI syntax", style: { color: "#6c757d" })
+        Text("• Hot reload support", style: { color: "#6c757d" })
+        Text("• Rust integration", style: { color: "#6c757d" })
+        Text("• Modern styling system", style: { color: "#6c757d" })
+        Text("• Cross-platform compatibility", style: { color: "#6c757d" })
+      }
     }
+  }
+
+  when user.click(back_to_home3) {
+    navigate_to(StartPage)
+  }
 }

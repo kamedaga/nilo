@@ -11,3 +11,8 @@ pub fn parse_nilo_file<P: AsRef<Path>>(path: P) -> Result<ast::App, String> {
 
     parse_nilo(&source)
 }
+
+// 埋め込まれたniloファイルをパースする関数
+pub fn parse_embedded_nilo(source: &str) -> Result<ast::App, String> {
+    parse_nilo(source)
+}

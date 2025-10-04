@@ -391,10 +391,13 @@ impl<S: StateAccess + 'static> AppState<S> {
                     crate::parser::ast::Unit::Px => "px",
                     crate::parser::ast::Unit::Vw => "vw",
                     crate::parser::ast::Unit::Vh => "vh",
+                    crate::parser::ast::Unit::Ww => "ww",
+                    crate::parser::ast::Unit::Wh => "wh",
                     crate::parser::ast::Unit::Percent => "%",
                     crate::parser::ast::Unit::PercentHeight => "%h",
                     crate::parser::ast::Unit::Rem => "rem",
                     crate::parser::ast::Unit::Em => "em",
+                    crate::parser::ast::Unit::Auto => "auto",
                 })
             }
             Expr::Match { expr, arms, default } => {
@@ -418,28 +421,71 @@ impl<S: StateAccess + 'static> AppState<S> {
                 self.execute_function_call(name, args)
             }
             Expr::BinaryOp { left, op, right } => {
-                // 算術演算の評価
                 let left_val = self.eval_expr_from_ast(left);
                 let right_val = self.eval_expr_from_ast(right);
 
-                // 数値に変換して計算
-                let left_num = left_val.parse::<f32>().unwrap_or(0.0);
-                let right_num = right_val.parse::<f32>().unwrap_or(0.0);
-
-                let result = match op {
-                    crate::parser::ast::BinaryOperator::Add => left_num + right_num,
-                    crate::parser::ast::BinaryOperator::Sub => left_num - right_num,
-                    crate::parser::ast::BinaryOperator::Mul => left_num * right_num,
+                match op {
+                    // 算術演算
+                    crate::parser::ast::BinaryOperator::Add |
+                    crate::parser::ast::BinaryOperator::Sub |
+                    crate::parser::ast::BinaryOperator::Mul |
                     crate::parser::ast::BinaryOperator::Div => {
-                        if right_num != 0.0 {
-                            left_num / right_num
-                        } else {
-                            0.0 // ゼロ除算回避
-                        }
-                    }
-                };
+                        // 数値に変換して計算
+                        let left_num = left_val.parse::<f32>().unwrap_or(0.0);
+                        let right_num = right_val.parse::<f32>().unwrap_or(0.0);
 
-                result.to_string()
+                        let result = match op {
+                            crate::parser::ast::BinaryOperator::Add => left_num + right_num,
+                            crate::parser::ast::BinaryOperator::Sub => left_num - right_num,
+                            crate::parser::ast::BinaryOperator::Mul => left_num * right_num,
+                            crate::parser::ast::BinaryOperator::Div => {
+                                if right_num != 0.0 {
+                                    left_num / right_num
+                                } else {
+                                    0.0 // ゼロ除算回避
+                                }
+                            },
+                            _ => unreachable!()
+                        };
+
+                        result.to_string()
+                    }
+                    
+                    // 比較演算
+                    crate::parser::ast::BinaryOperator::Eq |
+                    crate::parser::ast::BinaryOperator::Ne |
+                    crate::parser::ast::BinaryOperator::Lt |
+                    crate::parser::ast::BinaryOperator::Le |
+                    crate::parser::ast::BinaryOperator::Gt |
+                    crate::parser::ast::BinaryOperator::Ge => {
+                        // 数値として比較を試行し、失敗したら文字列として比較
+                        let result = if let (Ok(left_num), Ok(right_num)) = (left_val.parse::<f32>(), right_val.parse::<f32>()) {
+                            // 数値比較
+                            match op {
+                                crate::parser::ast::BinaryOperator::Eq => left_num == right_num,
+                                crate::parser::ast::BinaryOperator::Ne => left_num != right_num,
+                                crate::parser::ast::BinaryOperator::Lt => left_num < right_num,
+                                crate::parser::ast::BinaryOperator::Le => left_num <= right_num,
+                                crate::parser::ast::BinaryOperator::Gt => left_num > right_num,
+                                crate::parser::ast::BinaryOperator::Ge => left_num >= right_num,
+                                _ => unreachable!()
+                            }
+                        } else {
+                            // 文字列比較
+                            match op {
+                                crate::parser::ast::BinaryOperator::Eq => left_val == right_val,
+                                crate::parser::ast::BinaryOperator::Ne => left_val != right_val,
+                                crate::parser::ast::BinaryOperator::Lt => left_val < right_val,
+                                crate::parser::ast::BinaryOperator::Le => left_val <= right_val,
+                                crate::parser::ast::BinaryOperator::Gt => left_val > right_val,
+                                crate::parser::ast::BinaryOperator::Ge => left_val >= right_val,
+                                _ => unreachable!()
+                            }
+                        };
+
+                        if result { "true".to_string() } else { "false".to_string() }
+                    }
+                }
             }
         }
     }
@@ -500,13 +546,9 @@ impl<S: StateAccess + 'static> AppState<S> {
         let is_hover = point_in_rect(mouse_pos, lnode.position, lnode.size);
 
         // ★ デバッグ出力: レンダリング段階でのサイズ確認
+        println!("🎨 RENDER: node={:?} at position={:?} with size={:?}", lnode.node.node, lnode.position, lnode.size);
         if let Some(ref rel_width) = style.relative_width {
-            log::debug!("🎨 Render DEBUG: position: {:?}, size: {:?}, rel_width: {:?}",
-                lnode.position, lnode.size, rel_width);
-        }
-        if let Some(ref rel_height) = style.relative_height {
-            log::debug!("🎨 Render DEBUG: position: {:?}, size: {:?}, rel_height: {:?}",
-                lnode.position, lnode.size, rel_height);
+            println!("🎨 RENDER rel_width: {:?} -> actual size: {:?}", rel_width, lnode.size);
         }
 
 
@@ -607,6 +649,10 @@ impl<S: StateAccess + 'static> AppState<S> {
             }
 
             *depth_counter += 0.001;
+            
+            // 背景描画（デバッグ出力削除）
+            let final_depth = (1.0 - *depth_counter).max(0.0);
+            
             out.push(Stencil::RoundedRect {
                 position: lnode.position,
                 width: lnode.size[0],
@@ -614,7 +660,7 @@ impl<S: StateAccess + 'static> AppState<S> {
                 radius,
                 color,
                 scroll: true,
-                depth: (1.0 - *depth_counter).max(0.0),
+                depth: final_depth,
             });
         }
     }
@@ -631,6 +677,9 @@ impl<S: StateAccess + 'static> AppState<S> {
     ) {
         let values: Vec<String> = args.iter().map(|e| self.eval_expr_from_ast(e)).collect();
         let content = format_text(format, &values[..]);
+
+        // デバッグ出力: テキスト描画情報
+
 
         if content.is_empty() && !args.is_empty() {
             return; // 空のテキストは描画しない
@@ -698,6 +747,7 @@ impl<S: StateAccess + 'static> AppState<S> {
             size: font_size,
             color: text_color,
             font,
+            max_width: None, // 通常のテキストでは改行しない（デフォルト）
             scroll: true,
             depth: (1.0 - *depth_counter).max(0.0),
         });
@@ -762,9 +812,9 @@ impl<S: StateAccess + 'static> AppState<S> {
             });
         }
 
-        // テキスト（中央寄せ）
-        let text_w = (label.chars().count() as f32) * font_size * 0.55;
-        let text_h = font_size * 1.2;
+        // テキスト（中央寄せ） - 正確なテキスト測定を使用
+        use crate::ui::text_measurement::measure_text_size;
+        let (text_w, text_h) = measure_text_size(label, font_size, "default", None);
         let tx = lnode.position[0] + (lnode.size[0] - text_w) * 0.5;
         let ty = lnode.position[1] + (lnode.size[1] - text_h) * 0.5;
 
@@ -775,6 +825,7 @@ impl<S: StateAccess + 'static> AppState<S> {
             size: font_size,
             color: text_color,
             font,
+            max_width: None, // ボタンでは改行しない
             scroll: true,
             depth: (1.0 - *depth_counter).max(0.0),
         });

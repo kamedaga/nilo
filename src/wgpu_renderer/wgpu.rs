@@ -7,7 +7,7 @@ use winit::window::Window;
 
 use super::text::TextRenderer;
 use super::circle::CircleRenderer;
-use super::command::{DrawCommand, DrawList};
+use crate::renderer_abstract::command::{DrawCommand, DrawList};
 use super::quad::QuadRenderer;
 use super::triangle::TriangleRenderer;
 use super::image::ImageRenderer;
@@ -249,9 +249,9 @@ impl WgpuRenderer {
                 DrawCommand::Circle { .. } => circle_commands.push(cmd.clone()),
                 DrawCommand::Triangle { .. } => triangle_commands.push(cmd.clone()),
                 DrawCommand::Image { .. } => image_commands.push(cmd.clone()),
-                DrawCommand::Text { content, position, size, color, font, .. } => {
-                    // ★ 修正: フォント情報も含める
-                    text_commands.push((content.clone(), *position, *size, *color, font.clone()));
+                DrawCommand::Text { content, position, size, color, font, max_width, .. } => {
+                    // ★ 修正: max_width情報も含める
+                    text_commands.push((content.clone(), *position, *size, *color, font.clone(), *max_width));
                 }
             }
         }
