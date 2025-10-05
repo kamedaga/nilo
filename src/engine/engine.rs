@@ -112,6 +112,9 @@ impl Engine {
 
         let eval_fn = |e: &Expr| state.eval_expr_from_ast(e);
         let get_img_size = |path: &str| state.get_image_size(path);
+        
+        // 旧レイアウトシステムを使用（max_width: auto修正版）
+        println!("DEBUG: Using FIXED old layout system with max_width: auto support!");
         let layouted = layout_vstack(nodes, params.clone(), app, &eval_fn, &get_img_size);
 
         for lnode in &layouted {
@@ -132,7 +135,7 @@ impl Engine {
                     Self::render_text_input_lightweight(lnode, state, &mut stencils, &mut depth_counter, mouse_pos);
                 }
                 ViewNode::Text { .. } => {
-                    Self::render_text_lightweight(lnode, state, &mut stencils, &mut depth_counter, params.window_size, &params.default_font);
+                    Self::render_text_lightweight(lnode, state, &mut stencils, &mut depth_counter, params.window_size, params.parent_size, &params.default_font);
                 }
                 ViewNode::Image { .. } => {
                     Self::render_image_lightweight(lnode, &mut stencils, &mut depth_counter);
@@ -143,15 +146,15 @@ impl Engine {
                     stencils.push(offset_st);
                 }
                 ViewNode::RustCall { name, args } => {
-                    state.handle_rust_call_viewnode(name, args);
+                    state.handle_rust_call_viewnode(name, &args);
                 }
                 ViewNode::ForEach { var, iterable, body } => {
                     let window_size = params.window_size;
                     let spacing = params.spacing;
-                    Self::render_foreach_optimized(lnode, var, iterable, body, app, state, &mut stencils, &mut depth_counter, window_size, spacing);
+                    Self::render_foreach_optimized(lnode, var, iterable, &body, app, state, &mut stencils, &mut depth_counter, window_size, spacing);
                 }
                 ViewNode::If { condition, then_body, else_body } => {
-                    Self::render_if_optimized(lnode, condition, then_body, else_body, state, &mut stencils, &mut depth_counter);
+                    Self::render_if_optimized(lnode, condition, &then_body, else_body, state, &mut stencils, &mut depth_counter, params.window_size, params.parent_size);
                 }
                 _ => {
                     state.viewnode_layouted_to_stencil_with_depth_counter_helper(
@@ -440,6 +443,7 @@ impl Engine {
         stencils: &mut Vec<Stencil>,
         depth_counter: &mut f32,
         window_size: [f32; 2],
+        _parent_size: [f32; 2],
         default_font: &str,
     ) where
         S: crate::engine::state::StateAccess + 'static,
@@ -532,17 +536,25 @@ impl Engine {
             };
 
             // テキストの描画（一度だけ）
-            // ★ max_width情報を取得（レイアウトで計算されたサイズを使用）
+            // ★ max_width情報を取得（改良版）
+            // レイアウト時の計算と一致させるため、実際のレイアウトサイズから逆算
+            // lnode.size[0]はレイアウト計算で既に親幅制約を受けた値なので、それを親サイズとして使用
+    let effective_parent_width = lnode.size[0]; // レイアウト済みの幅を親幅として使用
             let max_width = if let Some(max_w) = style.max_width.as_ref() {
                 if max_w.unit == crate::parser::ast::Unit::Auto {
-                    // max-width: autoの場合は親要素のサイズを使用
-                    Some(lnode.size[0])
+                    // max-width: autoの場合はレイアウト済みサイズを使用（パディングを差し引く）
+                    let available_width = effective_parent_width - padding.left - padding.right;
+                    println!("DEBUG RENDER: Text max_width:auto - lnode.size[0]: {:.1}, available: {:.1}", effective_parent_width, available_width);
+                    Some(available_width.max(0.0))
                 } else {
-                    Some(max_w.to_px(
+                    let calculated_width = max_w.to_px(
                         window_size[0], window_size[1],
-                        lnode.size[0], lnode.size[1],
+                        effective_parent_width, effective_parent_width,
                         16.0, font_size,
-                    ))
+                    );
+                    // パディングを考慮した幅を計算
+                    let available_width = calculated_width.min(effective_parent_width - padding.left - padding.right);
+                    Some(available_width.max(0.0))
                 }
             } else {
                 None // max_widthが指定されていない場合は改行しない
@@ -647,7 +659,7 @@ impl Engine {
             let start_y = lnode.position[1] + current_y_offset;
             let mut item_height: f32 = 0.0;
             for ln in &layouted {
-                Self::render_substituted_node_to_stencil_with_context(ln, stencils, depth_counter, state);
+                Self::render_substituted_node_to_stencil_with_context(ln, stencils, depth_counter, state, window_size, [lnode.size[0], window_size[1]]);
                 let bottom = ln.position[1] + ln.size[1];
                 let h = bottom - start_y;
                 if h > item_height { item_height = h; }
@@ -666,6 +678,8 @@ impl Engine {
         state: &mut AppState<S>,
         stencils: &mut Vec<Stencil>,
         depth_counter: &mut f32,
+        window_size: [f32; 2],
+        parent_size: [f32; 2],
     ) where S: crate::engine::state::StateAccess + 'static {
         let v = state.eval_expr_from_ast(condition);
         let truth = matches!(v.as_str(), "true"|"1"|"True"|"TRUE") || v.parse::<f32>().unwrap_or(0.0) != 0.0;
@@ -685,6 +699,28 @@ impl Engine {
                     let content = Self::format_text_fast(format, &values);
                     let style = node.style.clone().unwrap_or_default();
                     let font_size = style.font_size.unwrap_or(16.0);
+                    
+                    // パディングを取得
+                    let padding = style.padding.unwrap_or_default();
+                    
+                    // max_width情報を取得（パディングを考慮）
+                    let max_width = if let Some(max_w) = style.max_width.as_ref() {
+                        if max_w.unit == crate::parser::ast::Unit::Auto {
+                            let available_width = parent_size[0] - padding.left - padding.right;
+                            Some(available_width.max(0.0))
+                        } else {
+                            let calculated_width = max_w.to_px(
+                                window_size[0], window_size[1],
+                                parent_size[0], parent_size[1],
+                                16.0, font_size,
+                            );
+                            let available_width = calculated_width.min(parent_size[0] - padding.left - padding.right);
+                            Some(available_width.max(0.0))
+                        }
+                    } else {
+                        None
+                    };
+                    
                     *depth_counter += 0.001;
                     stencils.push(Stencil::Text {
                         content,
@@ -692,7 +728,7 @@ impl Engine {
                         size: font_size,
                         color: style.color.as_ref().map(|c| Self::convert_to_rgba(c)).unwrap_or([0.0,0.0,0.0,1.0]),
                         font: style.font.unwrap_or_else(||"default".into()),
-                        max_width: None, // DynamicSectionでは改行しない
+                        max_width,
                         scroll: true,
                         depth: (1.0-*depth_counter).max(0.0)
                     });
@@ -710,6 +746,8 @@ impl Engine {
         stencils: &mut Vec<Stencil>,
         depth_counter: &mut f32,
         state: &AppState<S>,
+        window_size: [f32; 2],
+        parent_size: [f32; 2],
     ) where S: crate::engine::state::StateAccess + 'static {
         match &lnode.node.node {
             ViewNode::Text { format, args } => {
@@ -742,6 +780,24 @@ impl Engine {
                 let color = style.color.as_ref().map(|c| Self::convert_to_rgba(c)).unwrap_or([0.0,0.0,0.0,1.0]);
                 let padding = style.padding.unwrap_or_default();
                 
+                // max_width情報を取得（パディングを考慮）
+                let max_width = if let Some(max_w) = style.max_width.as_ref() {
+                    if max_w.unit == crate::parser::ast::Unit::Auto {
+                        let available_width = parent_size[0] - padding.left - padding.right;
+                        Some(available_width.max(0.0))
+                    } else {
+                        let calculated_width = max_w.to_px(
+                            window_size[0], window_size[1],
+                            parent_size[0], parent_size[1],
+                            16.0, font_size,
+                        );
+                        let available_width = calculated_width.min(parent_size[0] - padding.left - padding.right);
+                        Some(available_width.max(0.0))
+                    }
+                } else {
+                    None
+                };
+                
                 *depth_counter += 0.001;
                 stencils.push(Stencil::Text { 
                     content, 
@@ -749,7 +805,7 @@ impl Engine {
                     size: font_size, 
                     color, 
                     font: style.font.unwrap_or_else(||"default".into()), 
-                    max_width: None, // Label表示では改行しない
+                    max_width,
                     scroll: true, 
                     depth: (1.0 - *depth_counter).max(0.0)
                 });
@@ -1239,7 +1295,7 @@ fn substitute_parameter_in_nodes(nodes: &mut [WithSpan<ViewNode>], param_name: &
 /// 単一ノード内のパラメータを置換する
 fn substitute_parameter_in_node(node: &mut ViewNode, param_name: &str, arg: &Expr) {
     match node {
-        ViewNode::Text { format, args, .. } => {
+        ViewNode::Text { args, .. } => {
             // Text argsの中でパラメータを探す
             for text_arg in args {
                 if let Expr::Path(path) = text_arg {

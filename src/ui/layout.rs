@@ -174,10 +174,20 @@ impl LayoutEngine {
         // 1. スタイルから明示的なサイズを取得（最優先）
         let mut computed = self.get_explicit_size_from_style(node.style.as_ref(), context);
         
-        // 2. 内在的サイズを計算（子要素から計算）
-        let intrinsic = self.compute_intrinsic_size(node, context, eval, get_image_size, app);
+        // 2. 明示的な幅がある場合は子要素のコンテキストに適用（VStack/HStackのみでなく全ノード対象）
+        let child_context = if computed.has_explicit_width {
+            let mut new_context = context.clone();
+            new_context.parent_size[0] = computed.width;
+            println!("DEBUG: Node setting child context width: {:.1} (node type: {:?})", computed.width, std::mem::discriminant(&node.node));
+            new_context
+        } else {
+            context.clone()
+        };
         
-        // 3. 明示的でない部分は内在的サイズを使用
+        // 3. 内在的サイズを計算（子要素から計算）
+        let intrinsic = self.compute_intrinsic_size(node, &child_context, eval, get_image_size, app);
+        
+        // 4. 明示的でない部分は内在的サイズを使用
         if !computed.has_explicit_width {
             computed.width = intrinsic.width;
             computed.intrinsic_width = intrinsic.width;
@@ -187,7 +197,7 @@ impl LayoutEngine {
             computed.intrinsic_height = intrinsic.height;
         }
         
-        // 4. min/max制約を適用
+        // 5. min/max制約を適用
         self.apply_size_constraints(&mut computed, node.style.as_ref(), context);
         
         computed
@@ -320,13 +330,25 @@ impl LayoutEngine {
             &context.default_font
         };
         
-        // max_widthを考慮
+        // パディングを計算
+        let padding = self.get_padding_from_style(style, context);
+        
+        // max_widthを考慮（パディングを差し引く）
+        // 注意: ウィンドウサイズは使用せず、常に親要素のサイズを基準とする
         let max_width = if let Some(style) = style {
             if let Some(ref max_w) = style.max_width {
                 if max_w.unit == Unit::Auto {
-                    Some(context.parent_size[0])
+                    // 親要素の幅を常に利用可能幅として使用（>0でなければ0を許容）
+                    let available_width = (context.parent_size[0] - padding.left - padding.right).max(0.0);
+                    println!("DEBUG: Text max_width:auto - parent_size: {:.1}, available: {:.1}", context.parent_size[0], available_width);
+                    Some(available_width)
                 } else {
-                    Some(self.resolve_dimension_value(max_w, context, true))
+                    let calculated_width = self.resolve_dimension_value(max_w, context, true);
+                    // 親要素のサイズも考慮して制限
+                    let available_width = if context.parent_size[0] > 0.0 {
+                        calculated_width.min(context.parent_size[0] - padding.left - padding.right)
+                    } else { calculated_width };
+                    Some(available_width.max(0.0))
                 }
             } else {
                 None
@@ -334,9 +356,6 @@ impl LayoutEngine {
         } else {
             None
         };
-        
-        // パディングを計算
-        let padding = self.get_padding_from_style(style, context);
         
         // テキスト測定
         let measurement = self.measure_text(&text, font_size, font_family, max_width);
@@ -415,18 +434,55 @@ impl LayoutEngine {
         F: Fn(&Expr) -> String,
         G: Fn(&str) -> (u32, u32),
     {
-        // VStackレイアウト処理
+        // パス1: 子要素のサイズを計算してVStackの幅を決定
         let mut max_width: f32 = 0.0;
+        let mut child_sizes = Vec::new();
+        
+        for child in children.iter() {
+            // パス1では現在のコンテキストをそのまま使用
+            let child_size = self.compute_node_size(child, context, eval, get_image_size, app);
+            child_sizes.push(child_size.clone());
+            max_width = max_width.max(child_size.width);
+        }
+        
+        // VStackの最終的な幅を決定
+        // ポイント: 親が利用可能幅を提示している場合（>0）は、それを優先して子へ伝播する。
+        // ウィンドウ幅かどうかは関係なく、トップレベルでも親幅（=ウィンドウ幅）を使う。
+        let final_width = if context.parent_size[0] > 0.0 {
+            context.parent_size[0]
+        } else {
+            // 親幅が不明な場合のみ、子要素の最大幅を採用
+            max_width
+        };
+        
+        // パス2: 確定したVStackの幅を子要素に伝えて再計算（max_width: auto対応）
         let mut total_height: f32 = 0.0;
+        let mut needs_recompute = false;
+        
+        // max_width: autoを持つ子要素があるかチェック
+        for child in children.iter() {
+            if let Some(style) = &child.style {
+                if let Some(ref max_w) = style.max_width {
+                    if max_w.unit == crate::parser::ast::Unit::Auto {
+                        needs_recompute = true;
+                        break;
+                    }
+                }
+            }
+        }
         
         for (i, child) in children.iter().enumerate() {
-            // 子要素のコンテキストを更新
-            let mut child_context = context.clone();
-            child_context.parent_size = context.parent_size;
+            let child_size = if needs_recompute || final_width != max_width {
+                // max_width: autoがある場合、または幅が変更された場合は再計算
+                let mut child_context = context.clone();
+                child_context.parent_size = [final_width, context.parent_size[1]];
+                println!("DEBUG: VStack child {} context - parent_width: {:.1}", i, final_width);
+                self.compute_node_size(child, &child_context, eval, get_image_size, app)
+            } else {
+                // そうでなければパス1の結果を使用
+                child_sizes[i].clone()
+            };
             
-            let child_size = self.compute_node_size(child, &child_context, eval, get_image_size, app);
-            
-            max_width = max_width.max(child_size.width);
             total_height += child_size.height;
             
             // スペーシングを追加（最後の要素以外）
@@ -435,20 +491,13 @@ impl LayoutEngine {
             }
         }
         
-        // コンテナサイズが指定されている場合はそれを優先使用
-        let final_width = if context.parent_size[0] > 0.0 && context.parent_size[0] != context.window_size[0] {
-            // ComponentCallコンテキストで明示的なサイズが指定されている場合
-            context.parent_size[0]
-        } else {
-            max_width
-        };
-        
         ComputedSize {
             width: final_width,
             height: total_height,
             intrinsic_width: max_width,
             intrinsic_height: total_height,
-            has_explicit_width: context.parent_size[0] > 0.0 && context.parent_size[0] != context.window_size[0],
+            // 親が幅を与えている（>0）なら、明示的幅として扱う（トップレベル=ウィンドウ幅も含む）
+            has_explicit_width: context.parent_size[0] > 0.0,
             has_explicit_height: false,
         }
     }
@@ -469,24 +518,113 @@ impl LayoutEngine {
         let mut total_width: f32 = 0.0;
         let mut max_height: f32 = 0.0;
         
+        // パス1: 子要素のサイズを計算してHStackのサイズを決定
+        let mut child_sizes = Vec::new();
+        
         for (i, child) in children.iter().enumerate() {
-            // 子要素のコンテキストを更新
-            let mut child_context = context.clone();
-            child_context.parent_size = context.parent_size;
-            
-            let child_size = self.compute_node_size(child, &child_context, eval, get_image_size, app);
-            
+            // パス1では現在のコンテキストをそのまま使用
+            let child_size = self.compute_node_size(child, context, eval, get_image_size, app);
+            child_sizes.push(child_size.clone());
             total_width += child_size.width;
-            max_height = max_height.max(child_size.height);
-            
-            // スペーシングを追加（最後の要素以外）
             if i < children.len() - 1 {
+                // レイアウト時と同じスペーシングの取り扱いに合わせる
                 total_width += self.get_spacing_from_style(child.style.as_ref(), context);
+            }
+            max_height = max_height.max(child_size.height);
+        }
+        
+        // HStackの最終的なサイズを決定
+        let final_height = if context.parent_size[1] > 0.0 && context.parent_size[1] != context.window_size[1] {
+            // 親から明示的な高さが指定されている場合
+            context.parent_size[1]
+        } else {
+            max_height
+        };
+        
+        // HStackの最終的な幅も決定（子要素への幅制約として使用）
+        // 親が利用可能幅を提示している場合（>0）は常にそれを使用する
+        let final_width = if context.parent_size[0] > 0.0 {
+            context.parent_size[0]
+        } else {
+            total_width
+        };
+        
+    // パス2: 確定したHStackのサイズを子要素に伝えて再計算（max_width: auto対応）
+    // HStackでは、子要素が明示的な幅を持つ場合、その幅を尊重する
+    let mut needs_recompute = false;
+        
+        // max_width: autoを持つ子要素があるかチェック
+        for child in children.iter() {
+            if let Some(style) = &child.style {
+                if let Some(ref max_w) = style.max_width {
+                    if max_w.unit == crate::parser::ast::Unit::Auto {
+                        needs_recompute = true;
+                        break;
+                    }
+                }
+            }
+        }
+        
+    // 親の幅によって初期合計幅と異なる場合も再計算（子の折り返し等に対応）
+    if needs_recompute || final_width != total_width {
+            // max_width: autoがある場合、子要素のコンテキストでHStackの幅を利用可能幅として設定
+            total_width = 0.0; // 再計算
+            max_height = 0.0;  // 高さも再計算（ラップにより高さが変わるため）
+            
+            for (i, child) in children.iter().enumerate() {
+                let mut child_context = context.clone();
+                
+                // 重要: 子要素が相対幅（パーセンテージなど）を持つ場合、
+                // HStackの確定幅を基準に再計算する必要がある
+                let child_has_relative_width = if let Some(style) = &child.style {
+                    style.relative_width.is_some()
+                } else {
+                    false
+                };
+                
+                // ComponentCallの場合、そのコンポーネント定義のスタイルもチェック
+                let is_component_with_relative_width = if let ViewNode::ComponentCall { name, .. } = &child.node {
+                    if let Some(component) = app.components.iter().find(|c| &c.name == name) {
+                        // コンポーネントのデフォルトスタイルとノードのスタイルをマージ
+                        let merged = merge_styles(component.default_style.as_ref(), child.style.as_ref());
+                        merged.relative_width.is_some()
+                    } else {
+                        false
+                    }
+                } else {
+                    false
+                };
+                
+                let child_parent_width = if child_has_relative_width || is_component_with_relative_width {
+                    // 相対幅の場合、HStack全体の幅を親幅として使用
+                    final_width
+                } else {
+                    // 固定幅の場合、パス1の計算結果を使用
+                    child_sizes[i].width
+                };
+                
+                child_context.parent_size = [child_parent_width, final_height];
+                println!("DEBUG: HStack child {} context - parent_width: {:.1} (relative: {})", i, child_parent_width, child_has_relative_width || is_component_with_relative_width);
+                
+                let child_size = self.compute_node_size(child, &child_context, eval, get_image_size, app);
+                total_width += child_size.width;
+                if i < children.len() - 1 {
+                    total_width += self.get_spacing_from_style(child.style.as_ref(), context);
+                }
+                max_height = max_height.max(child_size.height);
             }
         }
         
         ComputedSize {
-            width: total_width,
+            // パス2で再計算した場合でも、HStack自体の幅はfinal_widthを使用
+            // （total_widthは子要素の合計幅で、HStackの幅制約とは異なる）
+            width: if needs_recompute || final_width != total_width {
+                // 親から明示的な幅が指定されている場合はそれを優先
+                final_width
+            } else {
+                // 子要素の合計幅をそのまま使用
+                total_width
+            },
             height: max_height,
             intrinsic_width: total_width,
             intrinsic_height: max_height,
@@ -673,16 +811,9 @@ impl LayoutEngine {
     where
         F: Fn(&Expr) -> String,
     {
-        println!("🔧 compute_component_size_with_priority '{}' - override_width: {:?}, override_height: {:?}", 
-                name, override_width, override_height);
-        
         // コンポーネント定義を探す
         if let Some(component) = app.components.iter().find(|c| c.name == name) {
             if let Some(first_node) = component.body.first() {
-                println!("🔧 Original component style for '{}': width={:?}, relative_width={:?}", 
-                        name, 
-                        first_node.style.as_ref().and_then(|s| s.width),
-                        first_node.style.as_ref().and_then(|s| s.relative_width.clone()));
                 
                 // コンポーネントのデフォルトスタイルを基準として開始
                 let mut merged_style = component.default_style.clone();
@@ -695,21 +826,14 @@ impl LayoutEngine {
                 if let Some(ref mut style) = merged_style {
                     // ComponentCallでwidth/heightが指定されている場合、本体の同じ属性を無効化
                     if override_width == Some(true) {
-                        println!("🔧 Overriding width for component '{}'", name);
                         style.width = None;
                         style.relative_width = None;
                     }
                     if override_height == Some(true) {
-                        println!("🔧 Overriding height for component '{}'", name);
                         style.height = None;
                         style.relative_height = None;
                     }
                 }
-                
-                println!("🔧 Modified component style for '{}': width={:?}, relative_width={:?}", 
-                        name, 
-                        merged_style.as_ref().and_then(|s| s.width),
-                        merged_style.as_ref().and_then(|s| s.relative_width.clone()));
                 
                 // 修正されたスタイルで新しいノードを作成
                 let modified_node = WithSpan {
@@ -756,9 +880,6 @@ impl LayoutEngine {
     {
         // 1. ComponentCallノード自体のスタイルから明示的なサイズを取得
         let explicit = self.get_explicit_size_from_style(node.style.as_ref(), context);
-        
-        println!("🔍 ComponentCall '{}' - context parent_size: {:?}, explicit width: {}, has_explicit: {}", 
-                 name, context.parent_size, explicit.width, explicit.has_explicit_width);
         
         // 2. 常に優先度システムを使用してComponentCallのスタイルを優先する
         
@@ -862,6 +983,7 @@ impl LayoutEngine {
             Unit::Em => dim.value * context.font_size,
             Unit::Rem => dim.value * context.root_font_size,
             Unit::Auto => {
+                // Autoの場合は親サイズを使用（ウィンドウサイズではなく）
                 if is_width {
                     context.parent_size[0]
                 } else {
@@ -1127,14 +1249,27 @@ impl LayoutEngine {
         let mut current_x = start_position[0];
         
         for (i, child) in children.iter().enumerate() {
-            // 子要素のコンテキストを作成
-            let child_context = LayoutContext {
+            // 子要素のコンテキストを作成（親サイズを適切に設定）
+            let mut child_context = LayoutContext {
                 window_size: context.window_size,
                 parent_size: available_size,
                 root_font_size: context.root_font_size,
                 font_size: context.font_size,
                 default_font: context.default_font.clone(),
             };
+            
+            // ComponentCallの場合、そのコンポーネントの幅仕様を確認して適切な親サイズを設定
+            if let ViewNode::ComponentCall { name, .. } = &child.node {
+                if let Some(component) = app.components.iter().find(|c| &c.name == name) {
+                    let merged_style = merge_styles(component.default_style.as_ref(), child.style.as_ref());
+                    let component_explicit_size = self.get_explicit_size_from_style(Some(&merged_style), &child_context);
+                    
+                    // パーセンテージベースの幅の場合、HStackの利用可能幅を親サイズとして使用
+                    if component_explicit_size.has_explicit_width {
+                        child_context.parent_size = available_size;
+                    }
+                }
+            }
             
             // スペーシング計算
             let spacing = if i < children.len() - 1 {

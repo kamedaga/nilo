@@ -3,7 +3,7 @@ flow {
 }
 
 timeline MainMenu {
-    VStack(style: {width: 90ww, background: "#000000"}) {
+    VStack(style: {width: 90ww, background: "#ff0000"}) {
         Text("Hello Nilo", style: {font_size: 40px, color: "#ffffff"})
         Spacing(4px)
         Text("🚀Niloと創る新しいUIは完璧ニロ！！！", style: {font_size: 24px, color: "#a7edffff"})
@@ -14,6 +14,15 @@ timeline MainMenu {
             minimalUICard()
         }
         Text("あなたに寄り添うニロ！！")
+        
+        VStack(style: {width: 80ww, background: "#1A1A2E"}) {
+            Text("テキスト改行テストです。この長いテキストが適切に改行されるかどうかを確認しています。", style: {max_width: 300px, color: "#ffffff", font_size: 16px})
+            Spacing(8px)
+            Text("This is a very long English text that should wrap properly within the specified maximum width constraint.", style: {max_width: 250px, color: "#a7edffff", font_size: 14px})
+            Spacing(8px)
+            Text("AUTO MAX-WIDTH TEST: この非常に長いテキストは max_width: auto を使用して親要素の幅に合わせて動的に改行されるはずです。ウィンドウサイズを変更すると改行も動的に変わることが期待されます。", style: {max_width: auto, color: "#ffff00", font_size: 15px})
+        }
+        
         VStack(style: {width: 100%, background: "#0B1A2A"}) {
             HotreloadCard()
         }
