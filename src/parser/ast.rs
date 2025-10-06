@@ -170,6 +170,7 @@ pub enum Expr {
     Array(Vec<Expr>),
     Object(Vec<(String, Expr)>),
     Dimension(DimensionValue),
+    CalcExpr(Box<Expr>), // 計算式（括弧付き）
     Match { expr: Box<Expr>, arms: Vec<MatchArm>, default: Option<Box<Expr>> },
     FunctionCall { name: String, args: Vec<Expr> },
     BinaryOp { left: Box<Expr>, op: BinaryOperator, right: Box<Expr> },
@@ -296,6 +297,11 @@ pub struct Style {
     pub height: Option<f32>,
     pub relative_width: Option<DimensionValue>,
     pub relative_height: Option<DimensionValue>,
+    
+    // ★ 新規追加: 計算式を保持するフィールド
+    pub width_expr: Option<Expr>,
+    pub height_expr: Option<Expr>,
+    
     pub align: Option<Align>,
     pub rounded: Option<Rounded>,
     pub shadow: Option<Shadow>,
@@ -349,6 +355,8 @@ impl Style {
         if other.height.is_some() { result.height = other.height; }
         if other.relative_width.is_some() { result.relative_width = other.relative_width; }
         if other.relative_height.is_some() { result.relative_height = other.relative_height; }
+        if other.width_expr.is_some() { result.width_expr = other.width_expr.clone(); }
+        if other.height_expr.is_some() { result.height_expr = other.height_expr.clone(); }
         if other.align.is_some() { result.align = other.align; }
         if other.rounded.is_some() { result.rounded = other.rounded; }
         if other.shadow.is_some() { result.shadow = other.shadow.clone(); }

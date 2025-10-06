@@ -1,10 +1,12 @@
+
 flow {
     start: MainMenu
 }
 
 timeline MainMenu {
-    VStack(style: {width: 90ww, background: "#ff0000"}) {
-        Text("Hello Nilo", style: {font_size: 40px, color: "#ffffff"})
+    font: "fonts/NotoSansJP-Regular.ttf"
+    VStack(style: {width: 100ww, background: "#000000ff"}) {
+        Text("Modern Nilo", style: {font_size: 40px, color: "#ffffff"})
         Spacing(4px)
         Text("🚀Niloと創る新しいUIは完璧ニロ！！！", style: {font_size: 24px, color: "#a7edffff"})
         HStack(style: {width: 90ww}) {
@@ -13,43 +15,36 @@ timeline MainMenu {
             LikeRustCard()
             minimalUICard()
         }
-        Text("あなたに寄り添うニロ！！")
-        
-        VStack(style: {width: 80ww, background: "#1A1A2E"}) {
-            Text("テキスト改行テストです。この長いテキストが適切に改行されるかどうかを確認しています。", style: {max_width: 300px, color: "#ffffff", font_size: 16px})
-            Spacing(8px)
-            Text("This is a very long English text that should wrap properly within the specified maximum width constraint.", style: {max_width: 250px, color: "#a7edffff", font_size: 14px})
-            Spacing(8px)
-            Text("AUTO MAX-WIDTH TEST: この非常に長いテキストは max_width: auto を使用して親要素の幅に合わせて動的に改行されるはずです。ウィンドウサイズを変更すると改行も動的に変わることが期待されます。", style: {max_width: auto, color: "#ffff00", font_size: 15px})
-        }
+        Text("ニロ君と作る建設的な未来")
         
         VStack(style: {width: 100%, background: "#0B1A2A"}) {
             HotreloadCard()
         }
+    
 
     }
 }
 
 component SimpleUICard(style: {width: 30%}) {
-    VStack(style: {height: 120px, background: "#a7edffff", rounded: 2.5px}) {
-        Text("シンプルで宣言的ニロ！！", style: {max_width: auto, font_size: 25px})
+    VStack(style: {height: 120px, background: "#0B1A2A", rounded: 2.5px}) {
+        Text("シンプルで宣言的ニロ！！", style: {max_width: auto, font_size: 20px, color: "#fff"})
     }
 }
 
 component LikeRustCard(style: {width: 30%}) {
-    VStack(style: {height: 120px, background: "#a7edffff", rounded: 2.5px}) {
-        Text("Rustとの連携も簡単ニロ！", style: {max_width: auto, font_size: 25px})
+    VStack(style: {height: 120px, background: "#0B1A2A", rounded: 2.5px}) {
+        Text("Rustとの連携も簡単ニロ！", style: {max_width: auto, font_size: 20px, color: "#fff"})
     }
 }
 
 component minimalUICard(style: {width: 30%}) {
-    VStack(style: {height: 120px, background: "#a7edffff", rounded: 2.5px}) {
-        Text("簡潔な動的UIニロ！！", style: {max_width: auto, font_size: 25px})
+    VStack(style: {height: 120px, background: "#0B1A2A", rounded: 2.5px}) {
+        Text("簡潔な動的UIニロ！！", style: {max_width: auto, font_size: 20px, color: "#fff"})
     }
 }
 
 component HotreloadCard(style: {width: 90%}) {
-    VStack(style: {height: 120px, rounded: 2.5px}) {
-        Text("ホットリロード対応ニロ！！", style: {max_width: auto, font_size: 25px, color: "white"})
+    VStack(style: {width: 100%, height: 120px, rounded: 2.5px}) {
+        Text("ホットリロード対応ニロよ！！", style: {max_width: auto, font_size: 20px, color: "white"})
     }
-}
+} 

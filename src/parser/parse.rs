@@ -149,7 +149,6 @@ pub fn parse_nilo(source: &str) -> Result<App, String> {
     let mut pairs = NiloParser::parse(Rule::file, source)
         .map_err(|e| format!("構文解析エラー: {}", e))?;
     
-    println!("🔍 Successfully parsed {} rule pairs", pairs.len());
 
     let file_pair = pairs.next().expect("ファイルペアが見つかりません");
     assert_eq!(file_pair.as_rule(), Rule::file);
@@ -164,7 +163,6 @@ pub fn parse_nilo(source: &str) -> Result<App, String> {
 
     // ファイル内の各定義を解析
     for pair in file_pair.into_inner() {
-        println!("🔍 Processing rule: {:?}", pair.as_rule());
         match pair.as_rule() {
             Rule::flow_def => {
                 // フロー定義は1つまで
@@ -184,10 +182,7 @@ pub fn parse_nilo(source: &str) -> Result<App, String> {
                 timelines.push(parse_timeline_def(pair));
             }
             Rule::component_def => {
-                println!("🔍 FOUND component_def at top level");
                 let component = parse_component_def(pair);
-                println!("🔍 Parsed component: name='{}', default_style={:?}", 
-                    component.name, component.default_style);
                 components.push(component);
             }
             _ => {} // その他のルールは無視
@@ -204,11 +199,6 @@ pub fn parse_nilo(source: &str) -> Result<App, String> {
     // フロー定義は必須
     let flow = flow.ok_or_else(|| "フロー定義が見つかりません".to_string())?;
     
-    println!("📋 PARSE COMPLETE: Found {} components", components.len());
-    for comp in &components {
-        println!("📋   - Component '{}' with {} params, default_style: {:?}", 
-            comp.name, comp.params.len(), comp.default_style);
-    }
     
     Ok(App { flow, timelines, components })
 }
@@ -315,19 +305,17 @@ fn parse_transition_targets(pair: Pair<Rule>) -> Result<Vec<String>, String> {
 pub fn parse_timeline_def(pair: Pair<Rule>) -> Timeline {
     let mut inner = pair.into_inner();
     let name = inner.next().unwrap().as_str().to_string();
-    let font: Option<String> = None;
+    let mut font: Option<String> = None;
     let mut body: Vec<WithSpan<ViewNode>> = Vec::new();
     let mut whens = Vec::new(); // whenイベントを正しく解析するように修正
 
-    println!("🔍 PARSING COMPONENT DEF - parsing inner pairs");
     for node_pair in inner {
-        println!("🔍 Processing rule: {:?}", node_pair.as_rule());
         match node_pair.as_rule() {
-            // Rule::font_def => {  // 一時的にコメントアウト
-            //     // font: "fonts/font" の形式を解析
-            //     let font_str = node_pair.into_inner().next().unwrap().as_str();
-            //     font = Some(unquote(font_str));
-            // }
+            Rule::font_def => {
+                // font: "fonts/font" の形式を解析
+                let font_str = node_pair.into_inner().next().unwrap().as_str();
+                font = Some(unquote(font_str));
+            }
             Rule::view_nodes => {
                 // view_nodesラッパーを剥がして個別のノードを処理
                 for p in node_pair.into_inner() {
@@ -365,29 +353,21 @@ pub fn parse_component_def(pair: Pair<Rule>) -> Component {
         for param_pair in params_pair.into_inner() {
             match param_pair.as_rule() {
                 Rule::component_param => {
-                    println!("🔍 Processing component_param: {:?}", param_pair.as_str());
                     let param_inner = param_pair.into_inner().next().unwrap();
-                    println!("🔍 param_inner rule: {:?}, content: {:?}", param_inner.as_rule(), param_inner.as_str());
                     match param_inner.as_rule() {
                         Rule::style_param => {
                             // スタイル定義: "style" ":" expr
                             let style_inner = param_inner.into_inner();
-                            println!("🔧 style_param contains elements");
                             // Rule::style_param = { "style" ~ ":" ~ expr }の構造なので、最後の要素がexpr
                             let mut elements: Vec<_> = style_inner.collect();
-                            println!("🔧 style_param elements: {:?}", elements.iter().map(|e| (e.as_rule(), e.as_str())).collect::<Vec<_>>());
                             if let Some(style_expr) = elements.pop() {
                                 let parsed_style = style_from_expr(parse_expr(style_expr));
-                                println!("🔧 Parsed default style for component '{}': {:?}", name, parsed_style);
                                 default_style = Some(parsed_style);
-                            } else {
-                                println!("⚠️ No style expression found in style_param for component '{}'", name);
                             }
                         }
                         Rule::ident => {
                             // パラメータ名
                             let param_name = param_inner.as_str().to_string();
-                            println!("🔧 Added parameter '{}' to component '{}'", param_name, name);
                             params.push(param_name);
                         }
                         _ => {}
@@ -398,17 +378,17 @@ pub fn parse_component_def(pair: Pair<Rule>) -> Component {
         }
     }
 
-    let font: Option<String> = None;
+    let mut font: Option<String> = None;
     let mut body: Vec<WithSpan<ViewNode>> = Vec::new();
     let whens = Vec::new();
 
     for node_pair in inner {
         match node_pair.as_rule() {
-            // Rule::font_def => {  // 一時的にコメントアウト
-            //     // font: "fonts/font" の形式を解析
-            //     let font_str = node_pair.into_inner().next().unwrap().as_str();
-            //     font = Some(unquote(font_str));
-            // }
+            Rule::font_def => {
+                // font: "fonts/font" の形式を解析
+                let font_str = node_pair.into_inner().next().unwrap().as_str();
+                font = Some(unquote(font_str));
+            }
             Rule::view_nodes => {
                 for p in node_pair.into_inner() {
                     body.push(parse_view_node(p));
@@ -883,6 +863,71 @@ fn parse_event_expr(pair: Pair<Rule>) -> EventExpr {
     }
 }
 
+/// 計算式（calc_expr）をパースする
+/// 例: (100% - 10px) -> CalcExpr(BinaryOp { left: Dimension(100%), op: Sub, right: Dimension(10px) })
+fn parse_calc_expr(pair: Pair<Rule>) -> Expr {
+    let mut inner = pair.into_inner();
+    let mut left = parse_calc_term(inner.next().unwrap());
+    
+    while let Some(op_pair) = inner.next() {
+        let op = op_pair.as_str();
+        let right = parse_calc_term(inner.next().unwrap());
+        
+        left = match op {
+            "+" => Expr::BinaryOp {
+                left: Box::new(left),
+                op: BinaryOperator::Add,
+                right: Box::new(right),
+            },
+            "-" => Expr::BinaryOp {
+                left: Box::new(left),
+                op: BinaryOperator::Sub,
+                right: Box::new(right),
+            },
+            "*" => Expr::BinaryOp {
+                left: Box::new(left),
+                op: BinaryOperator::Mul,
+                right: Box::new(right),
+            },
+            "/" => Expr::BinaryOp {
+                left: Box::new(left),
+                op: BinaryOperator::Div,
+                right: Box::new(right),
+            },
+            _ => panic!("不明な計算演算子: {}", op),
+        };
+    }
+    
+    // 計算式全体をCalcExprでラップして返す
+    Expr::CalcExpr(Box::new(left))
+}
+
+/// 計算式内の項（数値と単位）をパースする
+fn parse_calc_term(pair: Pair<Rule>) -> Expr {
+    let mut inner = pair.into_inner();
+    let number_pair = inner.next().unwrap();
+    let value: f32 = number_pair.as_str().parse().unwrap();
+    
+    // 単位があるかチェック
+    if let Some(unit_pair) = inner.next() {
+        let unit_str = unit_pair.as_str();
+        let unit = match unit_str {
+            "px" => Unit::Px,
+            "vw" => Unit::Vw,
+            "vh" => Unit::Vh,
+            "ww" => Unit::Ww,
+            "wh" => Unit::Wh,
+            "%" => Unit::Percent,
+            "rem" => Unit::Rem,
+            "em" => Unit::Em,
+            _ => Unit::Px,
+        };
+        Expr::Dimension(DimensionValue { value, unit })
+    } else {
+        Expr::Number(value)
+    }
+}
+
 
 fn parse_expr(pair: Pair<Rule>) -> Expr {
     match pair.as_rule() {
@@ -909,6 +954,10 @@ fn parse_expr(pair: Pair<Rule>) -> Expr {
                 Rule::auto_keyword => {
                     // "auto"キーワードが指定された場合
                     Expr::Dimension(DimensionValue { value: 0.0, unit: Unit::Auto })
+                }
+                Rule::calc_expr => {
+                    // 計算式が指定された場合
+                    parse_calc_expr(first_token)
                 }
                 Rule::number => {
                     // 数値が指定された場合
@@ -1168,6 +1217,10 @@ fn parse_primary(pair: Pair<Rule>) -> Expr {
                 Rule::auto_keyword => {
                     // "auto"キーワードが指定された場合
                     Expr::Dimension(DimensionValue { value: 0.0, unit: Unit::Auto })
+                }
+                Rule::calc_expr => {
+                    // 計算式が指定された場合
+                    parse_calc_expr(first_token)
                 }
                 Rule::number => {
                     let value: f32 = first_token.as_str().parse().unwrap();
@@ -1649,6 +1702,55 @@ fn parse_if_node(pair: Pair<Rule>) -> WithSpan<ViewNode> {
     }
 }
 
+/// 計算式（CalcExpr）を評価してDimensionValueに変換する
+/// 例: CalcExpr(BinaryOp { left: Dimension(100%), op: Sub, right: Dimension(10px) })
+///     -> 異なる単位の計算式の場合は実行時評価のためNoneを返す
+fn eval_calc_expr(expr: &Expr) -> Option<DimensionValue> {
+    match expr {
+        Expr::CalcExpr(inner) => {
+            // CalcExpr内の式を評価
+            eval_calc_expr(inner)
+        }
+        Expr::Dimension(d) => {
+            // そのままDimensionValueを返す
+            Some(*d)
+        }
+        Expr::Number(n) => {
+            // 数値の場合はpx単位として扱う
+            Some(DimensionValue { value: *n, unit: Unit::Px })
+        }
+        Expr::BinaryOp { left, op, right } => {
+            // 二項演算の場合、左辺と右辺を評価
+            let left_dim = eval_calc_expr(left)?;
+            let right_dim = eval_calc_expr(right)?;
+            
+            // 同じ単位の場合のみ計算を実行
+            if left_dim.unit == right_dim.unit {
+                let result_value = match op {
+                    BinaryOperator::Add => left_dim.value + right_dim.value,
+                    BinaryOperator::Sub => left_dim.value - right_dim.value,
+                    BinaryOperator::Mul => left_dim.value * right_dim.value,
+                    BinaryOperator::Div => {
+                        if right_dim.value != 0.0 {
+                            left_dim.value / right_dim.value
+                        } else {
+                            0.0
+                        }
+                    }
+                    _ => return None,
+                };
+                Some(DimensionValue { value: result_value, unit: left_dim.unit })
+            } else {
+                // 異なる単位の場合は、実行時評価のためNoneを返す
+                // レイアウトエンジンで実行時に評価する
+                log::debug!("🔧 計算式で異なる単位が使用されています: {:?} と {:?} - 実行時に評価します", left_dim.unit, right_dim.unit);
+                None
+            }
+        }
+        _ => None,
+    }
+}
+
 fn style_from_expr(expr: Expr) -> Style {
     match expr {
         Expr::Object(kvs) => {
@@ -1679,6 +1781,15 @@ fn style_from_expr(expr: Expr) -> Style {
                             s.width = Some(*w);
                         } else if let Some(Expr::Dimension(d)) = Some(&resolved_value) {
                             s.relative_width = Some(*d);
+                        } else if let Some(Expr::CalcExpr(_)) = Some(&resolved_value) {
+                            // CalcExprの場合は、まず静的評価を試みる
+                            if let Some(d) = eval_calc_expr(&resolved_value) {
+                                s.relative_width = Some(d);
+                            } else {
+                                // 静的評価に失敗した場合（異なる単位の計算式など）、
+                                // 計算式を保存して実行時に評価
+                                s.width_expr = Some(resolved_value.clone());
+                            }
                         }
                     }
                     "height" => {
@@ -1686,6 +1797,15 @@ fn style_from_expr(expr: Expr) -> Style {
                             s.height = Some(*h);
                         } else if let Some(Expr::Dimension(d)) = Some(&resolved_value) {
                             s.relative_height = Some(*d);
+                        } else if let Some(Expr::CalcExpr(_)) = Some(&resolved_value) {
+                            // CalcExprの場合は、まず静的評価を試みる
+                            if let Some(d) = eval_calc_expr(&resolved_value) {
+                                s.relative_height = Some(d);
+                            } else {
+                                // 静的評価に失敗した場合（異なる単位の計算式など）、
+                                // 計算式を保存して実行時に評価
+                                s.height_expr = Some(resolved_value.clone());
+                            }
                         }
                     }
                     "font_size" => {

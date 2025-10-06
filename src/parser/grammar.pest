@@ -16,9 +16,14 @@ number  = @{ "-"? ~ ASCII_DIGIT+ ~ ("." ~ ASCII_DIGIT+)? }
 bool    = { "true" | "false" }
 
 // 相対単位対応の新しい値型
-dimension_value = { auto_keyword | (number ~ unit_suffix?) }
+dimension_value = { auto_keyword | calc_expr | (number ~ unit_suffix?) }
 unit_suffix = { "px" | "vw" | "vh" | "ww" | "wh" | "%" | "rem" | "em" }
 auto_keyword = { "auto" }
+
+// 計算式（括弧必須）
+calc_expr = { "(" ~ calc_term ~ (calc_op ~ calc_term)* ~ ")" }
+calc_term = { number ~ unit_suffix? }
+calc_op = { "+" | "-" | "*" | "/" }
 
 array   = { "[" ~ (expr ~ ("," ~ expr)*)? ~ "]" }
 object  = { "{" ~ (object_entry ~ ("," ~ object_entry)*)? ~ "}" }

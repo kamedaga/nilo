@@ -400,6 +400,10 @@ impl<S: StateAccess + 'static> AppState<S> {
                     crate::parser::ast::Unit::Auto => "auto",
                 })
             }
+            Expr::CalcExpr(inner) => {
+                // CalcExprは内部の式を評価する
+                self.eval_expr_from_ast(inner)
+            }
             Expr::Match { expr, arms, default } => {
                 let match_value = self.eval_expr_from_ast(expr);
 
@@ -544,12 +548,6 @@ impl<S: StateAccess + 'static> AppState<S> {
     ) {
         let style = lnode.node.style.clone().unwrap_or_default();
         let is_hover = point_in_rect(mouse_pos, lnode.position, lnode.size);
-
-        // ★ デバッグ出力: レンダリング段階でのサイズ確認
-        println!("🎨 RENDER: node={:?} at position={:?} with size={:?}", lnode.node.node, lnode.position, lnode.size);
-        if let Some(ref rel_width) = style.relative_width {
-            println!("🎨 RENDER rel_width: {:?} -> actual size: {:?}", rel_width, lnode.size);
-        }
 
 
         let final_style = if is_hover {
@@ -739,6 +737,27 @@ impl<S: StateAccess + 'static> AppState<S> {
             }
         }
 
+        // ★ max_widthをスタイルから取得（レイアウト計算と一致させる）
+        let max_width = if let Some(ref max_w) = style.max_width {
+            if max_w.unit == crate::parser::ast::Unit::Auto {
+                let text_area_width = lnode.size[0] - p.left - p.right;
+                if text_area_width > 0.0 {
+                    Some(text_area_width)
+                } else {
+                    None
+                }
+            } else {
+                let text_area_width = lnode.size[0] - p.left - p.right;
+                if text_area_width > 0.0 {
+                    Some(text_area_width)
+                } else {
+                    None
+                }
+            }
+        } else {
+            None
+        };
+
         // テキストの描画
         *depth_counter += 0.001;
         out.push(Stencil::Text {
@@ -747,7 +766,7 @@ impl<S: StateAccess + 'static> AppState<S> {
             size: font_size,
             color: text_color,
             font,
-            max_width: None, // 通常のテキストでは改行しない（デフォルト）
+            max_width,
             scroll: true,
             depth: (1.0 - *depth_counter).max(0.0),
         });

@@ -65,7 +65,7 @@ impl Default for LayoutParams {
         // デフォルト値をハードコードではなく、よりリアルな初期値で設定
         // 実際の使用時は make_layout_params や with_window_size を使用することを推奨
         Self {
-            start: [20.0, 20.0],
+            start: [0.0, 0.0],
             spacing: 12.0,
             window_size: [800.0, 600.0], // より一般的なデフォルトサイズ
             parent_size: [800.0, 600.0],
@@ -80,7 +80,7 @@ impl LayoutParams {
     /// ウィンドウサイズから適切なLayoutParamsを作成
     pub fn with_window_size(window_size: [f32; 2]) -> Self {
         Self {
-            start: [20.0, 20.0],
+            start: [0.0, 0.0],
             spacing: 12.0,
             window_size,
             parent_size: window_size,
@@ -178,7 +178,6 @@ impl LayoutEngine {
         let child_context = if computed.has_explicit_width {
             let mut new_context = context.clone();
             new_context.parent_size[0] = computed.width;
-            println!("DEBUG: Node setting child context width: {:.1} (node type: {:?})", computed.width, std::mem::discriminant(&node.node));
             new_context
         } else {
             context.clone()
@@ -208,22 +207,34 @@ impl LayoutEngine {
         let mut computed = ComputedSize::default();
         
         if let Some(style) = style {
-            // width の優先順位: width > relative_width
+            // width の優先順位: width > relative_width > width_expr
             if let Some(width) = style.width {
                 computed.width = width;
                 computed.has_explicit_width = true;
             } else if let Some(ref relative_width) = style.relative_width {
                 computed.width = self.resolve_dimension_value(relative_width, context, true);
                 computed.has_explicit_width = true;
+            } else if let Some(ref width_expr) = style.width_expr {
+                // 計算式を評価
+                if let Some(resolved_width) = self.eval_dimension_expr(width_expr, context, true) {
+                    computed.width = resolved_width;
+                    computed.has_explicit_width = true;
+                }
             }
             
-            // height の優先順位: height > relative_height
+            // height の優先順位: height > relative_height > height_expr
             if let Some(height) = style.height {
                 computed.height = height;
                 computed.has_explicit_height = true;
             } else if let Some(ref relative_height) = style.relative_height {
                 computed.height = self.resolve_dimension_value(relative_height, context, false);
                 computed.has_explicit_height = true;
+            } else if let Some(ref height_expr) = style.height_expr {
+                // 計算式を評価
+                if let Some(resolved_height) = self.eval_dimension_expr(height_expr, context, false) {
+                    computed.height = resolved_height;
+                    computed.has_explicit_height = true;
+                }
             }
         }
         
@@ -316,9 +327,14 @@ impl LayoutEngine {
         let values: Vec<String> = args.iter().map(|e| eval(e)).collect();
         let text = format_text(format, &values);
         
-        // フォントサイズを取得
+        // フォントサイズを取得（relative_font_sizeも考慮）
         let font_size = if let Some(style) = style {
-            style.font_size.unwrap_or(context.font_size)
+            if let Some(ref rel_size) = style.relative_font_size {
+                // relative_font_sizeがある場合は解決する
+                self.resolve_dimension_value(rel_size, context, false)
+            } else {
+                style.font_size.unwrap_or(context.font_size)
+            }
         } else {
             context.font_size
         };
@@ -340,7 +356,6 @@ impl LayoutEngine {
                 if max_w.unit == Unit::Auto {
                     // 親要素の幅を常に利用可能幅として使用（>0でなければ0を許容）
                     let available_width = (context.parent_size[0] - padding.left - padding.right).max(0.0);
-                    println!("DEBUG: Text max_width:auto - parent_size: {:.1}, available: {:.1}", context.parent_size[0], available_width);
                     Some(available_width)
                 } else {
                     let calculated_width = self.resolve_dimension_value(max_w, context, true);
@@ -476,7 +491,6 @@ impl LayoutEngine {
                 // max_width: autoがある場合、または幅が変更された場合は再計算
                 let mut child_context = context.clone();
                 child_context.parent_size = [final_width, context.parent_size[1]];
-                println!("DEBUG: VStack child {} context - parent_width: {:.1}", i, final_width);
                 self.compute_node_size(child, &child_context, eval, get_image_size, app)
             } else {
                 // そうでなければパス1の結果を使用
@@ -604,7 +618,6 @@ impl LayoutEngine {
                 };
                 
                 child_context.parent_size = [child_parent_width, final_height];
-                println!("DEBUG: HStack child {} context - parent_width: {:.1} (relative: {})", i, child_parent_width, child_has_relative_width || is_component_with_relative_width);
                 
                 let child_size = self.compute_node_size(child, &child_context, eval, get_image_size, app);
                 total_width += child_size.width;
@@ -993,6 +1006,38 @@ impl LayoutEngine {
             Unit::PercentHeight => dim.value * context.parent_size[1] / 100.0,
         };
         result
+    }
+
+    /// 計算式（Expr）を評価してDimensionValueに変換し、さらにf32に解決
+    fn eval_dimension_expr(&self, expr: &crate::parser::ast::Expr, context: &LayoutContext, is_width: bool) -> Option<f32> {
+        use crate::parser::ast::{Expr, BinaryOperator};
+        
+        match expr {
+            Expr::CalcExpr(inner) => self.eval_dimension_expr(inner, context, is_width),
+            Expr::Dimension(d) => Some(self.resolve_dimension_value(d, context, is_width)),
+            Expr::Number(n) => Some(*n),
+            Expr::BinaryOp { left, op, right } => {
+                let left_val = self.eval_dimension_expr(left, context, is_width)?;
+                let right_val = self.eval_dimension_expr(right, context, is_width)?;
+                
+                let result = match op {
+                    BinaryOperator::Add => left_val + right_val,
+                    BinaryOperator::Sub => left_val - right_val,
+                    BinaryOperator::Mul => left_val * right_val,
+                    BinaryOperator::Div => {
+                        if right_val != 0.0 {
+                            left_val / right_val
+                        } else {
+                            0.0
+                        }
+                    }
+                    _ => return None,
+                };
+                
+                Some(result)
+            }
+            _ => None,
+        }
     }
 
     /// スタイルからパディングを取得

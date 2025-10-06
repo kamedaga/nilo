@@ -13,7 +13,7 @@ impl Engine {
     /// LayoutParams生成の共通化
     fn make_layout_params(window_size: [f32; 2], default_font: String) -> LayoutParams {
         LayoutParams {
-            start: [20.0, 20.0],
+            start: [0.0, 0.0],
             spacing: 12.0,
             window_size,
             parent_size: window_size,
@@ -113,8 +113,6 @@ impl Engine {
         let eval_fn = |e: &Expr| state.eval_expr_from_ast(e);
         let get_img_size = |path: &str| state.get_image_size(path);
         
-        // 旧レイアウトシステムを使用（max_width: auto修正版）
-        println!("DEBUG: Using FIXED old layout system with max_width: auto support!");
         let layouted = layout_vstack(nodes, params.clone(), app, &eval_fn, &get_img_size);
 
         for lnode in &layouted {
@@ -536,15 +534,13 @@ impl Engine {
             };
 
             // テキストの描画（一度だけ）
-            // ★ max_width情報を取得（改良版）
-            // レイアウト時の計算と一致させるため、実際のレイアウトサイズから逆算
-            // lnode.size[0]はレイアウト計算で既に親幅制約を受けた値なので、それを親サイズとして使用
-    let effective_parent_width = lnode.size[0]; // レイアウト済みの幅を親幅として使用
+            // ★ max_width情報を取得
+            // lnode.size[0]ではなく、parent_sizeを使用する必要がある
+            let effective_parent_width = lnode.size[0];
             let max_width = if let Some(max_w) = style.max_width.as_ref() {
                 if max_w.unit == crate::parser::ast::Unit::Auto {
-                    // max-width: autoの場合はレイアウト済みサイズを使用（パディングを差し引く）
+                    // max-width: autoの場合はparent_sizeを使用（パディングを差し引く）
                     let available_width = effective_parent_width - padding.left - padding.right;
-                    println!("DEBUG RENDER: Text max_width:auto - lnode.size[0]: {:.1}, available: {:.1}", effective_parent_width, available_width);
                     Some(available_width.max(0.0))
                 } else {
                     let calculated_width = max_w.to_px(

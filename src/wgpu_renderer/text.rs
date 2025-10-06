@@ -5,6 +5,8 @@ use glyphon::{
 use wgpu::{
     Device, Queue, RenderPass, TextureFormat, MultisampleState, DepthStencilState,
 };
+use std::path::Path;
+use std::collections::HashMap;
 
 pub struct TextRenderer {
     renderer: GlyphonTextRenderer,
@@ -14,6 +16,7 @@ pub struct TextRenderer {
     viewport: Viewport,
     #[allow(dead_code)]
     cache: Cache,
+    font_name_map: HashMap<String, String>, // パス -> ファミリー名
 }
 
 impl TextRenderer {
@@ -26,7 +29,10 @@ impl TextRenderer {
         _width: u32,
         _height: u32,
     ) -> Self {
-        let font_system = FontSystem::new();
+        // デフォルトのフォントシステム（シンプル）
+        let mut font_system = FontSystem::new();
+        println!("[TextRenderer] FontSystemを初期化しました");
+        
         let swash_cache = SwashCache::new();
         let cache = Cache::new(device);
         let mut atlas = TextAtlas::new(device, queue, &cache, format);
@@ -45,6 +51,43 @@ impl TextRenderer {
             swash_cache,
             viewport,
             cache,
+            font_name_map: HashMap::new(),
+        }
+    }
+
+    /// フォントファイルを読み込んで登録
+    fn load_and_register_font(font_system: &mut FontSystem, font_path: &str) -> Option<String> {
+        println!("[TextRenderer] フォントファイル '{}' の読み込みを試行中...", font_path);
+        
+        let path = Path::new(font_path);
+        match std::fs::read(path) {
+            Ok(font_data) => {
+                println!("[TextRenderer] ファイル読み込み成功: {} bytes", font_data.len());
+                
+                // フォントデータをfontdb::Sourceとして登録してIDを取得
+                let ids = font_system.db_mut().load_font_source(
+                    glyphon::fontdb::Source::Binary(std::sync::Arc::new(font_data))
+                );
+                println!("[TextRenderer] フォントデータを登録しました: {} faces", ids.len());
+                
+                // 最初のフォントフェイスから実際のファミリー名を取得
+                if let Some(first_id) = ids.first() {
+                    if let Some(face_info) = font_system.db().face(*first_id) {
+                        // familiesの最初の要素（通常は英語US）を使用
+                        if let Some((family_name, _lang)) = face_info.families.first() {
+                            println!("[TextRenderer] 実際のフォントファミリー名: '{}'", family_name);
+                            return Some(family_name.clone());
+                        }
+                    }
+                }
+                
+                eprintln!("[TextRenderer] フォント '{}' からファミリー名を取得できませんでした", font_path);
+                None
+            }
+            Err(e) => {
+                eprintln!("[TextRenderer] フォント読み込みエラー '{}': {}", font_path, e);
+                None
+            }
         }
     }
 
@@ -85,9 +128,25 @@ impl TextRenderer {
 
             // ★ 修正: 指定されたフォント名を使用
             let family = if font_name == "default" || font_name.is_empty() {
+                println!("[TextRenderer] デフォルトフォント(SansSerif)を使用");
                 Family::SansSerif
+            } else if font_name.ends_with(".ttf") || font_name.ends_with(".otf") {
+                // フォントファイルパスの場合は読み込み
+                if !self.font_name_map.contains_key(font_name) {
+                    if let Some(family_name) = Self::load_and_register_font(&mut self.font_system, font_name) {
+                        self.font_name_map.insert(font_name.to_string(), family_name);
+                    }
+                }
+                
+                if let Some(family_name) = self.font_name_map.get(font_name) {
+                    println!("[TextRenderer] カスタムフォント '{}' をファミリー '{}' として使用", font_name, family_name);
+                    Family::Name(family_name.as_str())
+                } else {
+                    println!("[TextRenderer] カスタムフォント '{}' の読み込み失敗、デフォルトを使用", font_name);
+                    Family::SansSerif
+                }
             } else {
-                // ★ 特定のフォント名を指定
+                println!("[TextRenderer] システムフォント '{}' を使用", font_name);
                 Family::Name(font_name)
             };
 
@@ -181,7 +240,7 @@ impl TextRenderer {
             Some(screen_height as f32),
         );
 
-        // ★ 修正: 指定されたフォント名を使用
+        // フォント選択（シンプル）
         let family = if font == "default" || font.is_empty() {
             Family::SansSerif
         } else {

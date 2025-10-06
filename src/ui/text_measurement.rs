@@ -3,6 +3,8 @@ use glyphon::{
 };
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, OnceLock};
+use std::path::Path;
+use log::error;
 
 /// テキスト測定結果
 #[derive(Debug, Clone)]
@@ -29,35 +31,81 @@ pub struct TextMeasurement {
 pub struct TextMeasurementSystem {
     font_system: Arc<Mutex<FontSystem>>,
     measurement_cache: HashMap<String, TextMeasurement>,
+    font_name_map: HashMap<String, String>, // パス -> ファミリー名
 }
 
 impl TextMeasurementSystem {
     pub fn new() -> Self {
+        // デフォルトのフォントシステム（シンプル）
+        let fs = FontSystem::new();
+        
         Self {
-            font_system: Arc::new(Mutex::new(FontSystem::new())),
+            font_system: Arc::new(Mutex::new(fs)),
             measurement_cache: HashMap::new(),
+            font_name_map: HashMap::new(),
         }
     }
+
+    /// フォントファイルを読み込んで登録
+    fn load_and_register_font(font_system: &mut FontSystem, font_path: &str) -> Option<String> {
+        println!("[TextMeasurement] フォントファイル '{}' の読み込みを試行中...", font_path);
+        
+        let path = Path::new(font_path);
+        match std::fs::read(path) {
+            Ok(font_data) => {
+                println!("[TextMeasurement] ファイル読み込み成功: {} bytes", font_data.len());
+                
+                // フォントデータをfontdb::Sourceとして登録してIDを取得
+                let ids = font_system.db_mut().load_font_source(
+                    glyphon::fontdb::Source::Binary(std::sync::Arc::new(font_data))
+                );
+                println!("[TextMeasurement] フォントデータを登録しました: {} faces", ids.len());
+                
+                // 最初のフォントフェイスから実際のファミリー名を取得
+                if let Some(first_id) = ids.first() {
+                    if let Some(face_info) = font_system.db().face(*first_id) {
+                        // familiesの最初の要素（通常は英語US）を使用
+                        if let Some((family_name, _lang)) = face_info.families.first() {
+                            println!("[TextMeasurement] 実際のフォントファミリー名: '{}'", family_name);
+                            return Some(family_name.clone());
+                        }
+                    }
+                }
+                
+                error!("[TextMeasurement] フォント '{}' からファミリー名を取得できませんでした", font_path);
+                None
+            }
+            Err(e) => {
+                error!("[TextMeasurement] フォント読み込みエラー '{}': {}", font_path, e);
+                None
+            }
+        }
+    }
+
 
     /// 日本語文字を考慮したテキスト幅の計算（より正確な版）
     fn calculate_text_width(text: &str, font_size: f32) -> f32 {
         let mut width = 0.0;
         
+        
         for ch in text.chars() {
-            // 文字種別による幅の計算（より正確な係数を使用）
-            if Self::is_fullwidth_char(ch) {
-                // 全角文字: フォントサイズの約0.9倍（実測に基づく調整）
-                width += font_size * 0.9;
+            // 文字種別による幅の計算（フォントサイズに依存した正確な係数を使用）
+            let char_width = if Self::is_fullwidth_char(ch) {
+                // 全角文字: フォントサイズとほぼ同等（実測に基づく調整）
+                // 多くの日本語フォントでは全角文字の幅 ≈ font_size * 1.0
+                font_size * 1.0
             } else if ch.is_ascii_alphabetic() || ch.is_ascii_digit() {
-                // 英数字: フォントサイズの約0.52倍
-                width += font_size * 0.52;
+                // 英数字: フォントサイズの約0.5〜0.6倍（平均的なプロポーショナルフォント）
+                font_size * 0.55
             } else if ch.is_ascii_punctuation() || ch == ' ' {
-                // 記号・スペース: フォントサイズの約0.3倍
-                width += font_size * 0.3;
+                // 記号・スペース: フォントサイズの約0.25〜0.35倍
+                font_size * 0.30
             } else {
                 // その他の文字: フォントサイズの約0.6倍
-                width += font_size * 0.6;
-            }
+                font_size * 0.6
+            };
+            
+            width += char_width;
         }
         
         width
@@ -147,24 +195,43 @@ impl TextMeasurementSystem {
         let line_height_mult = line_height_multiplier.unwrap_or(1.4);
         let line_height = font_size * line_height_mult;
         let metrics = Metrics::new(font_size, line_height);
+        
 
         let mut font_system = self.font_system.lock().unwrap();
+        
+        // フォントファイルの読み込み処理
+        if font_family.ends_with(".ttf") || font_family.ends_with(".otf") {
+            if !self.font_name_map.contains_key(font_family) {
+                if let Some(family_name) = Self::load_and_register_font(&mut *font_system, font_family) {
+                    self.font_name_map.insert(font_family.to_string(), family_name);
+                }
+            }
+        }
+        
         let mut buffer = Buffer::new(&mut *font_system, metrics);
 
         // 幅制約を設定 - max_widthが指定された場合のみ改行を適用
         if let Some(width) = max_width {
-            // 指定された幅で改行を適用
             buffer.set_size(&mut *font_system, Some(width), None);
         } else {
-            // max_widthが指定されていない場合は改行なし（十分に大きな幅を設定）
             buffer.set_size(&mut *font_system, None, None);
         }
 
-        // より適切なフォント選択
+        // フォント選択（任意のカスタムフォントに対応）
         let family = if font_family == "default" || font_family.is_empty() {
-            // システムのデフォルトフォントを使用
+            println!("[TextMeasurement] デフォルトフォント(SansSerif)を使用");
             Family::SansSerif
+        } else if font_family.ends_with(".ttf") || font_family.ends_with(".otf") {
+            // マッピングから実際のフォントファミリー名を取得
+            if let Some(family_name) = self.font_name_map.get(font_family) {
+                println!("[TextMeasurement] カスタムフォント '{}' をファミリー '{}' として使用", font_family, family_name);
+                Family::Name(family_name.as_str())
+            } else {
+                println!("[TextMeasurement] カスタムフォント '{}' の読み込み失敗、デフォルトを使用", font_family);
+                Family::SansSerif
+            }
         } else {
+            println!("[TextMeasurement] システムフォント '{}' を使用", font_family);
             Family::Name(font_family)
         };
 
@@ -179,6 +246,11 @@ impl TextMeasurementSystem {
             &attrs,
             Shaping::Advanced,
         );
+        
+        // サイズを再設定してレイアウトを強制（重要）
+        if let Some(width) = max_width {
+            buffer.set_size(&mut *font_system, Some(width), None);
+        }
 
         // より確実なレイアウト処理
         // 最初に全体をシェイピング
@@ -187,7 +259,7 @@ impl TextMeasurementSystem {
         // 改行処理を強制実行
         if max_width.is_some() {
             // 改行が必要な場合は複数回実行して確実にレイアウト
-            for _ in 0..5 {
+            for _ in 0..3 {
                 buffer.shape_until_scroll(&mut *font_system, false);
             }
         }
@@ -203,7 +275,6 @@ impl TextMeasurementSystem {
         let mut total_height = 0.0_f32;
         let mut layout_run_count = 0;
 
-        println!("DEBUG: Starting measurement extraction for text: '{}'", text);
 
         // glyphonのBufferからレイアウト情報を取得
         for layout_run in buffer.layout_runs() {
@@ -235,8 +306,6 @@ impl TextMeasurementSystem {
                 line_width = 0.0;
             }
 
-            println!("DEBUG: Layout run {} - line_width: {:.1}, glyph_count: {}, min_x: {:.1}, max_x: {:.1}", 
-                     layout_run_count, line_width, glyph_count, min_x, max_x);
 
             line_widths.push(line_width);
             line_heights.push(line_height);
@@ -248,12 +317,68 @@ impl TextMeasurementSystem {
             total_height += line_height;
         }
 
-        println!("DEBUG: Found {} layout runs, max_width: {:.1}, total_height: {:.1}", 
-                 layout_run_count, max_text_width, total_height);
+
+        // glyphonの測定結果が不正確な場合の検出と修正
+        if let Some(width_limit) = max_width {
+            // いずれかの行がmax_widthを大幅に超えている場合はフォールバック
+            let has_overflow = line_widths.iter().any(|&w| w > width_limit * 1.1);
+            
+            if has_overflow {
+                // 手動改行にフォールバック - manual_text_wrappingの処理をインライン化
+                let line_height_mult = 1.4;
+                let line_height = metrics.font_size * line_height_mult;
+                
+                let mut lines = Vec::new();
+                let mut current_line = String::new();
+                
+                // 文字単位で幅をチェックして改行
+                for ch in text.chars() {
+                    let test_line = current_line.clone() + &ch.to_string();
+                    let test_width = Self::calculate_text_width(&test_line, metrics.font_size);
+                    
+                    if test_width > width_limit && !current_line.is_empty() {
+                        lines.push(current_line.clone());
+                        current_line = ch.to_string();
+                    } else {
+                        current_line.push(ch);
+                    }
+                }
+                
+                if !current_line.is_empty() {
+                    lines.push(current_line);
+                }
+                
+                // 各行の幅を計算
+                let mut line_widths_fallback = Vec::new();
+                let mut max_line_width = 0.0;
+                
+                for line in &lines {
+                    let width = Self::calculate_text_width(line, metrics.font_size);
+                    line_widths_fallback.push(width);
+                    if width > max_line_width {
+                        max_line_width = width;
+                    }
+                }
+                
+                let line_count = lines.len().max(1);
+                let total_height_fallback = line_count as f32 * line_height;
+                
+                
+                return TextMeasurement {
+                    width: max_line_width,
+                    height: total_height_fallback,
+                    line_count,
+                    line_widths: line_widths_fallback,
+                    line_heights: vec![line_height; line_count],
+                    baseline: metrics.font_size * 0.75,
+                    ascent: metrics.font_size * 0.75,
+                    descent: metrics.font_size * 0.25,
+                };
+            }
+        }
 
         // 測定が失敗した場合のフォールバック処理
         if line_widths.is_empty() || (max_text_width == 0.0 && !text.is_empty()) {
-            println!("DEBUG: Using fallback measurement for '{}'", text);
             
             // 改行文字による明示的な分割をまず処理
             let explicit_lines: Vec<&str> = text.lines().collect();
@@ -276,11 +401,13 @@ impl TextMeasurementSystem {
                 let single_line = text.trim();
                 let text_width = Self::calculate_text_width(single_line, metrics.font_size);
                 
+                
                 if let Some(width_limit) = max_width {
                     // max_widthが指定されている場合、簡易的な改行処理を適用
                     if text_width > width_limit {
                         // 文字列を余分に分割して改行をシミュレート
                         let estimated_lines = (text_width / width_limit).ceil() as usize;
+                        
                         for _ in 0..estimated_lines {
                             line_widths.push(width_limit.min(text_width));
                             line_heights.push(metrics.line_height);
@@ -303,12 +430,7 @@ impl TextMeasurementSystem {
                 }
             }
             
-            println!("DEBUG: Fallback result - lines: {}, max_width: {:.1}, total_height: {:.1}", 
-                     line_widths.len(), max_text_width, total_height);
         }
-
-        println!("DEBUG: Final measurement - width: {:.1}, height: {:.1}, lines: {}", 
-                 max_text_width, total_height, line_widths.len());
 
         // より正確な高さ計算（必要最小限の余裕のみ）
         let safe_height = if total_height > 0.0 {
@@ -353,7 +475,6 @@ impl TextMeasurementSystem {
         max_width: f32,
         line_height_multiplier: Option<f32>,
     ) -> TextMeasurement {
-        println!("DEBUG: Precise wrapping for '{}' with max_width: {:.1}", text, max_width);
         
         // 複数のアプローチで測定を試行
         let attempts = vec![
@@ -365,8 +486,6 @@ impl TextMeasurementSystem {
         for (i, width) in attempts.iter().enumerate() {
             let result = self.measure_text(text, font_size, font_family, Some(*width), line_height_multiplier);
             
-            println!("DEBUG: Attempt {} with width {:.1} -> result width: {:.1}, lines: {}", 
-                     i + 1, width, result.width, result.line_count);
             
             // 適切な幅内に収まった、または十分に改行された場合
             if result.width <= max_width * 1.02 || result.line_count > 1 {
@@ -425,8 +544,6 @@ impl TextMeasurementSystem {
         let line_count = lines.len().max(1);
         let total_height = line_count as f32 * line_height;
         
-        println!("DEBUG: Manual wrapping result - lines: {}, max_width: {:.1}, total_height: {:.1}", 
-                 line_count, max_line_width, total_height);
         
         TextMeasurement {
             width: max_line_width,
