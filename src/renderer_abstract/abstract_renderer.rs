@@ -42,6 +42,7 @@ pub struct RendererFactory;
 
 impl RendererFactory {
     /// 指定されたタイプのレンダラを作成
+    #[cfg(not(target_arch = "wasm32"))]
     pub async fn create_renderer(
         renderer_type: RendererType,
         window: Option<std::sync::Arc<winit::window::Window>>
@@ -67,19 +68,38 @@ impl RendererFactory {
             }
         }
     }
+
+    /// WASM環境用のレンダラ作成
+    #[cfg(target_arch = "wasm32")]
+    pub async fn create_renderer(
+        renderer_type: RendererType,
+    ) -> Result<Box<dyn AbstractRenderer>, String> {
+        match renderer_type {
+            RendererType::Dom => {
+                let dom_renderer = crate::dom_renderer::DomRenderer::new();
+                Ok(Box::new(DomRendererAdapter::new(dom_renderer)))
+            }
+            _ => {
+                Err(format!("{:?} renderer is not supported in WASM environment", renderer_type))
+            }
+        }
+    }
 }
 
 /// WGPUレンダラのアダプター
+#[cfg(feature = "wgpu")]
 pub struct WgpuRendererAdapter {
     inner: crate::wgpu_renderer::WgpuRenderer,
 }
 
+#[cfg(feature = "wgpu")]
 impl WgpuRendererAdapter {
     pub fn new(renderer: crate::wgpu_renderer::WgpuRenderer) -> Self {
         Self { inner: renderer }
     }
 }
 
+#[cfg(feature = "wgpu")]
 impl AbstractRenderer for WgpuRendererAdapter {
     fn renderer_type(&self) -> RendererType {
         RendererType::Wgpu
@@ -96,7 +116,15 @@ impl AbstractRenderer for WgpuRendererAdapter {
     }
 
     fn resize(&mut self, new_size: (u32, u32)) {
-        self.inner.resize(winit::dpi::PhysicalSize::new(new_size.0, new_size.1));
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            self.inner.resize(winit::dpi::PhysicalSize::new(new_size.0, new_size.1));
+        }
+        #[cfg(target_arch = "wasm32")]
+        {
+            // WASM環境ではサイズ変更は異なる方法で処理
+            let _ = new_size; // 未使用警告を抑制
+        }
     }
 
     fn as_any(&self) -> &dyn Any {

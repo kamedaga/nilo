@@ -6,7 +6,11 @@ use crate::parser::ast::{Style, Edges, DimensionValue, RelativeEdges, Unit};
 use crate::parser::ast::{ViewNode, WithSpan, Expr, App};
 use crate::engine::state::format_text;
 use crate::stencil::stencil::Stencil as DrawStencil;
+
+// テキスト測定: Native環境とWASM環境で異なる実装を使用
+#[cfg(any(feature = "glyphon", target_arch = "wasm32"))]
 use crate::ui::text_measurement::{TextMeasurement, get_text_measurement_system};
+
 use std::collections::HashMap;
 
 /// 2つのスタイルをマージ（second が first を上書き）

@@ -128,8 +128,8 @@ impl DomRenderer {
             if let Some(window) = window() {
                 if let Some(document) = window.document() {
                     if let Some(container) = document.get_element_by_id(&self.container_id) {
-                        if let Ok(Some(element)) = document.create_element("div").map(|e| e.dyn_into::<HtmlElement>().ok()) {
-                            if let Some(element) = element {
+                        if let Ok(element) = document.create_element("div") {
+                            if let Ok(element) = element.dyn_into::<HtmlElement>() {
                                 let style = element.style();
                                 let _ = style.set_property("position", "absolute");
                                 let _ = style.set_property("left", &format!("{}px", pos[0]));
@@ -172,8 +172,8 @@ impl DomRenderer {
             if let Some(window) = window() {
                 if let Some(document) = window.document() {
                     if let Some(container) = document.get_element_by_id(&self.container_id) {
-                        if let Ok(Some(element)) = document.create_element("div").map(|e| e.dyn_into::<HtmlElement>().ok()) {
-                            if let Some(element) = element {
+                        if let Ok(element) = document.create_element("div") {
+                            if let Ok(element) = element.dyn_into::<HtmlElement>() {
                                 let style = element.style();
                                 let diameter = radius * 2.0 * self.scale_factor;
                                 let _ = style.set_property("position", "absolute");
@@ -225,14 +225,11 @@ impl DomRenderer {
                     if let Some(container) = document.get_element_by_id(&self.container_id) {
                         // SVG要素を作成
                         if let Ok(svg) = document.create_element_ns(Some("http://www.w3.org/2000/svg"), "svg") {
-                            let style = svg.dyn_ref::<web_sys::HtmlElement>().unwrap().style();
-                            let _ = style.set_property("position", "absolute");
-                            let _ = style.set_property("left", "0");
-                            let _ = style.set_property("top", "0");
-                            let _ = style.set_property("width", "100%");
-                            let _ = style.set_property("height", "100%");
-                            let _ = style.set_property("pointer-events", "none");
-                            let _ = style.set_property("z-index", &format!("{}", (1000.0 * (1.0 - depth)) as i32));
+                            let style_str = format!(
+                                "position: absolute; left: 0; top: 0; width: 100%; height: 100%; pointer-events: none; z-index: {};",
+                                (1000.0 * (1.0 - depth)) as i32
+                            );
+                            let _ = svg.set_attribute("style", &style_str);
 
                             // polygon要素を作成
                             if let Ok(polygon) = document.create_element_ns(Some("http://www.w3.org/2000/svg"), "polygon") {
@@ -283,8 +280,8 @@ impl DomRenderer {
             if let Some(window) = window() {
                 if let Some(document) = window.document() {
                     if let Some(container) = document.get_element_by_id(&self.container_id) {
-                        if let Ok(Some(element)) = document.create_element("div").map(|e| e.dyn_into::<HtmlElement>().ok()) {
-                            if let Some(element) = element {
+                        if let Ok(element) = document.create_element("div") {
+                            if let Ok(element) = element.dyn_into::<HtmlElement>() {
                                 element.set_inner_text(content);
                                 let style = element.style();
                                 let _ = style.set_property("position", "absolute");
@@ -342,8 +339,8 @@ impl DomRenderer {
             if let Some(window) = window() {
                 if let Some(document) = window.document() {
                     if let Some(container) = document.get_element_by_id(&self.container_id) {
-                        if let Ok(Some(element)) = document.create_element("img").map(|e| e.dyn_into::<HtmlImageElement>().ok()) {
-                            if let Some(element) = element {
+                        if let Ok(element) = document.create_element("img") {
+                            if let Ok(element) = element.dyn_into::<HtmlImageElement>() {
                                 let _ = element.set_src(path);
                                 let style = element.style();
                                 let _ = style.set_property("position", "absolute");

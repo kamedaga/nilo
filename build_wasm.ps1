@@ -1,6 +1,6 @@
-# Nilo WASM Build Script
+# Nilo WASM Build Script with Auto HTML Generation
 
-Write-Host "Building Nilo for WebAssembly..." -ForegroundColor Green
+Write-Host "🚀 Building Nilo for WebAssembly..." -ForegroundColor Green
 
 # wasm-packがインストールされているか確認
 if (-not (Get-Command wasm-pack -ErrorAction SilentlyContinue)) {
@@ -8,23 +8,25 @@ if (-not (Get-Command wasm-pack -ErrorAction SilentlyContinue)) {
     cargo install wasm-pack
 }
 
-# WASMビルド
-Write-Host "Running wasm-pack build..." -ForegroundColor Cyan
-wasm-pack build --target web --out-dir pkg
+# Rustビルドスクリプトを実行（WASM + HTML生成）
+Write-Host "📦 Running build script with HTML generation..." -ForegroundColor Cyan
+cargo run --bin build_wasm_with_html
 
 if ($LASTEXITCODE -eq 0) {
-    Write-Host "Build successful!" -ForegroundColor Green
+    Write-Host "✅ Build successful!" -ForegroundColor Green
     
-    # pkgディレクトリにindex.htmlをコピー
-    Write-Host "Copying index.html to pkg directory..." -ForegroundColor Cyan
-    Copy-Item "src\wasm\index.html" "pkg\index.html" -Force
+    Write-Host "`n📁 Generated files in pkg/:" -ForegroundColor Cyan
+    Write-Host "  - index.html      (フルスクリーン表示)" -ForegroundColor White
+    Write-Host "  - nilo.js         (WASM bindings)" -ForegroundColor White
+    Write-Host "  - nilo_bg.wasm    (WASM binary)" -ForegroundColor White
     
-    Write-Host "`nWASM build complete!" -ForegroundColor Green
-    Write-Host "To test locally, run:" -ForegroundColor Yellow
+    Write-Host "`n🌐 To test locally:" -ForegroundColor Yellow
     Write-Host "  cd pkg" -ForegroundColor White
     Write-Host "  python -m http.server 8000" -ForegroundColor White
-    Write-Host "Then open http://localhost:8000 in your browser" -ForegroundColor White
+    Write-Host "`n📱 Then open in your browser:" -ForegroundColor Yellow
+    Write-Host "  http://localhost:8000" -ForegroundColor White
 } else {
-    Write-Host "Build failed!" -ForegroundColor Red
+    Write-Host "❌ Build failed!" -ForegroundColor Red
     exit 1
 }
+

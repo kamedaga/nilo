@@ -1,12 +1,23 @@
+//! Runtime module for Nilo engine
+//! 
+//! This module contains the runtime implementation for native (non-WASM) environments.
+//! For WASM environments, see runtime_dom.rs
+
+// Native環境専用のruntime
+#[cfg(not(target_arch = "wasm32"))]
+mod native {
 use crate::parser::ast::{App, ViewNode};
 use crate::stencil::stencil::stencil_to_wgpu_draw_list;
 use crate::ui::event::{UIEvent, EventQueue};
+#[cfg(feature = "wgpu")]
 use crate::wgpu_renderer::wgpu::WgpuRenderer;
 use crate::ui::viewport;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
-use colored::Colorize;
 use log::{info, debug}; // ログマクロを追加
+
+use colored::Colorize;
+
 use winit::{
     event::{WindowEvent, MouseScrollDelta, ElementState, MouseButton, KeyEvent, Ime},
     event_loop::{EventLoop, ActiveEventLoop},
@@ -15,8 +26,8 @@ use winit::{
     keyboard::{KeyCode, PhysicalKey},
 };
 
-use super::state::{AppState, StateAccess};
-use super::engine::Engine;
+use crate::engine::state::{AppState, StateAccess};
+use crate::engine::engine::Engine;
 
 struct AppHandler<S>
 where
@@ -485,6 +496,7 @@ where
     }
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 pub fn run<S: StateAccess + 'static + Clone + std::fmt::Debug>(app: App, custom_state: S) {
     let start = app.flow.start.clone();
     let state = AppState::new(custom_state, start);
@@ -492,6 +504,7 @@ pub fn run<S: StateAccess + 'static + Clone + std::fmt::Debug>(app: App, custom_
     run_internal(Arc::clone(&app), state);
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 pub fn run_internal<S>(app: Arc<App>, state: AppState<S>)
 where
     S: StateAccess + 'static + Clone + std::fmt::Debug,
@@ -502,6 +515,7 @@ where
 }
 
 /// ホットリロード用の再起動フラグ付きrun関数
+#[cfg(not(target_arch = "wasm32"))]
 pub fn run_with_restart_flag<S: StateAccess + 'static + Clone + std::fmt::Debug>(
     app: App,
     custom_state: S,
@@ -514,6 +528,7 @@ pub fn run_with_restart_flag<S: StateAccess + 'static + Clone + std::fmt::Debug>
 }
 
 /// 再起動フラグを監視しながらアプリケーションを実行する内部関数
+#[cfg(not(target_arch = "wasm32"))]
 pub fn run_internal_with_restart_flag<S>(
     app: Arc<App>,
     state: AppState<S>,
@@ -616,6 +631,7 @@ where
     }
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 pub fn run_with_hotreload_support<S: StateAccess + 'static + Clone + std::fmt::Debug>(
     initial_app: Arc<App>,
     initial_state: AppState<S>,
@@ -1698,3 +1714,9 @@ where
         }
     }
 }
+
+}
+
+// Re-export all public functions for native environments
+#[cfg(not(target_arch = "wasm32"))]
+pub use native::*;

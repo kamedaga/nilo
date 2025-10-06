@@ -15,6 +15,7 @@ pub mod analysis;
 pub mod wasm_entry;
 
 use parser::{parse_nilo_file, parse_embedded_nilo, ast::App};
+#[cfg(feature = "colored")]
 use colored::*;
 use std::env;
 use log::{info, error}; // ログマクロを追加
@@ -22,6 +23,7 @@ use std::sync::{RwLock, OnceLock};
 use std::collections::HashMap;
 
 pub use engine::exec::{AppState, StateAccess};
+#[cfg(not(target_arch = "wasm32"))]
 pub use engine::runtime::run;
 pub use renderer_abstract::{RendererType}; // レンダラータイプを追加
 
@@ -91,7 +93,24 @@ pub(crate) fn get_all_custom_fonts() -> Vec<(String, &'static [u8])> {
         .unwrap_or_default()
 }
 
+// カラー表示のヘルパー関数（環境に応じて切り替え）
+#[cfg(feature = "colored")]
+fn format_colored_message(msg: String, level: &analysis::error::DiagnosticLevel) -> String {
+    use colored::Colorize;
+    match level {
+        analysis::error::DiagnosticLevel::Error => format!("{}", msg.red().bold()),
+        analysis::error::DiagnosticLevel::Warning => format!("{}", msg.yellow().bold()),
+        analysis::error::DiagnosticLevel::Info => format!("{}", msg.blue()),
+    }
+}
+
+#[cfg(not(feature = "colored"))]
+fn format_colored_message(msg: String, _level: &analysis::error::DiagnosticLevel) -> String {
+    msg
+}
+
 // 自動的に埋め込みファイルを使用する便利関数
+#[cfg(not(target_arch = "wasm32"))]
 pub fn run_application_auto_embedded<S, P>(
     file_path: P,
     state: S,
@@ -106,6 +125,7 @@ pub fn run_application_auto_embedded<S, P>(
 }
 
 // 埋め込みファイルを自動で使用するマクロ
+#[cfg(not(target_arch = "wasm32"))]
 #[macro_export]
 macro_rules! run_nilo_app {
     ($file_path:expr, $state:expr, $cli_args:expr, $window_title:expr) => {{
@@ -289,14 +309,13 @@ pub fn load_nilo_app<P: AsRef<std::path::Path>>(
 
         for diag in &analysis_result.diagnostics {
             let loc = diag.location.as_deref().unwrap_or("");
-            let msg = match diag.level {
-                analysis::error::DiagnosticLevel::Error => {
-                    has_error = true;
-                    format!("{} {}", loc, diag.message).red().bold()
-                }
-                analysis::error::DiagnosticLevel::Warning => format!("{} {}", loc, diag.message).yellow().bold(),
-                analysis::error::DiagnosticLevel::Info => format!("{} {}", loc, diag.message).blue(),
-            };
+            let msg_text = format!("{} {}", loc, diag.message);
+            let msg = format_colored_message(msg_text, &diag.level);
+            
+            if matches!(diag.level, analysis::error::DiagnosticLevel::Error) {
+                has_error = true;
+            }
+            
             error!("[{:?}] {}", diag.level, msg);
         }
 
@@ -322,14 +341,13 @@ pub fn load_embedded_nilo_app(
 
         for diag in &analysis_result.diagnostics {
             let loc = diag.location.as_deref().unwrap_or("");
-            let msg = match diag.level {
-                analysis::error::DiagnosticLevel::Error => {
-                    has_error = true;
-                    format!("{} {}", loc, diag.message).red().bold()
-                }
-                analysis::error::DiagnosticLevel::Warning => format!("{} {}", loc, diag.message).yellow().bold(),
-                analysis::error::DiagnosticLevel::Info => format!("{} {}", loc, diag.message).blue(),
-            };
+            let msg_text = format!("{} {}", loc, diag.message);
+            let msg = format_colored_message(msg_text, &diag.level);
+            
+            if matches!(diag.level, analysis::error::DiagnosticLevel::Error) {
+                has_error = true;
+            }
+            
             error!("[{:?}] {}", diag.level, msg);
         }
 
@@ -342,6 +360,7 @@ pub fn load_embedded_nilo_app(
 }
 
 // 埋め込まれたniloアプリを実行する関数
+#[cfg(not(target_arch = "wasm32"))]
 pub fn run_embedded_application<S>(
     embedded_source: &str,
     state: S,
@@ -358,6 +377,7 @@ pub fn run_embedded_application<S>(
     engine::runtime::run_with_window_title(app, state, window_title);
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 pub fn run_application<S, P>(
     file_path: P,
     state: S,
@@ -371,6 +391,7 @@ pub fn run_application<S, P>(
 }
 
 // 埋め込みファイルオプション付きの内部実装
+#[cfg(not(target_arch = "wasm32"))]
 pub fn run_application_with_embedded<S, P>(
     file_path: P,
     state: S,
@@ -502,64 +523,36 @@ where
 
     log::info!("Nilo app parsed successfully");
 
-    // DOMレンダラーを作成
-    let mut dom_renderer = dom_renderer::DomRenderer::new();
-
-    // テスト用のシンプルなStencilを作成
-    let test_stencils = vec![
-        stencil::stencil::Stencil::Text {
-            content: "Hello from Nilo WASM!".to_string(),
-            position: [50.0, 50.0],
-            size: 32.0,
-            color: [0.0, 0.0, 0.0, 1.0],
-            font: "sans-serif".to_string(),
-            max_width: Some(400.0),
-            scroll: false,
-            depth: 0.0,
-        },
-        stencil::stencil::Stencil::Rect {
-            position: [50.0, 100.0],
-            width: 300.0,
-            height: 200.0,
-            color: [0.3, 0.5, 0.9, 1.0],
-            scroll: false,
-            depth: 0.0,
-        },
-        stencil::stencil::Stencil::Circle {
-            center: [400.0, 200.0],
-            radius: 80.0,
-            color: [0.9, 0.3, 0.3, 1.0],
-            scroll: false,
-            depth: 0.0,
-        },
-    ];
-    
-    // 初回レンダリング
-    dom_renderer.render_stencils(&test_stencils, [0.0, 0.0], 1.0);
-
-    log::info!("Initial render complete");
-
-    // コンテナがbody直下にあることを確認
+    // DOMコンテナを作成
+    let container_id = "nilo-renderer-container";
     if let Some(window) = window() {
         if let Some(document) = window.document() {
             if let Some(body) = document.body() {
                 // コンテナがまだ作成されていない場合は作成
-                if document.get_element_by_id(dom_renderer.container_id()).is_none() {
+                if document.get_element_by_id(container_id).is_none() {
                     if let Ok(container) = document.create_element("div") {
-                        let _ = container.set_attribute("id", dom_renderer.container_id());
+                        let _ = container.set_attribute("id", container_id);
                         if let Some(html_element) = container.dyn_ref::<HtmlElement>() {
                             let style = html_element.style();
                             let _ = style.set_property("position", "relative");
                             let _ = style.set_property("width", "100vw");
                             let _ = style.set_property("height", "100vh");
+                            let _ = style.set_property("overflow", "hidden");
                         }
                         let _ = body.append_child(&container);
-                        log::info!("Created DOM container: {}", dom_renderer.container_id());
+                        log::info!("Created DOM container: {}", container_id);
                     }
                 }
             }
         }
     }
 
-    log::info!("Nilo WASM initialization complete");
+    // アプリケーション状態を作成
+    let start_view = app.flow.start.clone();
+    let state = engine::state::AppState::new(initial_state, start_view);
+
+    log::info!("Running Nilo app with DOM renderer...");
+    
+    // DOM環境でアプリを実行
+    engine::runtime_dom::run_dom(app, state);
 }
