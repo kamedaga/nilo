@@ -128,25 +128,23 @@ impl TextRenderer {
 
             // ★ 修正: 指定されたフォント名を使用
             let family = if font_name == "default" || font_name.is_empty() {
-                println!("[TextRenderer] デフォルトフォント(SansSerif)を使用");
                 Family::SansSerif
             } else if font_name.ends_with(".ttf") || font_name.ends_with(".otf") {
                 // フォントファイルパスの場合は読み込み
                 if !self.font_name_map.contains_key(font_name) {
                     if let Some(family_name) = Self::load_and_register_font(&mut self.font_system, font_name) {
+                        println!("[TextRenderer] フォント '{}' を '{}' としてキャッシュに登録", font_name, family_name);
                         self.font_name_map.insert(font_name.to_string(), family_name);
                     }
                 }
                 
                 if let Some(family_name) = self.font_name_map.get(font_name) {
-                    println!("[TextRenderer] カスタムフォント '{}' をファミリー '{}' として使用", font_name, family_name);
                     Family::Name(family_name.as_str())
                 } else {
-                    println!("[TextRenderer] カスタムフォント '{}' の読み込み失敗、デフォルトを使用", font_name);
+                    eprintln!("[TextRenderer] カスタムフォント '{}' の読み込み失敗、デフォルトを使用", font_name);
                     Family::SansSerif
                 }
             } else {
-                println!("[TextRenderer] システムフォント '{}' を使用", font_name);
                 Family::Name(font_name)
             };
 

@@ -6,9 +6,8 @@ use crate::parser::ast::{Style, Edges, DimensionValue, RelativeEdges, Unit};
 use crate::parser::ast::{ViewNode, WithSpan, Expr, App};
 use crate::engine::state::format_text;
 use crate::stencil::stencil::Stencil as DrawStencil;
-use crate::ui::text_measurement::{TextMeasurementSystem, TextMeasurement};
+use crate::ui::text_measurement::{TextMeasurement, get_text_measurement_system};
 use std::collections::HashMap;
-use std::cell::RefCell;
 
 /// 2つのスタイルをマージ（second が first を上書き）
 fn merge_styles(first: Option<&Style>, second: Option<&Style>) -> Style {
@@ -141,15 +140,12 @@ pub struct ComputedSize {
 pub struct LayoutEngine {
     /// コンポーネントのキャッシュ
     component_cache: HashMap<String, ComputedSize>,
-    /// テキスト測定システム（内部変更可能）
-    text_measurement_system: RefCell<TextMeasurementSystem>,
 }
 
 impl LayoutEngine {
     pub fn new() -> Self {
         Self {
             component_cache: HashMap::new(),
-            text_measurement_system: RefCell::new(TextMeasurementSystem::new()),
         }
     }
 
@@ -1083,7 +1079,9 @@ impl LayoutEngine {
 
     /// テキスト測定（正確版 - TextMeasurementSystemを使用）
     fn measure_text(&self, text: &str, font_size: f32, font_family: &str, max_width: Option<f32>) -> TextMeasurement {
-        self.text_measurement_system.borrow_mut().measure_text(
+        let system = get_text_measurement_system();
+        let mut system_guard = system.lock().unwrap();
+        system_guard.measure_text(
             text,
             font_size,
             font_family,

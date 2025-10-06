@@ -203,6 +203,7 @@ impl TextMeasurementSystem {
         if font_family.ends_with(".ttf") || font_family.ends_with(".otf") {
             if !self.font_name_map.contains_key(font_family) {
                 if let Some(family_name) = Self::load_and_register_font(&mut *font_system, font_family) {
+                    println!("[TextMeasurement] フォント '{}' を '{}' としてキャッシュに登録", font_family, family_name);
                     self.font_name_map.insert(font_family.to_string(), family_name);
                 }
             }
@@ -219,19 +220,16 @@ impl TextMeasurementSystem {
 
         // フォント選択（任意のカスタムフォントに対応）
         let family = if font_family == "default" || font_family.is_empty() {
-            println!("[TextMeasurement] デフォルトフォント(SansSerif)を使用");
             Family::SansSerif
         } else if font_family.ends_with(".ttf") || font_family.ends_with(".otf") {
             // マッピングから実際のフォントファミリー名を取得
             if let Some(family_name) = self.font_name_map.get(font_family) {
-                println!("[TextMeasurement] カスタムフォント '{}' をファミリー '{}' として使用", font_family, family_name);
                 Family::Name(family_name.as_str())
             } else {
-                println!("[TextMeasurement] カスタムフォント '{}' の読み込み失敗、デフォルトを使用", font_family);
+                eprintln!("[TextMeasurement] カスタムフォント '{}' の読み込み失敗、デフォルトを使用", font_family);
                 Family::SansSerif
             }
         } else {
-            println!("[TextMeasurement] システムフォント '{}' を使用", font_family);
             Family::Name(font_family)
         };
 
