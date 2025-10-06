@@ -25,6 +25,7 @@
 - 文字: `[A-Za-z][A-Za-z0-9_-]*` を推奨（厳格性は実装依存）
 - 名前空間付き: `Name::Sub::Leaf`（`::` 区切り）
 
+<<<<<<< HEAD
 ### 1.4 式（Expression）
 - リテラル / 識別子 / **パス式** `state.user.name`
 - 配列 `[e1, e2, ...]` / オブジェクト `{ key: expr, ... }`
@@ -107,6 +108,101 @@ image(x, y, width, height, "<path>", scroll?, depth?)
 
 > `style: { key: value, ... }` 形式。未知キーは無視。
 
+=======
+### 1.3 予約語（識別子に使用不可）
+```
+flow, timeline, component,
+if, else, foreach, in, match, case, default,
+when, user, click,
+set, append, remove, clear, navigate_to, dynamic_section,
+VStack, HStack, Text, Button, TextInput, Image,
+Spacing, SpacingAuto,
+rect, circle, triangle, rounded_rect, text, image
+```
+
+### 1.4 式（Expression）
+- リテラル / 識別子 / **パス式** `state.user.name`
+- 配列 `[e1, e2, ...]` / オブジェクト `{ key: expr, ... }`
+- 二項算術 `+ - * /` （例: `state.count + 1`）
+- 関数呼び出し糖衣 `rust_func!(arg1, {...})`（§8）
+
+### 1.5 ブロック（Block）
+- `{ ... }` 内に「ビュー要素」または「アクション文」を列挙
+- 制御ブロック: `if ... {}`, `foreach v in xs {}`, `match e { case ... {} default {} }`
+- イベント: `when user.click(id) { ... }`
+
+---
+
+## 2. ビュー定義（Views）
+
+> 全てのビューは末尾に `style: { ... }` を取れる。未指定は実装デフォルト。
+
+### 2.1 テキスト
+```
+Text("<format>", arg1?, arg2?, ..., style?)
+```
+- `"<format>"` 内の `{}` を後続引数で差し込み。
+- 例: `Text("Score: {}", state.score, style: { font_size: 18 })`
+
+### 2.2 ボタン
+```
+Button(<id>, "<label>", onclick?, style?)
+```
+- `<id>` は識別子 or 文字列。イベントは `when user.click(<id>) { ... }`。
+- `onclick` に `func_name!()` で Rust コール（任意、§8）。
+
+### 2.3 テキスト入力
+```
+TextInput(<id_or_state_path>, style?)
+```
+- 現行は **IDベース** 取得を前提（将来: state 双方向バインド）。
+
+### 2.4 画像
+```
+Image("<path>", style?)
+```
+- サイズは `style.size` か `style.width/height` で指定。未指定時は実装既定。
+
+### 2.5 レイアウト
+```
+VStack(style?) { <children...> }
+HStack(style?) { <children...> }
+Spacing(<px>)
+SpacingAuto
+```
+- `spacing` / `align` などは §4。
+
+### 2.6 コンポーネント呼び出し
+```
+ComponentName(arg1?, arg2?, ..., style?)
+```
+- 事前に `component` 定義が必要（§6.3）。
+
+### 2.7 動的セクション
+```
+dynamic_section <name>(style?) { <children...> }
+```
+- 差し替え頻度が高い領域の囲い。ランタイムが外側から更新。
+
+### 2.8 低レベル描画（Stencil）
+```
+rect(x, y, width, height, color?, scroll?, depth?)
+circle(x, y, radius, color?, scroll?, depth?)
+triangle(x1, y1, x2, y2, x3, y3, color?, scroll?, depth?)
+rounded_rect(x, y, width, height, radius?, color?, scroll?, depth?)
+text("<content>", x, y, size?, color?, font?, scroll?, depth?)
+image(x, y, width, height, "<path>", scroll?, depth?)
+```
+- **絶対座標** 描画（親レイアウトの原点に従わない）。
+- `depth`: `0.0`（最前）～ `1.0`（背面）。`text` 既定は前面寄り。
+
+---
+
+## 3. スタイル（Style）
+
+> `style: { key: value, ... }` 形式。未知キーは無視。
+
+>>>>>>> 5b9fea6405a38112edfd6cd2a37e8d077ade0b42
 | キー | 値例 | 説明 |
 |---|---|---|
 | `color` | `"#333"`, `"red"`, `[1,0,0,1]` | 文字/前景色 |
@@ -200,9 +296,15 @@ match state.route {
 - `set state.path.to.field = <expr>`
 - トグル: `state.flag = !state.flag`（同一パス前提）
 - 参照透過の関数形式:
+<<<<<<< HEAD
     - `append(state.items, <value>)`
     - `remove(state.items, <index>)`（0 起算）
     - `clear(state.items)`
+=======
+  - `append(state.items, <value>)`
+  - `remove(state.items, <index>)`（0 起算）
+  - `clear(state.items)`
+>>>>>>> 5b9fea6405a38112edfd6cd2a37e8d077ade0b42
 
 > 状態変更は即座に UI 再評価の対象。存在しないフィールドはエラー。
 
@@ -224,9 +326,15 @@ component Message(name, body) {
 
 - 列挙: `Rect`, `Circle`, `Triangle`, `RoundedRect`, `Text`, `Image`
 - 主フィールド（概念）:
+<<<<<<< HEAD
     - 位置: `position` or `center` / サイズ: `width/height` or `radius`
     - `color [r,g,b,a]` / `font` / `size`（文字サイズ）
     - `scroll: bool`（スクロール追随）/ `depth: f32`
+=======
+  - 位置: `position` or `center` / サイズ: `width/height` or `radius`
+  - `color [r,g,b,a]` / `font` / `size`（文字サイズ）
+  - `scroll: bool`（スクロール追随）/ `depth: f32`
+>>>>>>> 5b9fea6405a38112edfd6cd2a37e8d077ade0b42
 - 色指定は `"#RRGGBB"`, 色名, `[r,g,b,a]` を受容。
 
 > レイアウト計算には **サイズのみ** 影響（位置は絶対座標で描画）。
@@ -251,7 +359,11 @@ register_rust_call("hello_world", hello_world);
 ```
 hello_world!("ping", { k: 1 })
 ```
+<<<<<<< HEAD
 - 受け側は `&[Expr]` をパースして利用。
+=======
+- 受け側は `&[Expr]` をパースして利用。  
+>>>>>>> 5b9fea6405a38112edfd6cd2a37e8d077ade0b42
 - **状態を書き換える** 関数は `register_state_accessible_call`（実装依存）。
 
 ---
@@ -361,4 +473,8 @@ Style      := "style:" Object
 ArgList    := Expr ("," Expr)*
 Qualified  := Ident ("::" Ident)+
 Ident      := /[A-Za-z][A-Za-z0-9_-]*/
+<<<<<<< HEAD
 ```
+=======
+```
+>>>>>>> 5b9fea6405a38112edfd6cd2a37e8d077ade0b42
