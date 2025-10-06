@@ -969,6 +969,7 @@ pub fn format_text(fmt: &str, args: &[String]) -> String {
     out
 }
 
+// 点が矩形内にあるかどうか
 #[inline]
 fn point_in_rect(m: [f32; 2], p: [f32; 2], s: [f32; 2]) -> bool {
     m[0] >= p[0] && m[0] <= p[0] + s[0] && m[1] >= p[1] && m[1] <= p[1] + s[1]

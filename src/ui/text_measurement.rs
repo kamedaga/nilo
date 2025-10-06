@@ -3,7 +3,6 @@ use glyphon::{
 };
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, OnceLock};
-use std::path::Path;
 use log::error;
 
 /// テキスト測定結果
@@ -31,27 +30,59 @@ pub struct TextMeasurement {
 pub struct TextMeasurementSystem {
     font_system: Arc<Mutex<FontSystem>>,
     measurement_cache: HashMap<String, TextMeasurement>,
-    font_name_map: HashMap<String, String>, // パス -> ファミリー名
+    font_name_map: HashMap<String, String>, // ユーザー登録名 -> 実際のファミリー名
 }
 
 impl TextMeasurementSystem {
     pub fn new() -> Self {
         // デフォルトのフォントシステム（シンプル）
-        let fs = FontSystem::new();
+        let mut fs = FontSystem::new();
+        
+        // カスタムフォントを登録してマッピングを構築
+        let font_name_map = Self::load_custom_fonts(&mut fs);
         
         Self {
             font_system: Arc::new(Mutex::new(fs)),
             measurement_cache: HashMap::new(),
-            font_name_map: HashMap::new(),
+            font_name_map,
         }
     }
+    
+    /// カスタムフォントをロードしてマッピングを構築
+    fn load_custom_fonts(font_system: &mut FontSystem) -> HashMap<String, String> {
+        let mut name_map = HashMap::new();
+        
+        // グローバルに登録されたカスタムフォントを取得
+        let custom_fonts = crate::get_all_custom_fonts();
+        
+        for (user_name, font_data) in custom_fonts {
+            println!("[TextMeasurement] カスタムフォント '{}' を読み込み中...", user_name);
+            
+            // フォントデータをfontdbに登録
+            let ids = font_system.db_mut().load_font_source(
+                glyphon::fontdb::Source::Binary(std::sync::Arc::new(font_data.to_vec()))
+            );
+            
+            // 最初のフォントフェイスから実際のファミリー名を取得
+            if let Some(first_id) = ids.first() {
+                if let Some(face_info) = font_system.db().face(*first_id) {
+                    if let Some((family_name, _lang)) = face_info.families.first() {
+                        println!("[TextMeasurement] '{}' -> フォントファミリー: '{}'", user_name, family_name);
+                        name_map.insert(user_name.clone(), family_name.clone());
+                    }
+                }
+            }
+        }
+        
+        name_map
+    }
 
-    /// フォントファイルを読み込んで登録
+    /// フォントファイルを読み込んで登録（外部ファイル用、オプション）
+    #[allow(dead_code)]
     fn load_and_register_font(font_system: &mut FontSystem, font_path: &str) -> Option<String> {
         println!("[TextMeasurement] フォントファイル '{}' の読み込みを試行中...", font_path);
         
-        let path = Path::new(font_path);
-        match std::fs::read(path) {
+        match std::fs::read(font_path) {
             Ok(font_data) => {
                 println!("[TextMeasurement] ファイル読み込み成功: {} bytes", font_data.len());
                 
@@ -199,15 +230,6 @@ impl TextMeasurementSystem {
 
         let mut font_system = self.font_system.lock().unwrap();
         
-        // フォントファイルの読み込み処理
-        if font_family.ends_with(".ttf") || font_family.ends_with(".otf") {
-            if !self.font_name_map.contains_key(font_family) {
-                if let Some(family_name) = Self::load_and_register_font(&mut *font_system, font_family) {
-                    println!("[TextMeasurement] フォント '{}' を '{}' としてキャッシュに登録", font_family, family_name);
-                    self.font_name_map.insert(font_family.to_string(), family_name);
-                }
-            }
-        }
         
         let mut buffer = Buffer::new(&mut *font_system, metrics);
 
@@ -218,18 +240,14 @@ impl TextMeasurementSystem {
             buffer.set_size(&mut *font_system, None, None);
         }
 
-        // フォント選択（任意のカスタムフォントに対応）
+        // フォント選択（text.rsと同じロジック）
         let family = if font_family == "default" || font_family.is_empty() {
             Family::SansSerif
-        } else if font_family.ends_with(".ttf") || font_family.ends_with(".otf") {
-            // マッピングから実際のフォントファミリー名を取得
-            if let Some(family_name) = self.font_name_map.get(font_family) {
-                Family::Name(family_name.as_str())
-            } else {
-                eprintln!("[TextMeasurement] カスタムフォント '{}' の読み込み失敗、デフォルトを使用", font_family);
-                Family::SansSerif
-            }
+        } else if let Some(actual_family) = self.font_name_map.get(font_family) {
+            // ユーザーが set_custom_font("japanese", ...) で登録した名前
+            Family::Name(actual_family)
         } else {
+            // システムフォント名として扱う（.ttf/.otfパスも含む）
             Family::Name(font_family)
         };
 
@@ -271,12 +289,12 @@ impl TextMeasurementSystem {
         let mut line_heights = Vec::new();
         let mut max_text_width = 0.0_f32;
         let mut total_height = 0.0_f32;
-        let mut layout_run_count = 0;
+        let mut actual_layout_run_count = 0;
 
 
         // glyphonのBufferからレイアウト情報を取得
         for layout_run in buffer.layout_runs() {
-            layout_run_count += 1;
+            actual_layout_run_count += 1;
             let line_height = metrics.line_height;
             let mut line_width = 0.0_f32;
             let mut glyph_count = 0;
@@ -315,6 +333,12 @@ impl TextMeasurementSystem {
             total_height += line_height;
         }
 
+        // デバッグ出力（文字境界を考慮）
+        // if max_width.is_some() {
+        //     let text_preview: String = text.chars().take(15).collect();
+        //     println!("[TextMeasurement] text: '{}', max_width: {:?}, line_count: {}, line_widths: {:?}", 
+        //         text_preview, max_width, actual_layout_run_count, line_widths);
+        // }
 
         // glyphonの測定結果が不正確な場合の検出と修正
         if let Some(width_limit) = max_width {

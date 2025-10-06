@@ -991,7 +991,7 @@ impl Engine {
     fn hex_to_rgba_fast(s: &str) -> [f32; 4] {
         let t = s.trim().trim_start_matches('#');
         let parse2 = |h: &str| u8::from_str_radix(h, 16).unwrap_or(0) as f32 / 255.0;
-
+        
         match t.len() {
             3 => {
                 let r = parse2(&t[0..1].repeat(2));

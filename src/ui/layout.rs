@@ -352,6 +352,10 @@ impl LayoutEngine {
                 if max_w.unit == Unit::Auto {
                     // 親要素の幅を常に利用可能幅として使用（>0でなければ0を許容）
                     let available_width = (context.parent_size[0] - padding.left - padding.right).max(0.0);
+                    // デバッグ出力（文字境界を考慮）
+                    // let text_preview: String = text.chars().take(15).collect();
+                    // println!("[Text] max_width: auto, parent_size: {}, padding: ({}, {}), available_width: {}, text: '{}'", 
+                    //     context.parent_size[0], padding.left, padding.right, available_width, text_preview);
                     Some(available_width)
                 } else {
                     let calculated_width = self.resolve_dimension_value(max_w, context, true);
@@ -445,51 +449,49 @@ impl LayoutEngine {
         F: Fn(&Expr) -> String,
         G: Fn(&str) -> (u32, u32),
     {
-        // パス1: 子要素のサイズを計算してVStackの幅を決定
+        // VStackの最終的な幅を事前に決定
+        // 親が利用可能幅を提示している場合（>0）は、それを優先して使用
+        let has_parent_width = context.parent_size[0] > 0.0;
+        
+        // パス1: 子要素のサイズを計算（親幅がある場合はそれを使用）
         let mut max_width: f32 = 0.0;
         let mut child_sizes = Vec::new();
         
+        // 親幅がある場合は、パス1から子要素にそれを伝える
+        let pass1_context = if has_parent_width {
+            let mut new_context = context.clone();
+            new_context.parent_size = [context.parent_size[0], context.parent_size[1]];
+            new_context
+        } else {
+            context.clone()
+        };
+        
         for child in children.iter() {
-            // パス1では現在のコンテキストをそのまま使用
-            let child_size = self.compute_node_size(child, context, eval, get_image_size, app);
+            let child_size = self.compute_node_size(child, &pass1_context, eval, get_image_size, app);
             child_sizes.push(child_size.clone());
             max_width = max_width.max(child_size.width);
         }
         
         // VStackの最終的な幅を決定
-        // ポイント: 親が利用可能幅を提示している場合（>0）は、それを優先して子へ伝播する。
-        // ウィンドウ幅かどうかは関係なく、トップレベルでも親幅（=ウィンドウ幅）を使う。
-        let final_width = if context.parent_size[0] > 0.0 {
+        let final_width = if has_parent_width {
             context.parent_size[0]
         } else {
             // 親幅が不明な場合のみ、子要素の最大幅を採用
             max_width
         };
         
-        // パス2: 確定したVStackの幅を子要素に伝えて再計算（max_width: auto対応）
+        // パス2: 確定したVStackの幅を子要素に伝えて再計算（親幅がない場合のみ）
         let mut total_height: f32 = 0.0;
-        let mut needs_recompute = false;
-        
-        // max_width: autoを持つ子要素があるかチェック
-        for child in children.iter() {
-            if let Some(style) = &child.style {
-                if let Some(ref max_w) = style.max_width {
-                    if max_w.unit == crate::parser::ast::Unit::Auto {
-                        needs_recompute = true;
-                        break;
-                    }
-                }
-            }
-        }
+        let needs_recompute = !has_parent_width && final_width != max_width;
         
         for (i, child) in children.iter().enumerate() {
-            let child_size = if needs_recompute || final_width != max_width {
-                // max_width: autoがある場合、または幅が変更された場合は再計算
+            let child_size = if needs_recompute {
+                // 親幅がなく、最終幅が確定した場合のみ再計算
                 let mut child_context = context.clone();
                 child_context.parent_size = [final_width, context.parent_size[1]];
                 self.compute_node_size(child, &child_context, eval, get_image_size, app)
             } else {
-                // そうでなければパス1の結果を使用
+                // パス1の結果を使用（親幅がある場合は既に正しい）
                 child_sizes[i].clone()
             };
             
@@ -528,12 +530,29 @@ impl LayoutEngine {
         let mut total_width: f32 = 0.0;
         let mut max_height: f32 = 0.0;
         
+        // HStackの最終的な幅を事前に決定
+        // 親が利用可能幅を提示している場合（>0）は常にそれを使用する
+        let has_parent_width = context.parent_size[0] > 0.0;
+        let final_width_early = if has_parent_width {
+            context.parent_size[0]
+        } else {
+            0.0 // パス1で計算する
+        };
+        
         // パス1: 子要素のサイズを計算してHStackのサイズを決定
         let mut child_sizes = Vec::new();
         
         for (i, child) in children.iter().enumerate() {
-            // パス1では現在のコンテキストをそのまま使用
-            let child_size = self.compute_node_size(child, context, eval, get_image_size, app);
+            // 親幅がある場合、相対幅を持つ子要素にはそれを伝える
+            let child_context = if has_parent_width {
+                let mut new_context = context.clone();
+                new_context.parent_size = [final_width_early, context.parent_size[1]];
+                new_context
+            } else {
+                context.clone()
+            };
+            
+            let child_size = self.compute_node_size(child, &child_context, eval, get_image_size, app);
             child_sizes.push(child_size.clone());
             total_width += child_size.width;
             if i < children.len() - 1 {
@@ -551,65 +570,34 @@ impl LayoutEngine {
             max_height
         };
         
-        // HStackの最終的な幅も決定（子要素への幅制約として使用）
-        // 親が利用可能幅を提示している場合（>0）は常にそれを使用する
-        let final_width = if context.parent_size[0] > 0.0 {
-            context.parent_size[0]
+        // HStackの最終的な幅を確定
+        let final_width = if has_parent_width {
+            final_width_early
         } else {
             total_width
         };
         
-    // パス2: 確定したHStackのサイズを子要素に伝えて再計算（max_width: auto対応）
-    // HStackでは、子要素が明示的な幅を持つ場合、その幅を尊重する
-    let mut needs_recompute = false;
+        // パス2: 親幅がなく、最終幅が確定した場合のみ再計算
+        let needs_recompute = !has_parent_width && final_width != total_width;
         
-        // max_width: autoを持つ子要素があるかチェック
-        for child in children.iter() {
-            if let Some(style) = &child.style {
-                if let Some(ref max_w) = style.max_width {
-                    if max_w.unit == crate::parser::ast::Unit::Auto {
-                        needs_recompute = true;
-                        break;
-                    }
-                }
-            }
-        }
-        
-    // 親の幅によって初期合計幅と異なる場合も再計算（子の折り返し等に対応）
-    if needs_recompute || final_width != total_width {
-            // max_width: autoがある場合、子要素のコンテキストでHStackの幅を利用可能幅として設定
-            total_width = 0.0; // 再計算
-            max_height = 0.0;  // 高さも再計算（ラップにより高さが変わるため）
+        if needs_recompute {
+            // 最終幅が確定したので再計算
+            total_width = 0.0;
+            max_height = 0.0;
             
             for (i, child) in children.iter().enumerate() {
                 let mut child_context = context.clone();
                 
-                // 重要: 子要素が相対幅（パーセンテージなど）を持つ場合、
-                // HStackの確定幅を基準に再計算する必要がある
+                // 子要素が相対幅を持つ場合、HStack全体の幅を親幅として使用
                 let child_has_relative_width = if let Some(style) = &child.style {
                     style.relative_width.is_some()
                 } else {
                     false
                 };
                 
-                // ComponentCallの場合、そのコンポーネント定義のスタイルもチェック
-                let is_component_with_relative_width = if let ViewNode::ComponentCall { name, .. } = &child.node {
-                    if let Some(component) = app.components.iter().find(|c| &c.name == name) {
-                        // コンポーネントのデフォルトスタイルとノードのスタイルをマージ
-                        let merged = merge_styles(component.default_style.as_ref(), child.style.as_ref());
-                        merged.relative_width.is_some()
-                    } else {
-                        false
-                    }
-                } else {
-                    false
-                };
-                
-                let child_parent_width = if child_has_relative_width || is_component_with_relative_width {
-                    // 相対幅の場合、HStack全体の幅を親幅として使用
+                let child_parent_width = if child_has_relative_width {
                     final_width
                 } else {
-                    // 固定幅の場合、パス1の計算結果を使用
                     child_sizes[i].width
                 };
                 
@@ -625,17 +613,9 @@ impl LayoutEngine {
         }
         
         ComputedSize {
-            // パス2で再計算した場合でも、HStack自体の幅はfinal_widthを使用
-            // （total_widthは子要素の合計幅で、HStackの幅制約とは異なる）
-            width: if needs_recompute || final_width != total_width {
-                // 親から明示的な幅が指定されている場合はそれを優先
-                final_width
-            } else {
-                // 子要素の合計幅をそのまま使用
-                total_width
-            },
+            width: final_width,
             height: max_height,
-            intrinsic_width: total_width,
+            intrinsic_width: if needs_recompute { total_width } else { total_width },
             intrinsic_height: max_height,
             has_explicit_width: false,
             has_explicit_height: false,

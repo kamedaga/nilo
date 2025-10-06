@@ -5,8 +5,8 @@ use glyphon::{
 use wgpu::{
     Device, Queue, RenderPass, TextureFormat, MultisampleState, DepthStencilState,
 };
-use std::path::Path;
 use std::collections::HashMap;
+use log::{error}; // ログマクロを追加
 
 pub struct TextRenderer {
     renderer: GlyphonTextRenderer,
@@ -16,10 +16,13 @@ pub struct TextRenderer {
     viewport: Viewport,
     #[allow(dead_code)]
     cache: Cache,
-    font_name_map: HashMap<String, String>, // パス -> ファミリー名
+    font_name_map: HashMap<String, String>, // ユーザー指定名 -> 実際のファミリー名
+    embedded_font_family: Option<String>, // 単一フォント用（後方互換性）
 }
 
 impl TextRenderer {
+    /// システムフォントのみを使用するTextRendererを作成
+    /// 埋め込みフォントは使用せず、OSのフォントシステムに依存します
     pub fn new(
         device: &Device,
         queue: &Queue,
@@ -29,9 +32,38 @@ impl TextRenderer {
         _width: u32,
         _height: u32,
     ) -> Self {
-        // デフォルトのフォントシステム（シンプル）
+        Self::with_embedded_font(device, queue, format, multisample, depth_stencil, None)
+    }
+
+    /// カスタム埋め込みフォントでTextRendererを作成
+    /// 
+    /// # Arguments
+    /// * `embedded_font_data` - 埋め込むフォントデータ（Noneの場合は埋め込みフォントなし）
+    /// 
+    /// # Example
+    /// ```rust
+    /// const MY_FONT: &[u8] = include_bytes!("path/to/font.ttf");
+    /// let renderer = TextRenderer::with_embedded_font(
+    ///     device, queue, format, multisample, depth_stencil,
+    ///     Some(MY_FONT)
+    /// );
+    /// ```
+    pub fn with_embedded_font(
+        device: &Device,
+        queue: &Queue,
+        format: TextureFormat,
+        multisample: MultisampleState,
+        depth_stencil: Option<DepthStencilState>,
+        embedded_font_data: Option<&'static [u8]>,
+    ) -> Self {
         let mut font_system = FontSystem::new();
-        println!("[TextRenderer] FontSystemを初期化しました");
+        
+        // 埋め込みフォントを登録（指定がある場合のみ）
+        let embedded_font_family = if let Some(data) = embedded_font_data {
+            Self::load_embedded_font(&mut font_system, data)
+        } else {
+            None
+        };
         
         let swash_cache = SwashCache::new();
         let cache = Cache::new(device);
@@ -52,40 +84,117 @@ impl TextRenderer {
             viewport,
             cache,
             font_name_map: HashMap::new(),
+            embedded_font_family,
         }
     }
 
-    /// フォントファイルを読み込んで登録
-    fn load_and_register_font(font_system: &mut FontSystem, font_path: &str) -> Option<String> {
-        println!("[TextRenderer] フォントファイル '{}' の読み込みを試行中...", font_path);
+    /// 複数の名前付きフォントでTextRendererを作成
+    /// 
+    /// # Arguments
+    /// * `fonts` - (ユーザー指定名, フォントデータ)のベクター
+    /// 
+    /// # Example
+    /// ```rust
+    /// let fonts = vec![
+    ///     ("japanese".to_string(), FONT_JP),
+    ///     ("english".to_string(), FONT_EN),
+    /// ];
+    /// let renderer = TextRenderer::with_multiple_fonts(
+    ///     device, queue, format, multisample, depth_stencil, fonts
+    /// );
+    /// ```
+    pub fn with_multiple_fonts(
+        device: &Device,
+        queue: &Queue,
+        format: TextureFormat,
+        multisample: MultisampleState,
+        depth_stencil: Option<DepthStencilState>,
+        fonts: Vec<(String, &'static [u8])>,
+    ) -> Self {
+        let mut font_system = FontSystem::new();
+        let mut font_name_map = HashMap::new();
         
-        let path = Path::new(font_path);
-        match std::fs::read(path) {
+        // 各フォントをロードして名前をマッピング
+        for (user_name, data) in fonts {
+            if let Some(family_name) = Self::load_embedded_font(&mut font_system, data) {
+                font_name_map.insert(user_name, family_name);
+            }
+        }
+        
+        let swash_cache = SwashCache::new();
+        let cache = Cache::new(device);
+        let mut atlas = TextAtlas::new(device, queue, &cache, format);
+        let renderer = GlyphonTextRenderer::new(
+            &mut atlas,
+            device,
+            multisample,
+            depth_stencil,
+        );
+        let viewport = Viewport::new(device, &cache);
+
+        Self {
+            renderer,
+            atlas,
+            font_system,
+            swash_cache,
+            viewport,
+            cache,
+            font_name_map,
+            embedded_font_family: None,
+        }
+    }
+
+    /// 埋め込みフォントをロードする
+    /// 
+    /// # Arguments
+    /// * `font_data` - フォントデータ
+    fn load_embedded_font(font_system: &mut FontSystem, font_data: &'static [u8]) -> Option<String> {
+        // 埋め込みフォントデータを登録
+        let ids = font_system.db_mut().load_font_source(
+            glyphon::fontdb::Source::Binary(std::sync::Arc::new(font_data.to_vec()))
+        );
+        
+        // 最初のフォントフェイスから実際のファミリー名を取得
+        if let Some(first_id) = ids.first() {
+            if let Some(face_info) = font_system.db().face(*first_id) {
+                // familiesの最初の要素（通常は英語US）を使用
+                if let Some((family_name, _lang)) = face_info.families.first() {
+                    return Some(family_name.clone());
+                }
+            }
+        }
+        
+        error!("[TextRenderer] 埋め込みフォントからファミリー名を取得できませんでした");
+        None
+    }
+
+    /// フォントファイルを読み込んで登録（外部ファイル用、オプション）
+    #[allow(dead_code)]
+    fn load_and_register_font(font_system: &mut FontSystem, font_path: &str) -> Option<String> {
+        
+        match std::fs::read(font_path) {
             Ok(font_data) => {
-                println!("[TextRenderer] ファイル読み込み成功: {} bytes", font_data.len());
                 
                 // フォントデータをfontdb::Sourceとして登録してIDを取得
                 let ids = font_system.db_mut().load_font_source(
                     glyphon::fontdb::Source::Binary(std::sync::Arc::new(font_data))
                 );
-                println!("[TextRenderer] フォントデータを登録しました: {} faces", ids.len());
                 
                 // 最初のフォントフェイスから実際のファミリー名を取得
                 if let Some(first_id) = ids.first() {
                     if let Some(face_info) = font_system.db().face(*first_id) {
                         // familiesの最初の要素（通常は英語US）を使用
                         if let Some((family_name, _lang)) = face_info.families.first() {
-                            println!("[TextRenderer] 実際のフォントファミリー名: '{}'", family_name);
                             return Some(family_name.clone());
                         }
                     }
                 }
                 
-                eprintln!("[TextRenderer] フォント '{}' からファミリー名を取得できませんでした", font_path);
+                error!("[TextRenderer] フォント '{}' からファミリー名を取得できませんでした", font_path);
                 None
             }
             Err(e) => {
-                eprintln!("[TextRenderer] フォント読み込みエラー '{}': {}", font_path, e);
+                error!("[TextRenderer] フォント読み込みエラー '{}': {}", font_path, e);
                 None
             }
         }
@@ -127,24 +236,23 @@ impl TextRenderer {
             }
 
             // ★ 修正: 指定されたフォント名を使用
+            // 1. ユーザー登録名のフォントをチェック
+            // 2. .ttf/.otfパスなら後方互換用の単一フォントを使用
+            // 3. それ以外はシステムフォント名として扱う
             let family = if font_name == "default" || font_name.is_empty() {
                 Family::SansSerif
+            } else if let Some(actual_family) = self.font_name_map.get(font_name) {
+                // ユーザーが set_custom_font("japanese", ...) で登録した名前
+                Family::Name(actual_family)
             } else if font_name.ends_with(".ttf") || font_name.ends_with(".otf") {
-                // フォントファイルパスの場合は読み込み
-                if !self.font_name_map.contains_key(font_name) {
-                    if let Some(family_name) = Self::load_and_register_font(&mut self.font_system, font_name) {
-                        println!("[TextRenderer] フォント '{}' を '{}' としてキャッシュに登録", font_name, family_name);
-                        self.font_name_map.insert(font_name.to_string(), family_name);
-                    }
-                }
-                
-                if let Some(family_name) = self.font_name_map.get(font_name) {
-                    Family::Name(family_name.as_str())
+                // 後方互換性: フォントファイルパスの場合は単一埋め込みフォントを使用
+                if let Some(ref family_name) = self.embedded_font_family {
+                    Family::Name(family_name)
                 } else {
-                    eprintln!("[TextRenderer] カスタムフォント '{}' の読み込み失敗、デフォルトを使用", font_name);
-                    Family::SansSerif
+                    Family::SansSerif // フォールバック
                 }
             } else {
+                // システムフォント名として扱う
                 Family::Name(font_name)
             };
 
@@ -155,7 +263,15 @@ impl TextRenderer {
                 Shaping::Advanced,
             );
 
-            buffer.shape_until_scroll(&mut self.font_system, false);
+            // 幅制約がある場合は、レイアウトを複数回実行して確実に改行を適用
+            if max_width.is_some() {
+                buffer.shape_until_scroll(&mut self.font_system, true);
+                for _ in 0..3 {
+                    buffer.shape_until_scroll(&mut self.font_system, false);
+                }
+            } else {
+                buffer.shape_until_scroll(&mut self.font_system, false);
+            }
             buffers.push((buffer, metrics));
         }
 

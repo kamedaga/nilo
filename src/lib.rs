@@ -1,20 +1,95 @@
 pub mod renderer_abstract;
+#[cfg(feature = "wgpu")]
 pub mod wgpu_renderer;
+pub mod dom_renderer;
 pub mod stencil;
 pub mod ui;
 pub mod parser;
 pub mod engine;
+#[cfg(not(target_arch = "wasm32"))]
 pub mod hotreload;
 pub mod analysis;
+
+// WASM専用エントリーポイント
+#[cfg(target_arch = "wasm32")]
+pub mod wasm_entry;
 
 use parser::{parse_nilo_file, parse_embedded_nilo, ast::App};
 use colored::*;
 use std::env;
-use log::{info, warn, error, debug, trace}; // ログマクロを追加
+use log::{info, error}; // ログマクロを追加
+use std::sync::{RwLock, OnceLock};
+use std::collections::HashMap;
 
 pub use engine::exec::{AppState, StateAccess};
 pub use engine::runtime::run;
 pub use renderer_abstract::{RendererType}; // レンダラータイプを追加
+
+// グローバルなフォント設定（名前付きフォントマップ）
+static CUSTOM_FONTS: OnceLock<RwLock<HashMap<String, &'static [u8]>>> = OnceLock::new();
+
+fn get_font_map() -> &'static RwLock<HashMap<String, &'static [u8]>> {
+    CUSTOM_FONTS.get_or_init(|| RwLock::new(HashMap::new()))
+}
+
+/// カスタムフォントを名前付きでグローバルに登録
+/// 
+/// アプリケーション起動前に呼び出してください。
+/// 複数のフォントを登録でき、Niloファイルから名前で参照できます。
+/// 
+/// # Example
+/// ```rust
+/// const FONT_JP: &[u8] = include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/fonts/NotoSansJP.ttf"));
+/// const FONT_EN: &[u8] = include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/fonts/Roboto.ttf"));
+/// 
+/// nilo::set_custom_font("japanese", FONT_JP);
+/// nilo::set_custom_font("english", FONT_EN);
+/// 
+/// // Niloファイル内で: font: "japanese" や font: "english" で使用可能
+/// ```
+pub fn set_custom_font(name: &str, font_data: &'static [u8]) {
+    if let Ok(mut map) = get_font_map().write() {
+        map.insert(name.to_string(), font_data);
+    } else {
+        error!("Failed to register custom font '{}'", name);
+    }
+}
+
+/// 複数のカスタムフォントを一度に登録
+/// 
+/// # Example
+/// ```rust
+/// const FONT_JP: &[u8] = include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/fonts/NotoSansJP.ttf"));
+/// const FONT_EN: &[u8] = include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/fonts/Roboto.ttf"));
+/// 
+/// nilo::set_custom_fonts(&[
+///     ("japanese", FONT_JP),
+///     ("english", FONT_EN),
+/// ]);
+/// ```
+pub fn set_custom_fonts(fonts: &[(&str, &'static [u8])]) {
+    if let Ok(mut map) = get_font_map().write() {
+        for (name, data) in fonts {
+            map.insert(name.to_string(), *data);
+        }
+    } else {
+        error!("Failed to register custom fonts");
+    }
+}
+
+/// 登録されたカスタムフォントを名前で取得
+pub(crate) fn get_custom_font(name: &str) -> Option<&'static [u8]> {
+    get_font_map().read().ok().and_then(|map| map.get(name).copied())
+}
+
+/// 登録されたすべてのカスタムフォントを取得
+pub(crate) fn get_all_custom_fonts() -> Vec<(String, &'static [u8])> {
+    get_font_map()
+        .read()
+        .ok()
+        .map(|map| map.iter().map(|(k, v)| (k.clone(), *v)).collect())
+        .unwrap_or_default()
+}
 
 // 自動的に埋め込みファイルを使用する便利関数
 pub fn run_application_auto_embedded<S, P>(
@@ -309,46 +384,50 @@ pub fn run_application_with_embedded<S, P>(
     // ログレベルを初期化
     init_logger(&cli_args.log_level);
 
-    if cli_args.enable_debug || cli_args.enable_hotreload {
-        // デバッグ/ホットリロードモードでは常にファイルから読み込み
-        // main.rsから呼び出される場合、srcディレクトリ内のファイルを指すようにパス修正
-        let file_path_ref = file_path.as_ref();
-        let adjusted_path = if file_path_ref.file_name().is_some() && !file_path_ref.exists() {
-            let src_path = std::path::Path::new("src").join(file_path_ref);
-            if src_path.exists() {
-                src_path
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        if cli_args.enable_debug || cli_args.enable_hotreload {
+            // デバッグ/ホットリロードモードでは常にファイルから読み込み
+            // main.rsから呼び出される場合、srcディレクトリ内のファイルを指すようにパス修正
+            let file_path_ref = file_path.as_ref();
+            let adjusted_path = if file_path_ref.file_name().is_some() && !file_path_ref.exists() {
+                let src_path = std::path::Path::new("src").join(file_path_ref);
+                if src_path.exists() {
+                    src_path
+                } else {
+                    file_path_ref.to_path_buf()
+                }
             } else {
                 file_path_ref.to_path_buf()
-            }
-        } else {
-            file_path_ref.to_path_buf()
-        };
-        
-        run_with_hotreload(adjusted_path, state, cli_args.enable_lint, cli_args.enable_debug, cli_args.quiet, window_title);
-    } else {
-        // 埋め込みソースが提供されている場合は埋め込みを使用
-        // リリースビルドでファイルが存在しない場合も埋め込みを試行
-        let use_embedded = embedded_source.is_some() && {
-            #[cfg(not(debug_assertions))]
-            { true }
-            #[cfg(debug_assertions)]
-            { !std::path::Path::new(file_path.as_ref()).exists() }
-        };
-        
-        if use_embedded {
-            if let Some(source) = embedded_source {
-                let app = load_embedded_nilo_app(source, cli_args.enable_lint, cli_args.quiet)
-                    .expect("Failed to parse embedded Nilo source");
-                engine::runtime::run_with_window_title(app, state, window_title);
-                return;
-            }
+            };
+            
+            run_with_hotreload(adjusted_path, state, cli_args.enable_lint, cli_args.enable_debug, cli_args.quiet, window_title);
+            return;
         }
-        
-        // 通常のファイル読み込み
-        let app = load_nilo_app(file_path, cli_args.enable_lint, cli_args.enable_debug, cli_args.quiet)
-            .expect("Failed to parse Nilo file");
-        engine::runtime::run_with_window_title(app, state, window_title);
     }
+    
+    // 埋め込みソースが提供されている場合は埋め込みを使用
+    // リリースビルドでファイルが存在しない場合も埋め込みを試行
+    let use_embedded = embedded_source.is_some() && {
+        #[cfg(not(debug_assertions))]
+        { true }
+        #[cfg(debug_assertions)]
+        { !std::path::Path::new(file_path.as_ref()).exists() }
+    };
+    
+    if use_embedded {
+        if let Some(source) = embedded_source {
+            let app = load_embedded_nilo_app(source, cli_args.enable_lint, cli_args.quiet)
+                .expect("Failed to parse embedded Nilo source");
+            engine::runtime::run_with_window_title(app, state, window_title);
+            return;
+        }
+    }
+    
+    // 通常のファイル読み込み
+    let app = load_nilo_app(file_path, cli_args.enable_lint, cli_args.enable_debug, cli_args.quiet)
+        .expect("Failed to parse Nilo file");
+    engine::runtime::run_with_window_title(app, state, window_title);
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -396,4 +475,91 @@ pub fn run_with_hotreload<S, P>(
     let app = Arc::new(app);
 
     engine::runtime::run_with_hotreload_support_and_title(app, state, should_restart, current_app, window_title);
+}
+
+// ========================================
+// WASM用エントリーポイント
+// ========================================
+
+#[cfg(target_arch = "wasm32")]
+pub fn run_nilo_wasm<S>(nilo_source: &str, initial_state: S)
+where
+    S: StateAccess + Clone + Send + 'static + std::fmt::Debug,
+{
+    use wasm_bindgen::JsCast;
+    use web_sys::{window, HtmlElement};
+
+    log::info!("Nilo WASM starting...");
+
+    // Niloソースをパース
+    let app = match parser::parse::parse_nilo(nilo_source) {
+        Ok(app) => app,
+        Err(e) => {
+            log::error!("Failed to parse Nilo source: {:?}", e);
+            return;
+        }
+    };
+
+    log::info!("Nilo app parsed successfully");
+
+    // DOMレンダラーを作成
+    let mut dom_renderer = dom_renderer::DomRenderer::new();
+
+    // テスト用のシンプルなStencilを作成
+    let test_stencils = vec![
+        stencil::stencil::Stencil::Text {
+            content: "Hello from Nilo WASM!".to_string(),
+            position: [50.0, 50.0],
+            size: 32.0,
+            color: [0.0, 0.0, 0.0, 1.0],
+            font: "sans-serif".to_string(),
+            max_width: Some(400.0),
+            scroll: false,
+            depth: 0.0,
+        },
+        stencil::stencil::Stencil::Rect {
+            position: [50.0, 100.0],
+            width: 300.0,
+            height: 200.0,
+            color: [0.3, 0.5, 0.9, 1.0],
+            scroll: false,
+            depth: 0.0,
+        },
+        stencil::stencil::Stencil::Circle {
+            center: [400.0, 200.0],
+            radius: 80.0,
+            color: [0.9, 0.3, 0.3, 1.0],
+            scroll: false,
+            depth: 0.0,
+        },
+    ];
+    
+    // 初回レンダリング
+    dom_renderer.render_stencils(&test_stencils, [0.0, 0.0], 1.0);
+
+    log::info!("Initial render complete");
+
+    // コンテナがbody直下にあることを確認
+    if let Some(window) = window() {
+        if let Some(document) = window.document() {
+            if let Some(body) = document.body() {
+                // コンテナがまだ作成されていない場合は作成
+                if document.get_element_by_id(dom_renderer.container_id()).is_none() {
+                    if let Ok(container) = document.create_element("div") {
+                        let _ = container.set_attribute("id", dom_renderer.container_id());
+                        if let Some(html_element) = container.dyn_ref::<HtmlElement>() {
+                            let style = html_element.style();
+                            let _ = style.set_property("position", "relative");
+                            let _ = style.set_property("width", "100vw");
+                            let _ = style.set_property("height", "100vh");
+                        }
+                        let _ = body.append_child(&container);
+                        log::info!("Created DOM container: {}", dom_renderer.container_id());
+                    }
+                }
+            }
+        }
+    }
+
+    log::info!("Nilo WASM initialization complete");
 }

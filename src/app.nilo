@@ -4,7 +4,7 @@ flow {
 }
 
 timeline MainMenu {
-    font: "fonts/NotoSansJP-Regular.ttf"
+    font: "japanese"
     VStack(style: {width: 100ww, background: "#000000ff"}) {
         Text("Modern Nilo", style: {font_size: 40px, color: "#ffffff"})
         Spacing(4px)
@@ -15,7 +15,7 @@ timeline MainMenu {
             LikeRustCard()
             minimalUICard()
         }
-        Text("ニロ君と作る建設的な未来")
+        Text("ニロ君と作る建設的な未来", style: {max_width: auto})
         
         VStack(style: {width: 100%, background: "#0B1A2A"}) {
             HotreloadCard()

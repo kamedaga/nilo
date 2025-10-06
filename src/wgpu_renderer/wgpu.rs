@@ -61,21 +61,42 @@ impl WgpuRenderer {
         let quad_renderer = QuadRenderer::new(&device, surface_format);
         let triangle_renderer = TriangleRenderer::new(&device, surface_format);
         let circle_renderer = CircleRenderer::new(&device, surface_format);
-        let text_renderer = TextRenderer::new(
-            &device,
-            &queue,
-            surface_format,
-            wgpu::MultisampleState::default(),
-            Some(wgpu::DepthStencilState {
-                format: wgpu::TextureFormat::Depth32Float,
-                depth_write_enabled: true,
-                depth_compare: wgpu::CompareFunction::Less,
-                stencil: wgpu::StencilState::default(),
-                bias: wgpu::DepthBiasState::default(),
-            }),
-            size.width,
-            size.height,
-        );
+        
+        // グローバルに登録された全カスタムフォントを使用
+        let custom_fonts = crate::get_all_custom_fonts();
+        let text_renderer = if !custom_fonts.is_empty() {
+            TextRenderer::with_multiple_fonts(
+                &device,
+                &queue,
+                surface_format,
+                wgpu::MultisampleState::default(),
+                Some(wgpu::DepthStencilState {
+                    format: wgpu::TextureFormat::Depth32Float,
+                    depth_write_enabled: true,
+                    depth_compare: wgpu::CompareFunction::Less,
+                    stencil: wgpu::StencilState::default(),
+                    bias: wgpu::DepthBiasState::default(),
+                }),
+                custom_fonts,
+            )
+        } else {
+            TextRenderer::new(
+                &device,
+                &queue,
+                surface_format,
+                wgpu::MultisampleState::default(),
+                Some(wgpu::DepthStencilState {
+                    format: wgpu::TextureFormat::Depth32Float,
+                    depth_write_enabled: true,
+                    depth_compare: wgpu::CompareFunction::Less,
+                    stencil: wgpu::StencilState::default(),
+                    bias: wgpu::DepthBiasState::default(),
+                }),
+                size.width,
+                size.height,
+            )
+        };
+        
         let image_renderer = ImageRenderer::new(&device, surface_format);
 
         let mut renderer = Self {

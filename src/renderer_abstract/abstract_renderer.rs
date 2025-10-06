@@ -56,7 +56,8 @@ impl RendererFactory {
                 }
             }
             RendererType::Dom => {
-                Ok(Box::new(DomRenderer::new()))
+                let dom_renderer = crate::dom_renderer::DomRenderer::new();
+                Ok(Box::new(DomRendererAdapter::new(dom_renderer)))
             }
             RendererType::TinySkia => {
                 Ok(Box::new(TinySkiaRenderer::new()))
@@ -96,6 +97,49 @@ impl AbstractRenderer for WgpuRendererAdapter {
 
     fn resize(&mut self, new_size: (u32, u32)) {
         self.inner.resize(winit::dpi::PhysicalSize::new(new_size.0, new_size.1));
+    }
+
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+
+    fn as_any_mut(&mut self) -> &mut dyn Any {
+        self
+    }
+}
+
+/// DOMレンダラのアダプター
+pub struct DomRendererAdapter {
+    inner: crate::dom_renderer::DomRenderer,
+}
+
+impl DomRendererAdapter {
+    pub fn new(renderer: crate::dom_renderer::DomRenderer) -> Self {
+        Self { inner: renderer }
+    }
+
+    /// ネイティブ環境でHTMLファイルに保存
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn save_to_file(&self, path: &str) -> std::io::Result<()> {
+        self.inner.save_to_file(path)
+    }
+}
+
+impl AbstractRenderer for DomRendererAdapter {
+    fn renderer_type(&self) -> RendererType {
+        RendererType::Dom
+    }
+
+    fn render_stencils(&mut self, stencils: &[Stencil], scroll_offset: [f32; 2], scale_factor: f32) {
+        self.inner.render_stencils(stencils, scroll_offset, scale_factor);
+    }
+
+    fn size(&self) -> (u32, u32) {
+        self.inner.size()
+    }
+
+    fn resize(&mut self, new_size: (u32, u32)) {
+        self.inner.resize(new_size);
     }
 
     fn as_any(&self) -> &dyn Any {

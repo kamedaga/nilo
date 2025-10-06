@@ -1,4 +1,7 @@
-// #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+// リリースビルド時(not debug_assertions)にWindowsでコンソールウィンドウを非表示
+//#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+const MY_FONT: &[u8] = include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/fonts/NotoSansJP-Regular.ttf"));
+const APP_NILO: &str = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/app.nilo"));
 
 use nilo;
 use nilo::engine::rust_call::register_rust_call;
@@ -15,11 +18,15 @@ nilo::nilo_state! {
 }
 
 fn hello_world(args: &[Expr]) {
-    println!("Hello from Rust! Args: {:?}", args); // println!をinfo!に変更
+    info!("Hello from Rust! Args: {:?}", args);
 }
 
 #[cfg(not(target_arch = "wasm32"))]
 fn main() {
+    // カスタムフォントを名前付きで登録（プロジェクトルートからの相対パス）
+    // Niloファイル内で font: "japanese" として使用可能
+    nilo::set_custom_font("japanese", MY_FONT);
+    
     let cli_args = nilo::parse_args();
 
     register_rust_call("hello_rust", |_args: &[Expr]| {
@@ -37,4 +44,37 @@ fn main() {
 
     // 自動で埋め込みファイルを使用するマクロを呼び出し
     nilo::run_nilo_app!("app.nilo", state, &cli_args, Some("Nilo Tutorial"));
+}
+
+#[cfg(target_arch = "wasm32")]
+use wasm_bindgen::prelude::*;
+
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen(start)]
+pub fn wasm_main() {
+    // パニック時のエラーメッセージをブラウザコンソールに表示
+    console_error_panic_hook::set_once();
+    
+    // WebAssembly用のロガーを初期化
+    console_log::init_with_level(log::Level::Debug).expect("error initializing log");
+
+    // カスタムフォントを登録
+    nilo::set_custom_font("japanese", MY_FONT);
+
+    // Rust関数を登録
+    register_rust_call("hello_rust", |_args: &[Expr]| {
+        log::info!("Hello from Rust!");
+    });
+    register_rust_call("hello_world", hello_world);
+
+    // 初期状態を作成
+    let state = State {
+        name: "Nilo".to_string(),
+        counter: 1,
+        items: vec![1, 2, 3],
+        ifbool: true
+    };
+
+    // DOMレンダラーでNiloアプリを実行
+    nilo::run_nilo_wasm(APP_NILO, state);
 }

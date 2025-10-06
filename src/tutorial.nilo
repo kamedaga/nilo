@@ -5,7 +5,6 @@ flow {
 }
 
 timeline StartPage {
-  font: "Arial"
 
   VStack(style: {
     spacing: 24px,

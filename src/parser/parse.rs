@@ -1124,32 +1124,6 @@ fn parse_arithmetic_expr_direct(pair: Pair<Rule>) -> Expr {
     left
 }
 
-fn parse_arithmetic_expr(pair: Pair<Rule>) -> Expr {
-    let mut inner = pair.into_inner();
-    let mut left = parse_term(inner.next().unwrap());
-
-    while let Some(op_pair) = inner.next() {
-        let op = op_pair.as_str();
-        let right = parse_term(inner.next().unwrap());
-
-        left = match op {
-            "+" => Expr::BinaryOp {
-                left: Box::new(left),
-                op: BinaryOperator::Add,
-                right: Box::new(right),
-            },
-            "-" => Expr::BinaryOp {
-                left: Box::new(left),
-                op: BinaryOperator::Sub,
-                right: Box::new(right),
-            },
-            _ => panic!("不明な算術演算: {}", op),
-        };
-    }
-
-    left
-}
-
 fn parse_term(pair: Pair<Rule>) -> Expr {
     let mut inner = pair.into_inner();
     let mut left = parse_factor(inner.next().unwrap());
@@ -1513,12 +1487,12 @@ fn parse_text_input(pair: Pair<Rule>) -> WithSpan<ViewNode> {
 
     let mut id: Option<String> = None;
     let mut placeholder: Option<String> = None;
-    let mut value: Option<Expr> = None;
-    let mut on_change: Option<Expr> = None;
-    let mut multiline = false;
-    let mut max_length: Option<usize> = None;
-    let mut ime_enabled = true;
     let mut style: Option<Style> = None;
+    let value: Option<Expr> = None;
+    let on_change: Option<Expr> = None;
+    let multiline = false;
+    let max_length: Option<usize> = None;
+    let ime_enabled = true;
 
     for p in pair.into_inner() {
         match p.as_rule() {

@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Nilo DOM Renderer</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+        }
+        #nilo-renderer-container {
+            position: relative;
+            width: 100vw;
+            height: 100vh;
+        }
+    </style>
+</head>
+<body>
+    <div id="nilo-renderer-container">
+<div style="position: absolute; left: 50px; top: 50px; width: 200px; height: 100px; background-color: rgba(51, 127, 204, 1); z-index: 1000;"></div>
+<div style="position: absolute; left: 200px; top: 200px; width: 100px; height: 100px; background-color: rgba(204, 76, 51, 1); border-radius: 50%; z-index: 1000;"></div>
+<div style="position: absolute; left: 50px; top: 20px; font-size: 24px; color: rgba(0, 0, 0, 1); font-family: Noto Sans JP; white-space: pre-wrap; z-index: 1000;">Hello, DOM Renderer!</div>
+<svg style="position: absolute; left: 0; top: 0; width: 100%; height: 100%; pointer-events: none; z-index: 1000;"><polygon points="400,100 350,200 450,200" fill="rgba(76, 204, 76, 1)" /></svg>
+    </div>
+</body>
+</html>

@@ -6,11 +6,16 @@ edition = "2024"
 [lib]
 crate-type = ["cdylib", "rlib"]
 
+[[bin]]
+name = "nilo"
+path = "src/main.rs"
+required-features = ["native"]
+
 
 [dependencies]
-wgpu = {  version = "26.0.1", features = ["webgpu"] }
-winit = { version = "0.30", features = ["rwh_05"] }
-pollster = "0.3"
+wgpu = {  version = "26.0.1", features = ["webgpu"], optional = true }
+winit = { version = "0.30", features = ["rwh_05"], optional = true }
+pollster = { version = "0.3", optional = true }
 env_logger = "0.11.8"
 bytemuck = "1.23.1"
 glyphon = { git = "https://github.com/grovesNL/glyphon.git", branch = "main" }
@@ -30,8 +35,14 @@ notify = "6.1"
 nilo_state_access_derive = { path = "./nilo_state_access_derive" }
 
 wasm-bindgen = "0.2"
-web-sys = { version = "0.3", features = ["HtmlCanvasElement", "Window", "Document"] }
+web-sys = { version = "0.3", features = ["HtmlCanvasElement", "Window", "Document", "HtmlElement"] }
 console_error_panic_hook = "0.1"
 wasm-bindgen-futures = "0.4.50"
 log = "0.4.27"
 placeholder = "1.1.4"
+console_log = "1.0"
+
+[features]
+default = ["native"]
+native = ["wgpu", "winit", "pollster"]
+wasm = []
