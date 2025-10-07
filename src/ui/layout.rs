@@ -265,10 +265,10 @@ impl LayoutEngine {
                 self.compute_image_size(path, get_image_size)
             }
             ViewNode::VStack(children) => {
-                self.compute_vstack_size(children, context, eval, get_image_size, app)
+                self.compute_vstack_size(children, node.style.as_ref(), context, eval, get_image_size, app)
             }
             ViewNode::HStack(children) => {
-                self.compute_hstack_size(children, context, eval, get_image_size, app)
+                self.compute_hstack_size(children, node.style.as_ref(), context, eval, get_image_size, app)
             }
             ViewNode::ComponentCall { name, args } => {
                 self.compute_component_size_with_style(node, name, context, eval, app)
@@ -351,15 +351,12 @@ impl LayoutEngine {
         
         // max_widthを考慮（パディングを差し引く）
         // 注意: ウィンドウサイズは使用せず、常に親要素のサイズを基準とする
+        // デフォルトはauto（親要素の幅を利用）
         let max_width = if let Some(style) = style {
             if let Some(ref max_w) = style.max_width {
                 if max_w.unit == Unit::Auto {
                     // 親要素の幅を常に利用可能幅として使用（>0でなければ0を許容）
                     let available_width = (context.parent_size[0] - padding.left - padding.right).max(0.0);
-                    // デバッグ出力（文字境界を考慮）
-                    // let text_preview: String = text.chars().take(15).collect();
-                    // println!("[Text] max_width: auto, parent_size: {}, padding: ({}, {}), available_width: {}, text: '{}'", 
-                    //     context.parent_size[0], padding.left, padding.right, available_width, text_preview);
                     Some(available_width)
                 } else {
                     let calculated_width = self.resolve_dimension_value(max_w, context, true);
@@ -370,10 +367,22 @@ impl LayoutEngine {
                     Some(available_width.max(0.0))
                 }
             } else {
-                None
+                // max_widthが指定されていない場合、デフォルトでautoとして扱う
+                if context.parent_size[0] > 0.0 {
+                    let available_width = (context.parent_size[0] - padding.left - padding.right).max(0.0);
+                    Some(available_width)
+                } else {
+                    None
+                }
             }
         } else {
-            None
+            // スタイルが指定されていない場合もデフォルトでautoとして扱う
+            if context.parent_size[0] > 0.0 {
+                let available_width = (context.parent_size[0] - padding.left - padding.right).max(0.0);
+                Some(available_width)
+            } else {
+                None
+            }
         };
         
         // テキスト測定
@@ -444,6 +453,7 @@ impl LayoutEngine {
     fn compute_vstack_size<F, G>(
         &mut self,
         children: &[WithSpan<ViewNode>],
+        parent_style: Option<&Style>,
         context: &LayoutContext,
         eval: &F,
         get_image_size: &G,
@@ -501,9 +511,9 @@ impl LayoutEngine {
             
             total_height += child_size.height;
             
-            // スペーシングを追加（最後の要素以外）
+            // スペーシングを追加（最後の要素以外、親のスタイルから取得）
             if i < children.len() - 1 {
-                total_height += self.get_spacing_from_style(child.style.as_ref(), context);
+                total_height += self.get_spacing_from_style(parent_style, context);
             }
         }
         
@@ -522,6 +532,7 @@ impl LayoutEngine {
     fn compute_hstack_size<F, G>(
         &mut self,
         children: &[WithSpan<ViewNode>],
+        parent_style: Option<&Style>,
         context: &LayoutContext,
         eval: &F,
         get_image_size: &G,
@@ -560,8 +571,8 @@ impl LayoutEngine {
             child_sizes.push(child_size.clone());
             total_width += child_size.width;
             if i < children.len() - 1 {
-                // レイアウト時と同じスペーシングの取り扱いに合わせる
-                total_width += self.get_spacing_from_style(child.style.as_ref(), context);
+                // レイアウト時と同じスペーシングの取り扱いに合わせる（親スタイルから）
+                total_width += self.get_spacing_from_style(parent_style, context);
             }
             max_height = max_height.max(child_size.height);
         }
@@ -610,7 +621,7 @@ impl LayoutEngine {
                 let child_size = self.compute_node_size(child, &child_context, eval, get_image_size, app);
                 total_width += child_size.width;
                 if i < children.len() - 1 {
-                    total_width += self.get_spacing_from_style(child.style.as_ref(), context);
+                    total_width += self.get_spacing_from_style(parent_style, context);
                 }
                 max_height = max_height.max(child_size.height);
             }
@@ -1106,8 +1117,8 @@ impl LayoutEngine {
                 all_results
             }
             _ => {
-                // 複数ノードの場合はVStackとして扱う
-                self.layout_vstack_recursive(nodes, context, available_size, start_position, eval, get_image_size, app)
+                // 複数ノードの場合はVStackとして扱う（親スタイルなし）
+                self.layout_vstack_recursive(nodes, None, context, available_size, start_position, eval, get_image_size, app)
             }
         }
     }
@@ -1139,11 +1150,11 @@ impl LayoutEngine {
         // 子要素がある場合は再帰的に処理
         match &node.node {
             ViewNode::VStack(children) => {
-                self.layout_vstack_recursive(children, context, [computed_size.width, computed_size.height], position, eval, get_image_size, app)
+                self.layout_vstack_recursive(children, node.style.as_ref(), context, [computed_size.width, computed_size.height], position, eval, get_image_size, app)
                     .into_iter().for_each(|child| results.push(child));
             }
             ViewNode::HStack(children) => {
-                self.layout_hstack_recursive(children, context, [computed_size.width, computed_size.height], position, eval, get_image_size, app)
+                self.layout_hstack_recursive(children, node.style.as_ref(), context, [computed_size.width, computed_size.height], position, eval, get_image_size, app)
                     .into_iter().for_each(|child| results.push(child));
             }
             ViewNode::ComponentCall { name, args: _ } => {
@@ -1158,7 +1169,7 @@ impl LayoutEngine {
                         default_font: context.default_font.clone(),
                     };
                     
-                    let mut child_results = self.layout_vstack_recursive(&component.body, &component_context, [computed_size.width, computed_size.height], position, eval, get_image_size, app);
+                    let mut child_results = self.layout_vstack_recursive(&component.body, component.default_style.as_ref(), &component_context, [computed_size.width, computed_size.height], position, eval, get_image_size, app);
                     results.append(&mut child_results);
                 }
             }
@@ -1180,6 +1191,7 @@ impl LayoutEngine {
     fn layout_vstack_recursive<'a, F, G>(
         &mut self,
         children: &'a [WithSpan<ViewNode>],
+        parent_style: Option<&Style>,
         context: &LayoutContext,
         available_size: [f32; 2],
         start_position: [f32; 2],
@@ -1204,9 +1216,9 @@ impl LayoutEngine {
                 default_font: context.default_font.clone(),
             };
             
-            // スペーシング計算
+            // スペーシング計算（親のスタイルから取得）
             let spacing = if i < children.len() - 1 {
-                self.get_spacing_from_style(child.style.as_ref(), context)
+                self.get_spacing_from_style(parent_style, context)
             } else {
                 0.0
             };
@@ -1261,6 +1273,7 @@ impl LayoutEngine {
     fn layout_hstack_recursive<'a, F, G>(
         &mut self,
         children: &'a [WithSpan<ViewNode>],
+        parent_style: Option<&Style>,
         context: &LayoutContext,
         available_size: [f32; 2],
         start_position: [f32; 2],
@@ -1298,9 +1311,9 @@ impl LayoutEngine {
                 }
             }
             
-            // スペーシング計算
+            // スペーシング計算（親のスタイルから取得）
             let spacing = if i < children.len() - 1 {
-                self.get_spacing_from_style(child.style.as_ref(), context)
+                self.get_spacing_from_style(parent_style, context)
             } else {
                 0.0
             };
@@ -1465,8 +1478,8 @@ impl LayoutEngine {
         F: Fn(&Expr) -> String,
         G: Fn(&str) -> (u32, u32),
     {
-        // 再帰的処理版に委譲
-        self.layout_vstack_recursive(children, context, available_size, start_position, eval, get_image_size, app)
+        // 再帰的処理版に委譲（親スタイルなし）
+        self.layout_vstack_recursive(children, None, context, available_size, start_position, eval, get_image_size, app)
     }
 
 

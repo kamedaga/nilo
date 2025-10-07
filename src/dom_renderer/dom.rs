@@ -60,8 +60,17 @@ impl DomRenderer {
         // Stencilをコマンドリストに変換
         let draw_list = crate::stencil::stencil::stencil_to_wgpu_draw_list(stencils);
         
-        // コンテナをクリア（実際のDOM操作は条件付きコンパイルで実装）
-        self.clear_container();
+        // WASM環境では差分更新、ネイティブ環境では全体を再構築
+        #[cfg(target_arch = "wasm32")]
+        {
+            // コンテナをクリア（差分更新の実装は複雑なので、まずは全クリアだが将来的に改善可能）
+            self.clear_container();
+        }
+        
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            self.clear_container();
+        }
 
         // 各描画コマンドをDOM要素として生成
         for command in draw_list.0.iter() {

@@ -19,12 +19,47 @@ use crate::stencil::stencil::Stencil;
 
 fn unquote(s: &str) -> String {
     let trimmed = s.trim();
-    if (trimmed.starts_with('"') && trimmed.ends_with('"')) ||
+    let unquoted = if (trimmed.starts_with('"') && trimmed.ends_with('"')) ||
         (trimmed.starts_with('「') && trimmed.ends_with('」')) {
-        trimmed[1..trimmed.len()-1].to_string()
+        &trimmed[1..trimmed.len()-1]
     } else {
-        trimmed.to_string()
+        trimmed
+    };
+    
+    // エスケープシーケンスを処理
+    process_escape_sequences(unquoted)
+}
+
+/// エスケープシーケンスを処理する関数
+fn process_escape_sequences(s: &str) -> String {
+    let mut result = String::with_capacity(s.len());
+    let mut chars = s.chars();
+    
+    while let Some(ch) = chars.next() {
+        if ch == '\\' {
+            if let Some(next_ch) = chars.next() {
+                match next_ch {
+                    'n' => result.push('\n'),
+                    't' => result.push('\t'),
+                    'r' => result.push('\r'),
+                    '\\' => result.push('\\'),
+                    '"' => result.push('"'),
+                    '\'' => result.push('\''),
+                    _ => {
+                        // 認識できないエスケープシーケンスはそのまま
+                        result.push('\\');
+                        result.push(next_ch);
+                    }
+                }
+            } else {
+                result.push('\\');
+            }
+        } else {
+            result.push(ch);
+        }
     }
+    
+    result
 }
 
 /// 式から色の値を生成する関数
@@ -1798,6 +1833,16 @@ fn style_from_expr(expr: Expr) -> Style {
                         if let Some(Expr::Number(sp)) = Some(&resolved_value) {
                             s.spacing = Some(*sp);
                         } else if let Some(Expr::Dimension(d)) = Some(&resolved_value) {
+                            s.relative_spacing = Some(*d);
+                        }
+                    }
+                    "gap" => {
+                        // gap プロパティは spacing と同じ機能を提供
+                        if let Some(Expr::Number(sp)) = Some(&resolved_value) {
+                            s.spacing = Some(*sp);
+                            s.gap = None; // Numberの場合はgapフィールドは使わない
+                        } else if let Some(Expr::Dimension(d)) = Some(&resolved_value) {
+                            s.gap = Some(*d);
                             s.relative_spacing = Some(*d);
                         }
                     }

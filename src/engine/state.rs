@@ -2,6 +2,7 @@ use crate::parser::ast::{
     App, Timeline, ViewNode, Expr, WithSpan, Style, ColorValue, Rounded, Shadow, Edges,
 };
 use crate::stencil::stencil::Stencil;
+use crate::ui::layout_diff::LayoutDiffEngine;
 use std::collections::HashMap;
 use log;
 
@@ -185,6 +186,12 @@ pub struct AppState<S> {
     /// 前回のホバーボタンID（ホバー状態変化の検出用）
     pub last_hovered_button: Option<String>,
 
+    // ★ レイアウト差分計算エンジン
+    /// 静的部分のレイアウト差分エンジン
+    pub layout_diff_static: Option<std::rc::Rc<std::cell::RefCell<LayoutDiffEngine<'static>>>>,
+    /// 動的部分のレイアウト差分エンジン
+    pub layout_diff_dynamic: Option<std::rc::Rc<std::cell::RefCell<LayoutDiffEngine<'static>>>>,
+
     // ★ 新規追加: テキスト入力とIME関連の状態管理
     /// 現在フォーカスされているテキスト入力フィールドのID
     pub focused_text_input: Option<String>,
@@ -214,6 +221,8 @@ impl<S> AppState<S> {
             cached_window_size: None,
             component_context: ComponentContext::new(),
             last_hovered_button: None,
+            layout_diff_static: None,
+            layout_diff_dynamic: None,
             focused_text_input: None,
             text_input_values: HashMap::new(),
             ime_composition_text: HashMap::new(),

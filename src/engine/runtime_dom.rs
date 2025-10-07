@@ -22,6 +22,7 @@ where
     let event_queue = Arc::new(Mutex::new(EventQueue::new()));
     let button_handlers: Arc<Mutex<HashMap<String, Box<dyn FnMut(&mut super::state::AppState<S>)>>>> = Arc::new(Mutex::new(HashMap::new()));
     let scroll_offset = Arc::new(Mutex::new([0.0f32, 0.0f32]));
+    let content_height = Arc::new(Mutex::new(0.0f32)); // コンテンツの総高さを追跡
     let mouse_pos = Arc::new(Mutex::new([0.0f32, 0.0f32]));
     let mouse_down = Arc::new(Mutex::new(false));
     let prev_mouse_down = Arc::new(Mutex::new(false));
@@ -118,6 +119,46 @@ where
                 body.add_event_listener_with_callback("mouseup", closure.as_ref().unchecked_ref()).ok();
                 closure.forget();
                 
+                // ホイールイベント（スクロール）
+                let scroll_offset_clone = Arc::clone(&scroll_offset);
+                let content_height_clone = Arc::clone(&content_height);
+                let closure = Closure::wrap(Box::new(move |event: web_sys::WheelEvent| {
+                    // デフォルトのスクロール動作を防止
+                    event.prevent_default();
+                    
+                    let mut offset = scroll_offset_clone.lock().unwrap();
+                    let content_h = *content_height_clone.lock().unwrap();
+                    
+                    // deltaYは通常のスクロール方向（下にスクロール = 正の値）
+                    // UIは上方向にスクロールするため、符号を反転
+                    offset[1] -= event.delta_y() as f32 * 0.5; // 速度を調整
+                    
+                    // ウィンドウサイズを取得
+                    let window_height = if let Some(window_obj) = window() {
+                        window_obj.inner_height().ok()
+                            .and_then(|v| v.as_f64())
+                            .unwrap_or(600.0) as f32
+                    } else {
+                        600.0
+                    };
+                    
+                    // スクロール範囲を制限
+                    // 上限: 0（最上部）
+                    if offset[1] > 0.0 {
+                        offset[1] = 0.0;
+                    }
+                    
+                    // 下限: コンテンツがウィンドウより小さい場合は0、大きい場合は-(content_height - window_height)
+                    let max_scroll = (content_h - window_height).max(0.0);
+                    if offset[1] < -max_scroll {
+                        offset[1] = -max_scroll;
+                    }
+                    
+                    log::debug!("Scroll offset: {:?}, content_height: {}, window_height: {}", *offset, content_h, window_height);
+                }) as Box<dyn FnMut(_)>);
+                body.add_event_listener_with_callback("wheel", closure.as_ref().unchecked_ref()).ok();
+                closure.forget();
+                
                 log::info!("Event listeners registered");
             }
         }
@@ -130,6 +171,7 @@ where
     let event_queue_clone = Arc::clone(&event_queue);
     let button_handlers_clone = Arc::clone(&button_handlers);
     let scroll_offset_clone = Arc::clone(&scroll_offset);
+    let content_height_clone = Arc::clone(&content_height);
     let mouse_pos_clone = Arc::clone(&mouse_pos);
     let mouse_down_clone = Arc::clone(&mouse_down);
     let prev_mouse_down_clone = Arc::clone(&prev_mouse_down);
@@ -188,6 +230,11 @@ where
         );
         
         state_guard.all_buttons = buttons;
+        
+        // コンテンツの高さを計算（StencilsをDrawListに変換して計算）
+        let draw_list = crate::stencil::stencil::stencil_to_wgpu_draw_list(&stencils);
+        let content_h = draw_list.content_length();
+        *content_height_clone.lock().unwrap() = content_h;
         
         let scroll_offset_val = *scroll_offset_clone.lock().unwrap();
         renderer_guard.render_stencils(&stencils, scroll_offset_val, 1.0);
