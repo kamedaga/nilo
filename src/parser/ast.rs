@@ -144,7 +144,7 @@ pub enum ViewNode {
     RustCall { name: String, args: Vec<Expr> },
     
     // 状態操作
-    Set { path: String, value: Expr },
+    Set { path: String, value: Expr, inferred_type: Option<NiloType> },
     Toggle { path: String },
     ListAppend { path: String, value: Expr },
     ListRemove { path: String, index: usize },
@@ -334,6 +334,26 @@ pub struct Style {
     pub font_family: Option<String>,
     pub backdrop_filter: Option<String>,
     pub border: Option<String>,
+    
+    // ★ テキスト折り返し制御
+    pub wrap: Option<WrapMode>,
+    
+    // ★ レスポンシブ対応: 条件付きスタイル
+    pub responsive_rules: Vec<ResponsiveRule>,
+}
+
+/// テキスト折り返しモード
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum WrapMode {
+    Auto,  // 自動折り返し（デフォルト）
+    None,  // 折り返ししない
+}
+
+/// レスポンシブデザイン用の条件付きスタイル
+#[derive(Debug, Clone)]
+pub struct ResponsiveRule {
+    pub condition: Expr,  // 例: window.width <= 1000
+    pub style: Box<Style>,
 }
 
 impl Style {
@@ -389,6 +409,12 @@ impl Style {
         if other.font_family.is_some() { result.font_family = other.font_family.clone(); }
         if other.backdrop_filter.is_some() { result.backdrop_filter = other.backdrop_filter.clone(); }
         if other.border.is_some() { result.border = other.border.clone(); }
+        if other.wrap.is_some() { result.wrap = other.wrap; }
+        
+        // ★ レスポンシブルール: 他のルールを優先的にマージ
+        if !other.responsive_rules.is_empty() {
+            result.responsive_rules = other.responsive_rules.clone();
+        }
 
         result
     }
@@ -494,5 +520,74 @@ impl Default for App {
             timelines: vec![],
             components: vec![],
         }
+    }
+}
+
+// ========================================
+// 型システム
+// ========================================
+
+/// Nilo型システムの型定義
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum NiloType {
+    // プリミティブ型
+    Number,
+    String,
+    Bool,
+    
+    // コレクション型
+    Array(Box<NiloType>),
+    
+    // 特殊型
+    Any,        // 任意の型（型チェックをスキップ）
+    Unknown,    // 未解決の型（推論できない）
+}
+
+impl NiloType {
+    /// 型の表示名を取得
+    pub fn display(&self) -> String {
+        match self {
+            NiloType::Number => "number".to_string(),
+            NiloType::String => "string".to_string(),
+            NiloType::Bool => "bool".to_string(),
+            NiloType::Array(inner) => format!("{}[]", inner.display()),
+            NiloType::Any => "any".to_string(),
+            NiloType::Unknown => "unknown".to_string(),
+        }
+    }
+    
+    /// 型の互換性チェック（弱い型付けの特徴）
+    pub fn is_compatible_with(&self, other: &NiloType) -> bool {
+        match (self, other) {
+            // Any型はすべてと互換
+            (NiloType::Any, _) | (_, NiloType::Any) => true,
+            
+            // Unknown型は解決待ち
+            (NiloType::Unknown, _) | (_, NiloType::Unknown) => true,
+            
+            // 配列の型チェック
+            (NiloType::Array(a), NiloType::Array(b)) => a.is_compatible_with(b),
+            
+            // 同じ型
+            (a, b) => a == b,
+        }
+    }
+}
+
+/// 型付き式（パーサーで生成）
+#[derive(Debug, Clone)]
+pub struct TypedExpr {
+    pub expr: Expr,
+    pub inferred_type: NiloType,
+}
+
+impl TypedExpr {
+    pub fn new(expr: Expr, inferred_type: NiloType) -> Self {
+        Self { expr, inferred_type }
+    }
+    
+    /// 型なし式として扱う
+    pub fn into_expr(self) -> Expr {
+        self.expr
     }
 }

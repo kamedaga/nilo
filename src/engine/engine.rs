@@ -4,12 +4,113 @@ use crate::stencil::stencil::Stencil;
 use crate::ui::{LayoutParams, layout_vstack};
 use crate::ui::event::UIEvent;
 use std::collections::{HashSet, HashMap};
+use std::collections::hash_map::DefaultHasher;
+use std::hash::{Hash, Hasher};
 
 use super::state::AppState;
 
 pub struct Engine;
 
 impl Engine {
+    /// 状態のハッシュを計算（動的セクションの変更検知用）
+    fn compute_state_hash<S>(state: &S, fields: &[&str]) -> u64
+    where
+        S: crate::engine::state::StateAccess + 'static,
+    {
+        let mut hasher = DefaultHasher::new();
+        for field in fields {
+            if let Some(value) = state.get_field(field) {
+                value.hash(&mut hasher);
+            }
+        }
+        hasher.finish()
+    }
+    
+    /// ViewNode内で使用されているstate変数を抽出
+    fn extract_state_fields(nodes: &[WithSpan<ViewNode>]) -> Vec<String> {
+        let mut fields = HashSet::new();
+        
+        fn extract_from_expr(expr: &Expr, fields: &mut HashSet<String>) {
+            match expr {
+                Expr::Path(path) if path.starts_with("state.") => {
+                    if let Some(field) = path.strip_prefix("state.") {
+                        fields.insert(field.to_string());
+                    }
+                }
+                Expr::BinaryOp { left, right, .. } => {
+                    extract_from_expr(left, fields);
+                    extract_from_expr(right, fields);
+                }
+                Expr::CalcExpr(inner) => {
+                    extract_from_expr(inner, fields);
+                }
+                Expr::Array(items) => {
+                    for item in items {
+                        extract_from_expr(item, fields);
+                    }
+                }
+                Expr::FunctionCall { args, .. } => {
+                    for arg in args {
+                        extract_from_expr(arg, fields);
+                    }
+                }
+                _ => {}
+            }
+        }
+        
+        fn extract_from_node(node: &ViewNode, fields: &mut HashSet<String>) {
+            match node {
+                ViewNode::Text { args, .. } => {
+                    for expr in args {
+                        extract_from_expr(expr, fields);
+                    }
+                }
+                ViewNode::Set { path, value, .. } => {
+                    if path.starts_with("state.") {
+                        if let Some(field) = path.strip_prefix("state.") {
+                            fields.insert(field.to_string());
+                        }
+                    }
+                    extract_from_expr(value, fields);
+                }
+                ViewNode::VStack(children) | ViewNode::HStack(children) => {
+                    for child in children {
+                        extract_from_node(&child.node, fields);
+                    }
+                }
+                ViewNode::DynamicSection { body, .. } => {
+                    for child in body {
+                        extract_from_node(&child.node, fields);
+                    }
+                }
+                ViewNode::ForEach { iterable, body, .. } => {
+                    extract_from_expr(iterable, fields);
+                    for child in body {
+                        extract_from_node(&child.node, fields);
+                    }
+                }
+                ViewNode::If { condition, then_body, else_body } => {
+                    extract_from_expr(condition, fields);
+                    for child in then_body {
+                        extract_from_node(&child.node, fields);
+                    }
+                    if let Some(else_nodes) = else_body {
+                        for child in else_nodes {
+                            extract_from_node(&child.node, fields);
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+        
+        for node in nodes {
+            extract_from_node(&node.node, &mut fields);
+        }
+        
+        fields.into_iter().collect()
+    }
+    
     /// LayoutParams生成の共通化
     fn make_layout_params(window_size: [f32; 2], default_font: String) -> LayoutParams {
         LayoutParams {
@@ -21,6 +122,67 @@ impl Engine {
             font_size: 16.0,
             default_font,
         }
+    }
+    
+    /// レスポンシブスタイルを解決したノードツリーを作成
+    fn resolve_responsive_nodes<S>(
+        nodes: &[WithSpan<ViewNode>],
+        state: &AppState<S>,
+    ) -> Vec<WithSpan<ViewNode>>
+    where
+        S: crate::engine::state::StateAccess + 'static,
+    {
+        nodes.iter().map(|node| {
+            let mut resolved_node = node.clone();
+            
+            // スタイルがある場合、レスポンシブルールを解決
+            if let Some(ref style) = node.style {
+                let resolved_style = state.resolve_responsive_style(style);
+                resolved_node.style = Some(resolved_style);
+            }
+            
+            // 子ノードも再帰的に解決
+            resolved_node.node = match &node.node {
+                ViewNode::VStack(children) => {
+                    ViewNode::VStack(Self::resolve_responsive_nodes(children, state))
+                }
+                ViewNode::HStack(children) => {
+                    ViewNode::HStack(Self::resolve_responsive_nodes(children, state))
+                }
+                ViewNode::ForEach { var, iterable, body } => {
+                    ViewNode::ForEach {
+                        var: var.clone(),
+                        iterable: iterable.clone(),
+                        body: Self::resolve_responsive_nodes(body, state),
+                    }
+                }
+                ViewNode::If { condition, then_body, else_body } => {
+                    ViewNode::If {
+                        condition: condition.clone(),
+                        then_body: Self::resolve_responsive_nodes(then_body, state),
+                        else_body: else_body.as_ref().map(|eb| Self::resolve_responsive_nodes(eb, state)),
+                    }
+                }
+                ViewNode::Match { expr, arms, default } => {
+                    ViewNode::Match {
+                        expr: expr.clone(),
+                        arms: arms.iter().map(|(pattern, body)| {
+                            (pattern.clone(), Self::resolve_responsive_nodes(body, state))
+                        }).collect(),
+                        default: default.as_ref().map(|d| Self::resolve_responsive_nodes(d, state)),
+                    }
+                }
+                ViewNode::DynamicSection { name, body } => {
+                    ViewNode::DynamicSection {
+                        name: name.clone(),
+                        body: Self::resolve_responsive_nodes(body, state),
+                    }
+                }
+                other => other.clone(),
+            };
+            
+            resolved_node
+        }).collect()
     }
 
     /// 静的部分のレイアウト（キャッシュ対応）
@@ -36,6 +198,9 @@ impl Engine {
     where
         S: crate::engine::state::StateAccess + 'static,
     {
+        // ★ レスポンシブスタイルを解決
+        let resolved_nodes = Self::resolve_responsive_nodes(nodes, state);
+        
         let default_font = if let Some(tl) = state.current_timeline(app) {
             tl.font.clone().unwrap_or_else(|| "default".to_string())
         } else {
@@ -43,11 +208,12 @@ impl Engine {
         };
         let params = Self::make_layout_params(window_size, default_font);
         Self::layout_nodes_lightweight(
-            app, state, nodes, params, mouse_pos, mouse_down, prev_mouse_down, 0
+            app, state, &resolved_nodes, params, mouse_pos, mouse_down, prev_mouse_down, 0
         )
     }
 
     /// 動的部分のレイアウト（DynamicSectionのみ）
+    /// このメソッドは毎フレーム呼び出され、キャッシュされません
     pub fn layout_dynamic_part<S>(
         app: &App,
         state: &mut AppState<S>,
@@ -60,6 +226,9 @@ impl Engine {
     where
         S: crate::engine::state::StateAccess + 'static
     {
+        // ★ レスポンシブスタイルを解決
+        let resolved_nodes = Self::resolve_responsive_nodes(nodes, state);
+        
         let mut stencils = Vec::new();
         let mut buttons = Vec::new();
         let default_font = if let Some(tl) = state.current_timeline(app) {
@@ -70,26 +239,261 @@ impl Engine {
         let params = Self::make_layout_params(window_size, default_font.clone());
         let eval_fn = |e: &Expr| state.eval_expr_from_ast(e);
         let get_img_size = |path: &str| state.get_image_size(path);
-        let layouted_all = layout_vstack(nodes, params, app, &eval_fn, &get_img_size);
-        for lnode in &layouted_all {
-            if let ViewNode::DynamicSection { body, .. } = &lnode.node.node {
-                let inner_params = LayoutParams {
-                    start: [lnode.position[0] + 16.0, lnode.position[1] + 36.0],
-                    spacing: 8.0,
-                    window_size,
-                    parent_size: lnode.size,
-                    root_font_size: 16.0,
-                    font_size: 16.0,
-                    default_font: default_font.clone(),
-                };
-                let (inner_stencils, inner_buttons) = Self::layout_nodes_lightweight(
-                    app, state, body, inner_params, mouse_pos, mouse_down, prev_mouse_down, 1
-                );
-                stencils.extend(inner_stencils);
-                buttons.extend(inner_buttons);
+        let layouted_all = layout_vstack(&resolved_nodes, params.clone(), app, &eval_fn, &get_img_size);
+        
+        // DynamicSectionのみを処理（再帰的に探索）
+        Self::collect_dynamic_sections(
+            &layouted_all,
+            app,
+            state,
+            &mut stencils,
+            &mut buttons,
+            mouse_pos,
+            mouse_down,
+            prev_mouse_down,
+            window_size,
+            &params.default_font,
+        );
+        
+        (stencils, buttons)
+    }
+
+    /// DynamicSectionを再帰的に収集して描画
+    fn collect_dynamic_sections<S>(
+        layouted: &[crate::ui::LayoutedNode<'_>],
+        app: &App,
+        state: &mut AppState<S>,
+        stencils: &mut Vec<Stencil>,
+        buttons: &mut Vec<(String, [f32; 2], [f32; 2])>,
+        mouse_pos: [f32; 2],
+        mouse_down: bool,
+        prev_mouse_down: bool,
+        window_size: [f32; 2],
+        default_font: &str,
+    ) where
+        S: crate::engine::state::StateAccess + 'static,
+    {
+        for lnode in layouted {
+            match &lnode.node.node {
+                ViewNode::DynamicSection { name, body } => {
+                    // 動的セクション内で使用されているstate変数を抽出
+                    let state_fields = Self::extract_state_fields(body);
+                    let field_refs: Vec<&str> = state_fields.iter().map(|s| s.as_str()).collect();
+                    
+                    // 現在の状態ハッシュを計算
+                    let current_hash = Self::compute_state_hash(&state.custom_state, &field_refs);
+                    
+                    // キャッシュをチェック
+                    let cache_key = name.clone();
+                    let use_cache = if let Some((cached_hash, _, _)) = state.dynamic_section_cache.get(&cache_key) {
+                        *cached_hash == current_hash
+                    } else {
+                        false
+                    };
+                    
+                    if use_cache {
+                        // キャッシュから取得
+                        if let Some((_, cached_stencils, cached_buttons)) = state.dynamic_section_cache.get(&cache_key) {
+                            stencils.extend(cached_stencils.clone());
+                            buttons.extend(cached_buttons.clone());
+                            continue;
+                        }
+                    }
+                    
+                    // キャッシュが無効または存在しない場合は再計算
+                    let mut section_stencils = Vec::new();
+                    let mut section_buttons = Vec::new();
+                    
+                    // DynamicSectionの背景を描画（スタイルがあれば）
+                    if let Some(style) = &lnode.node.style {
+                        Self::render_dynamic_section_background(lnode, style, &mut section_stencils);
+                    }
+                    
+                    // DynamicSection内部のコンテンツをレイアウト・描画
+                    let padding = lnode.node.style.as_ref()
+                        .and_then(|s| s.padding)
+                        .unwrap_or_default();
+                    
+                    let inner_params = LayoutParams {
+                        start: [
+                            lnode.position[0] + padding.left,
+                            lnode.position[1] + padding.top
+                        ],
+                        spacing: 8.0,
+                        window_size,
+                        parent_size: [
+                            lnode.size[0] - padding.left - padding.right,
+                            lnode.size[1] - padding.top - padding.bottom
+                        ],
+                        root_font_size: 16.0,
+                        font_size: 16.0,
+                        default_font: default_font.to_string(),
+                    };
+                    
+                    let eval_fn = |e: &Expr| state.eval_expr_from_ast(e);
+                    let get_img_size = |path: &str| state.get_image_size(path);
+                    let inner_layouted = crate::ui::layout::layout_vstack(
+                        body,
+                        inner_params.clone(),
+                        app,
+                        &eval_fn,
+                        &get_img_size
+                    );
+                    
+                    // 内部のノードを描画（DynamicSectionがネストしている場合も対応）
+                    let (inner_stencils, inner_buttons) = Self::layout_nodes_lightweight(
+                        app, state, body, inner_params, mouse_pos, mouse_down, prev_mouse_down, 1
+                    );
+                    section_stencils.extend(inner_stencils);
+                    section_buttons.extend(inner_buttons);
+                    
+                    // さらにネストしたDynamicSectionを探索
+                    Self::collect_dynamic_sections(
+                        &inner_layouted,
+                        app,
+                        state,
+                        &mut section_stencils,
+                        &mut section_buttons,
+                        mouse_pos,
+                        mouse_down,
+                        prev_mouse_down,
+                        window_size,
+                        default_font,
+                    );
+                    
+                    // 結果を追加
+                    stencils.extend(section_stencils.clone());
+                    buttons.extend(section_buttons.clone());
+                    
+                    // キャッシュに保存
+                    state.dynamic_section_cache.insert(
+                        cache_key,
+                        (current_hash, section_stencils, section_buttons)
+                    );
+                }
+                ViewNode::VStack(children) | ViewNode::HStack(children) => {
+                    // VStack/HStack内のDynamicSectionも処理
+                    let eval_fn = |e: &Expr| state.eval_expr_from_ast(e);
+                    let get_img_size = |path: &str| state.get_image_size(path);
+                    let params = LayoutParams {
+                        start: lnode.position,
+                        spacing: 8.0,
+                        window_size,
+                        parent_size: lnode.size,
+                        root_font_size: 16.0,
+                        font_size: 16.0,
+                        default_font: default_font.to_string(),
+                    };
+                    let child_layouted = crate::ui::layout::layout_vstack(
+                        children,
+                        params,
+                        app,
+                        &eval_fn,
+                        &get_img_size
+                    );
+                    Self::collect_dynamic_sections(
+                        &child_layouted,
+                        app,
+                        state,
+                        stencils,
+                        buttons,
+                        mouse_pos,
+                        mouse_down,
+                        prev_mouse_down,
+                        window_size,
+                        default_font,
+                    );
+                }
+                _ => {}
             }
         }
-        (stencils, buttons)
+    }
+
+    /// DynamicSectionの背景を描画
+    fn render_dynamic_section_background(
+        lnode: &crate::ui::LayoutedNode<'_>,
+        style: &crate::parser::ast::Style,
+        stencils: &mut Vec<Stencil>,
+    ) {
+        let mut depth_counter: f32 = 0.5; // DynamicSectionの背景は中間の深度
+        
+        // 背景色
+        if let Some(bg) = &style.background {
+            let bg_color = Self::convert_to_rgba(bg);
+            if bg_color[3] > 0.0 {
+                let radius = style.rounded
+                    .map(|r| match r {
+                        crate::parser::ast::Rounded::On => 8.0,
+                        crate::parser::ast::Rounded::Px(v) => v,
+                    })
+                    .unwrap_or(0.0);
+                
+                // 影の描画
+                if let Some(sh) = style.shadow.clone() {
+                    let (off, scol) = match sh {
+                        crate::parser::ast::Shadow::On => ([0.0, 2.0], [0.0, 0.0, 0.0, 0.2]),
+                        crate::parser::ast::Shadow::Spec { offset, color, .. } => {
+                            let scol = color.as_ref()
+                                .map(|c| Self::convert_to_rgba(c))
+                                .unwrap_or([0.0, 0.0, 0.0, 0.2]);
+                            (offset, scol)
+                        }
+                    };
+                    
+                    depth_counter += 0.001;
+                    stencils.push(Stencil::RoundedRect {
+                        position: [lnode.position[0] + off[0], lnode.position[1] + off[1]],
+                        width: lnode.size[0],
+                        height: lnode.size[1],
+                        radius,
+                        color: [scol[0], scol[1], scol[2], (scol[3] * 0.9).min(1.0)],
+                        scroll: true,
+                        depth: (1.0_f32 - depth_counter).max(0.0),
+                    });
+                }
+                
+                // 背景
+                depth_counter += 0.001;
+                stencils.push(Stencil::RoundedRect {
+                    position: lnode.position,
+                    width: lnode.size[0],
+                    height: lnode.size[1],
+                    radius,
+                    color: bg_color,
+                    scroll: true,
+                    depth: (1.0_f32 - depth_counter).max(0.0),
+                });
+            }
+        }
+        
+        // ボーダー
+        if let Some(border_color_ref) = &style.border_color {
+            let border_color = Self::convert_to_rgba(border_color_ref);
+            let border_width = 1.0;
+            
+            if border_color[3] > 0.0 && border_width > 0.0 {
+                let radius = style.rounded
+                    .map(|r| match r {
+                        crate::parser::ast::Rounded::On => 8.0,
+                        crate::parser::ast::Rounded::Px(v) => v,
+                    })
+                    .unwrap_or(0.0);
+                
+                depth_counter += 0.001;
+                stencils.push(Stencil::RoundedRect {
+                    position: [
+                        lnode.position[0] - border_width / 2.0,
+                        lnode.position[1] - border_width / 2.0
+                    ],
+                    width: lnode.size[0] + border_width,
+                    height: lnode.size[1] + border_width,
+                    radius: radius + border_width / 2.0,
+                    color: border_color,
+                    scroll: true,
+                    depth: (1.0_f32 - depth_counter).max(0.0),
+                });
+            }
+        }
     }
 
     /// 軽量化されたノードレイアウト処理
@@ -537,7 +941,23 @@ impl Engine {
             // ★ max_width情報を取得
             // lnode.size[0]ではなく、parent_sizeを使用する必要がある
             let effective_parent_width = lnode.size[0];
-            let max_width = if let Some(max_w) = style.max_width.as_ref() {
+            
+            // ★ wrap プロパティを優先的にチェック
+            let max_width = if let Some(wrap_mode) = style.wrap {
+                use crate::parser::ast::WrapMode;
+                match wrap_mode {
+                    WrapMode::Auto => {
+                        // 自動折り返し: 親要素の幅に合わせる
+                        let available_width = effective_parent_width - padding.left - padding.right;
+                        Some(available_width.max(0.0))
+                    }
+                    WrapMode::None => {
+                        // 折り返ししない
+                        None
+                    }
+                }
+            } else if let Some(max_w) = style.max_width.as_ref() {
+                // wrap が指定されていない場合は max_width を使用
                 if max_w.unit == crate::parser::ast::Unit::Auto {
                     // max-width: autoの場合はparent_sizeを使用（パディングを差し引く）
                     let available_width = effective_parent_width - padding.left - padding.right;
@@ -553,7 +973,9 @@ impl Engine {
                     Some(available_width.max(0.0))
                 }
             } else {
-                None // max_widthが指定されていない場合は改行しない
+                // デフォルトは auto (自動折り返し)
+                let available_width = effective_parent_width - padding.left - padding.right;
+                Some(available_width.max(0.0))
             };
             
             *depth_counter += 0.001;
@@ -678,14 +1100,19 @@ impl Engine {
         parent_size: [f32; 2],
     ) where S: crate::engine::state::StateAccess + 'static {
         let v = state.eval_expr_from_ast(condition);
+        
         let truth = matches!(v.as_str(), "true"|"1"|"True"|"TRUE") || v.parse::<f32>().unwrap_or(0.0) != 0.0;
+        
         let chosen: &[WithSpan<ViewNode>] = if truth {
             then_body
         } else {
             else_body.as_ref().map(|v| v.as_slice()).unwrap_or(&[])
         };
 
-        if chosen.is_empty() { return; }
+        if chosen.is_empty() {
+            println!("   [IF] ⚠️ 選択された分岐が空です");
+            return;
+        }
 
         let mut y = lnode.position[1];
         for (i, node) in chosen.iter().enumerate() {
@@ -699,8 +1126,22 @@ impl Engine {
                     // パディングを取得
                     let padding = style.padding.unwrap_or_default();
                     
-                    // max_width情報を取得（パディングを考慮）
-                    let max_width = if let Some(max_w) = style.max_width.as_ref() {
+                    // ★ wrap プロパティを優先的にチェック
+                    let max_width = if let Some(wrap_mode) = style.wrap {
+                        use crate::parser::ast::WrapMode;
+                        match wrap_mode {
+                            WrapMode::Auto => {
+                                // 自動折り返し: 親要素の幅に合わせる
+                                let available_width = parent_size[0] - padding.left - padding.right;
+                                Some(available_width.max(0.0))
+                            }
+                            WrapMode::None => {
+                                // 折り返ししない
+                                None
+                            }
+                        }
+                    } else if let Some(max_w) = style.max_width.as_ref() {
+                        // wrapが指定されていない場合はmax_widthを使用
                         if max_w.unit == crate::parser::ast::Unit::Auto {
                             let available_width = parent_size[0] - padding.left - padding.right;
                             Some(available_width.max(0.0))
@@ -714,7 +1155,9 @@ impl Engine {
                             Some(available_width.max(0.0))
                         }
                     } else {
-                        None
+                        // デフォルトは auto (自動折り返し)
+                        let available_width = parent_size[0] - padding.left - padding.right;
+                        Some(available_width.max(0.0))
                     };
                     
                     *depth_counter += 0.001;
@@ -1112,7 +1555,7 @@ impl Engine {
             ViewNode::RustCall { name, args } => {
                 state.handle_rust_call_viewnode(name, args);
             }
-            ViewNode::Set { path, value } => {
+            ViewNode::Set { path, value, .. } => {
                 if path.starts_with("state.") {
                     let key = path.strip_prefix("state.").unwrap().trim().to_string();
                     let v = state.eval_expr_from_ast(value);

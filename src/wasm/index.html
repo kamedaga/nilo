@@ -9,12 +9,20 @@
         body {
             margin: 0;
             padding: 0;
-            overflow: hidden;
+            overflow-y: auto;
+            overflow-x: hidden;
             font-family: sans-serif;
+            height: 100vh;
+        }
+        #container {
+            position: relative;
+            width: 100%;
+            min-height: 100vh;
         }
     </style>
 </head>
 <body>
+    <div id="container"></div>
     <script type="module">
         import init from './nilo.js';
         

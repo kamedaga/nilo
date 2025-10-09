@@ -75,6 +75,24 @@ where
             window_title,
         }
     }
+    
+    /// フレームカウントと経過時間を更新（dynamic_section用）
+    fn update_frame_state(&mut self) {
+        // frame_countフィールドがあれば更新
+        if let Some(current_frame_str) = self.state.custom_state.get_field("frame_count") {
+            if let Ok(current_frame) = current_frame_str.parse::<u32>() {
+                self.state.custom_state.set("frame_count", (current_frame + 1).to_string());
+            }
+        }
+        
+        // elapsed_timeフィールドがあれば更新
+        if let Some(current_time_str) = self.state.custom_state.get_field("elapsed_time") {
+            if let Ok(current_time) = current_time_str.parse::<f32>() {
+                // 60FPSを想定して時間を更新（約0.0167秒/フレーム）
+                self.state.custom_state.set("elapsed_time", format!("{:.3}", current_time + 0.0167));
+            }
+        }
+    }
 }
 
 impl<S> ApplicationHandler for AppHandler<S>
@@ -369,6 +387,20 @@ where
                     size.width as f32 / scale_factor,
                     size.height as f32 / scale_factor
                 ];
+                
+                // フレーム状態を更新（dynamic_section用）
+                // frame_countフィールドがあれば更新
+                if let Some(current_frame_str) = self.state.custom_state.get_field("frame_count") {
+                    if let Ok(current_frame) = current_frame_str.parse::<u32>() {
+                        self.state.custom_state.set("frame_count", (current_frame + 1).to_string());
+                    }
+                }
+                // elapsed_timeフィールドがあれば更新
+                if let Some(current_time_str) = self.state.custom_state.get_field("elapsed_time") {
+                    if let Ok(current_time) = current_time_str.parse::<f32>() {
+                        self.state.custom_state.set("elapsed_time", format!("{:.3}", current_time + 0.0167));
+                    }
+                }
 
                 // スクロール補正
                 self.scroll_offset[1] += (self.target_scroll_offset[1] - self.scroll_offset[1]) * self.smoothing;

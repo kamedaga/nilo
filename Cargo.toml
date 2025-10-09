@@ -63,3 +63,10 @@ console_log = { version = "1.0", optional = true }
 default = ["native"]
 native = ["wgpu", "winit", "pollster", "glyphon", "colored", "notify"]
 wasm = ["wasm-bindgen", "web-sys", "console_error_panic_hook", "wasm-bindgen-futures", "placeholder", "console_log"]
+
+[build]
+incremental = true
+
+[env]
+CARGO_INCREMENTAL=1
+RUSTFLAGS = "-C codegen-units=256"

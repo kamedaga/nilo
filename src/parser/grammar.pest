@@ -25,9 +25,9 @@ calc_expr = { "(" ~ calc_term ~ (calc_op ~ calc_term)* ~ ")" }
 calc_term = { number ~ unit_suffix? }
 calc_op = { "+" | "-" | "*" | "/" }
 
-array   = { "[" ~ (expr ~ ("," ~ expr)*)? ~ "]" }
-object  = { "{" ~ (object_entry ~ ("," ~ object_entry)*)? ~ "}" }
-object_entry = { ident ~ ":" ~ expr }
+array   = { "[" ~ (expr ~ ("," ~ expr)*)? ~ ","? ~ "]" }
+object  = { "{" ~ (object_entry ~ ("," ~ object_entry)*)? ~ ","? ~ "}" }
+object_entry = { (string | ident) ~ ":" ~ expr }
 
 expr    = { comparison_expr }
 
@@ -158,8 +158,14 @@ rust_call = { ident ~ "!" ~ "(" ~ (arg_item ~ ("," ~ arg_item)*)? ~ ")" }
 
 component_call = { ident ~ "(" ~ (arg_item ~ ("," ~ arg_item)*)? ~ ")" }
 
-state_set    = { "set" ~ path ~ "=" ~ expr }
+// ★ 型アノテーション構文の追加（setキーワードはオプション）
+state_set    = { "set"? ~ path ~ type_annotation? ~ "=" ~ expr }
 state_toggle = { ident ~ "=" ~ "!" ~ ident }
+
+// ★ 型システム（左再帰を避ける）
+type_annotation = { ":" ~ type_expr }
+type_expr = { primitive_type ~ "[]"* }
+primitive_type = { "number" | "string" | "bool" | "any" }
 
 // 関数呼び出し風の構文に変更
 list_append = { "append" ~ "(" ~ path ~ "," ~ expr ~ ")" }

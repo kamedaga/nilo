@@ -126,7 +126,7 @@ impl NodeHash {
                 s.push_str("NavigateTo:");
                 s.push_str(target);
             }
-            ViewNode::Set { path, value } => {
+            ViewNode::Set { path, value, .. } => {
                 s.push_str("Set:");
                 s.push_str(path);
                 s.push_str(&eval(value));

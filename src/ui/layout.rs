@@ -168,9 +168,25 @@ impl LayoutEngine {
     {
         // ComponentCallの場合は特別処理
         if let ViewNode::ComponentCall { name, args: _ } = &node.node {
-            return self.compute_component_size_with_style(node, name, context, eval, app);
+            return self.compute_component_size_with_style(node, name, context, eval, get_image_size, app);
         }
         
+        self.compute_node_size_internal(node, context, eval, get_image_size, app)
+    }
+    
+    /// ノードのサイズを計算（内部関数、ComponentCallチェックなし）
+    fn compute_node_size_internal<F, G>(
+        &mut self,
+        node: &WithSpan<ViewNode>,
+        context: &LayoutContext,
+        eval: &F,
+        get_image_size: &G,
+        app: &App,
+    ) -> ComputedSize
+    where
+        F: Fn(&Expr) -> String,
+        G: Fn(&str) -> (u32, u32),
+    {
         // 1. スタイルから明示的なサイズを取得（最優先）
         let mut computed = self.get_explicit_size_from_style(node.style.as_ref(), context);
         
@@ -271,7 +287,7 @@ impl LayoutEngine {
                 self.compute_hstack_size(children, node.style.as_ref(), context, eval, get_image_size, app)
             }
             ViewNode::ComponentCall { name, args } => {
-                self.compute_component_size_with_style(node, name, context, eval, app)
+                self.compute_component_size_with_style(node, name, context, eval, get_image_size, app)
             }
             ViewNode::Spacing(dimension_value) => {
                 let pixel_size = self.resolve_dimension_value(dimension_value, context, true);
@@ -297,6 +313,17 @@ impl LayoutEngine {
             }
             ViewNode::ForEach { var, iterable, body } => {
                 self.compute_foreach_size(var, iterable, body, context, eval, get_image_size, app)
+            }
+            // 状態操作ノード（Set, RustCallなど）はUIに干渉しない
+            ViewNode::Set { .. } | ViewNode::RustCall { .. } => {
+                ComputedSize {
+                    width: 0.0,
+                    height: 0.0,
+                    intrinsic_width: 0.0,
+                    intrinsic_height: 0.0,
+                    has_explicit_width: true,
+                    has_explicit_height: true,
+                }
             }
             _ => {
                 // その他のノードはデフォルトサイズ
@@ -467,48 +494,57 @@ impl LayoutEngine {
         // 親が利用可能幅を提示している場合（>0）は、それを優先して使用
         let has_parent_width = context.parent_size[0] > 0.0;
         
-        // パス1: 子要素のサイズを計算（親幅がある場合はそれを使用）
+        // VStackの幅を決定（親幅またはスタイルから）
+        let vstack_width = if has_parent_width {
+            context.parent_size[0]
+        } else {
+            // 親幅が不明な場合、スタイルから幅を取得（または0）
+            if let Some(style) = parent_style {
+                if let Some(w) = style.width {
+                    w
+                } else if let Some(ref rw) = style.relative_width {
+                    self.resolve_dimension_value(rw, context, true)
+                } else {
+                    0.0
+                }
+            } else {
+                0.0
+            }
+        };
+        
+        // Paddingを考慮して子要素に渡す利用可能幅を計算
+        let padding = if let Some(style) = parent_style {
+            style.padding.unwrap_or(Edges { top: 0.0, right: 0.0, bottom: 0.0, left: 0.0 })
+        } else {
+            Edges { top: 0.0, right: 0.0, bottom: 0.0, left: 0.0 }
+        };
+        let available_width_for_children = (vstack_width - padding.left - padding.right).max(0.0);
+        
+        // パス1: 子要素のサイズを計算（VStackの利用可能幅を使用）
         let mut max_width: f32 = 0.0;
         let mut child_sizes = Vec::new();
         
-        // 親幅がある場合は、パス1から子要素にそれを伝える
-        let pass1_context = if has_parent_width {
-            let mut new_context = context.clone();
-            new_context.parent_size = [context.parent_size[0], context.parent_size[1]];
-            new_context
-        } else {
-            context.clone()
-        };
+        let mut child_context = context.clone();
+        child_context.parent_size = [available_width_for_children, context.parent_size[1]];
         
         for child in children.iter() {
-            let child_size = self.compute_node_size(child, &pass1_context, eval, get_image_size, app);
+            let child_size = self.compute_node_size(child, &child_context, eval, get_image_size, app);
             child_sizes.push(child_size.clone());
             max_width = max_width.max(child_size.width);
         }
         
         // VStackの最終的な幅を決定
-        let final_width = if has_parent_width {
-            context.parent_size[0]
+        let final_width = if vstack_width > 0.0 {
+            vstack_width
         } else {
-            // 親幅が不明な場合のみ、子要素の最大幅を採用
-            max_width
+            // 幅が確定していない場合、子要素の最大幅 + padding
+            max_width + padding.left + padding.right
         };
         
-        // パス2: 確定したVStackの幅を子要素に伝えて再計算（親幅がない場合のみ）
+        // 高さの合計を計算
         let mut total_height: f32 = 0.0;
-        let needs_recompute = !has_parent_width && final_width != max_width;
         
-        for (i, child) in children.iter().enumerate() {
-            let child_size = if needs_recompute {
-                // 親幅がなく、最終幅が確定した場合のみ再計算
-                let mut child_context = context.clone();
-                child_context.parent_size = [final_width, context.parent_size[1]];
-                self.compute_node_size(child, &child_context, eval, get_image_size, app)
-            } else {
-                // パス1の結果を使用（親幅がある場合は既に正しい）
-                child_sizes[i].clone()
-            };
-            
+        for (i, child_size) in child_sizes.iter().enumerate() {
             total_height += child_size.height;
             
             // スペーシングを追加（最後の要素以外、親のスタイルから取得）
@@ -517,10 +553,13 @@ impl LayoutEngine {
             }
         }
         
+        // Paddingを高さに追加
+        total_height += padding.top + padding.bottom;
+        
         ComputedSize {
             width: final_width,
             height: total_height,
-            intrinsic_width: max_width,
+            intrinsic_width: max_width + padding.left + padding.right,
             intrinsic_height: total_height,
             // 親が幅を与えている（>0）なら、明示的幅として扱う（トップレベル=ウィンドウ幅も含む）
             has_explicit_width: context.parent_size[0] > 0.0,
@@ -715,18 +754,10 @@ impl LayoutEngine {
 
         // 各アイテムに対してボディの各ノードのサイズを計算
         for (index, item) in items.iter().enumerate() {
-            // 変数置換のための評価関数を作成
-            let foreach_eval = |expr: &Expr| -> String {
-                match expr {
-                    Expr::Ident(s) if s == var => item.clone(),
-                    Expr::Ident(s) if s == &format!("{}_index", var) => index.to_string(),
-                    _ => eval(expr),
-                }
-            };
-
-            // bodyの各ノードのサイズを直接計算（再帰を避ける）
+            // bodyの各ノードのサイズを直接計算（再帰を避けるため compute_node_size_safe を使用）
             for child in body {
-                let child_size = self.compute_node_size_safe(child, context, &foreach_eval, get_image_size, app);
+                // ForEach内の子要素は簡略計算を使用して再帰を制限
+                let child_size = self.compute_node_size_safe(child, context, eval, get_image_size, app);
                 
                 total_height += child_size.height;
                 if child_size.width > max_width {
@@ -785,7 +816,7 @@ impl LayoutEngine {
                 self.compute_image_size(path, get_image_size)
             }
             ViewNode::ComponentCall { name, .. } => {
-                self.compute_component_size_with_style(node, name, context, eval, app)
+                self.compute_component_size_with_style(node, name, context, eval, get_image_size, app)
             }
             _ => {
                 // その他のノードはデフォルトサイズ
@@ -802,18 +833,20 @@ impl LayoutEngine {
     }
     
     /// ComponentCallのスタイル優先度システム付きでコンポーネントサイズを計算
-    fn compute_component_size_with_priority<F>(
+    fn compute_component_size_with_priority<F, G>(
         &mut self,
         name: &str,
         _args: &[Expr], 
         context: &LayoutContext,
         eval: &F,
+        get_image_size: &G,
         app: &App,
         override_width: Option<bool>,
         override_height: Option<bool>,
     ) -> ComputedSize
     where
         F: Fn(&Expr) -> String,
+        G: Fn(&str) -> (u32, u32),
     {
         // コンポーネント定義を探す
         if let Some(component) = app.components.iter().find(|c| c.name == name) {
@@ -844,10 +877,10 @@ impl LayoutEngine {
                     node: first_node.node.clone(),
                     line: first_node.line,
                     column: first_node.column,
-                    style: merged_style,
+                    style: merged_style.clone(),
                 };
                 
-                self.compute_node_size_safe(&modified_node, context, eval, &|_| (100, 100), app)
+                self.compute_node_size_internal(&modified_node, context, eval, get_image_size, app)
             } else {
                 ComputedSize {
                     width: 0.0,
@@ -871,16 +904,18 @@ impl LayoutEngine {
     }
 
     /// ComponentCallのスタイルを考慮したサイズ計算
-    fn compute_component_size_with_style<F>(
+    fn compute_component_size_with_style<F, G>(
         &mut self,
         node: &WithSpan<ViewNode>,
         name: &str,
         context: &LayoutContext,
         eval: &F,
+        get_image_size: &G,
         app: &App,
     ) -> ComputedSize
     where
         F: Fn(&Expr) -> String,
+        G: Fn(&str) -> (u32, u32),
     {
         // 1. ComponentCallノード自体のスタイルから明示的なサイズを取得
         let explicit = self.get_explicit_size_from_style(node.style.as_ref(), context);
@@ -896,6 +931,7 @@ impl LayoutEngine {
             &[], 
             context, 
             eval, 
+            get_image_size,
             app,
             Some(override_width),
             Some(override_height),
@@ -972,13 +1008,11 @@ impl LayoutEngine {
         let result = match dim.unit {
             Unit::Px => dim.value,
             Unit::Percent => {
-                let calculated = if is_width {
+                if is_width {
                     dim.value * context.parent_size[0] / 100.0
                 } else {
                     dim.value * context.parent_size[1] / 100.0
-                };
-
-                calculated
+                }
             }
             Unit::Vw => dim.value * context.window_size[0] / 100.0,
             Unit::Vh => dim.value * context.window_size[1] / 100.0,
@@ -1206,6 +1240,40 @@ impl LayoutEngine {
         let mut results = Vec::new();
         let mut current_y = start_position[1];
         
+        // align: "center" の場合、子要素の合計高さを事前に計算
+        let align = parent_style.and_then(|s| s.align);
+        let total_children_height = if matches!(align, Some(crate::parser::ast::Align::Center)) {
+            // パス1: 子要素のサイズを事前計算
+            let mut total_height = 0.0;
+            
+            for (i, child) in children.iter().enumerate() {
+                let child_context = LayoutContext {
+                    window_size: context.window_size,
+                    parent_size: available_size,
+                    root_font_size: context.root_font_size,
+                    font_size: context.font_size,
+                    default_font: context.default_font.clone(),
+                };
+                
+                let child_size = self.compute_node_size(child, &child_context, eval, get_image_size, app);
+                total_height += child_size.height;
+                
+                if i < children.len() - 1 {
+                    total_height += self.get_spacing_from_style(parent_style, context);
+                }
+            }
+            
+            total_height
+        } else {
+            0.0
+        };
+        
+        // align: "center" の場合、開始位置をオフセット
+        if matches!(align, Some(crate::parser::ast::Align::Center)) {
+            let center_offset = (available_size[1] - total_children_height) / 2.0;
+            current_y = start_position[1] + center_offset.max(0.0);
+        }
+        
         for (i, child) in children.iter().enumerate() {
             // 子要素のコンテキストを作成
             let child_context = LayoutContext {
@@ -1223,7 +1291,17 @@ impl LayoutEngine {
                 0.0
             };
             
-            let child_position = [start_position[0], current_y];
+            // 子要素のサイズを計算
+            let child_size = self.compute_node_size(child, &child_context, eval, get_image_size, app);
+            
+            // align: "center" の場合、X座標を中央揃えに調整
+            let child_x = if matches!(align, Some(crate::parser::ast::Align::Center)) {
+                start_position[0] + (available_size[0] - child_size.width) / 2.0
+            } else {
+                start_position[0]
+            };
+            
+            let child_position = [child_x, current_y];
             let initial_results_len = results.len();
             
             // 特別な処理が必要なノードタイプをチェック
@@ -1287,6 +1365,52 @@ impl LayoutEngine {
     {
         let mut results = Vec::new();
         let mut current_x = start_position[0];
+        
+        // align: "center" の場合、子要素の合計幅を事前に計算
+        let align = parent_style.and_then(|s| s.align);
+        let total_children_width = if matches!(align, Some(crate::parser::ast::Align::Center)) {
+            // パス1: 子要素のサイズを事前計算
+            let mut total_width = 0.0;
+            
+            for (i, child) in children.iter().enumerate() {
+                let mut child_context = LayoutContext {
+                    window_size: context.window_size,
+                    parent_size: available_size,
+                    root_font_size: context.root_font_size,
+                    font_size: context.font_size,
+                    default_font: context.default_font.clone(),
+                };
+                
+                // ComponentCallの場合、適切な親サイズを設定
+                if let ViewNode::ComponentCall { name, .. } = &child.node {
+                    if let Some(component) = app.components.iter().find(|c| &c.name == name) {
+                        let merged_style = merge_styles(component.default_style.as_ref(), child.style.as_ref());
+                        let component_explicit_size = self.get_explicit_size_from_style(Some(&merged_style), &child_context);
+                        
+                        if component_explicit_size.has_explicit_width {
+                            child_context.parent_size = available_size;
+                        }
+                    }
+                }
+                
+                let child_size = self.compute_node_size(child, &child_context, eval, get_image_size, app);
+                total_width += child_size.width;
+                
+                if i < children.len() - 1 {
+                    total_width += self.get_spacing_from_style(parent_style, context);
+                }
+            }
+            
+            total_width
+        } else {
+            0.0
+        };
+        
+        // align: "center" の場合、開始位置をオフセット
+        if matches!(align, Some(crate::parser::ast::Align::Center)) {
+            let center_offset = (available_size[0] - total_children_width) / 2.0;
+            current_x = start_position[0] + center_offset.max(0.0);
+        }
         
         for (i, child) in children.iter().enumerate() {
             // 子要素のコンテキストを作成（親サイズを適切に設定）
@@ -1438,28 +1562,10 @@ impl LayoutEngine {
             else_body.map(|v| v.as_slice()).unwrap_or(&[])
         };
         
-        // 選択されたボディのレイアウト（再帰を避けるため直接処理）
-        let mut current_y = position[1];
+        // 選択されたボディのレイアウト（子要素を再帰的に処理）
         for child in selected_body {
-            let child_context = LayoutContext {
-                window_size: context.window_size,
-                parent_size: context.parent_size,
-                root_font_size: context.root_font_size,
-                font_size: context.font_size,
-                default_font: context.default_font.clone(),
-            };
-            
-            let child_size = self.compute_node_size(child, &child_context, eval, get_image_size, app);
-            
-            // LayoutedNodeを直接作成（再帰を避ける）
-            results.push(LayoutedNode {
-                node: child,
-                position: [position[0], current_y],
-                size: [child_size.width, child_size.height],
-            });
-            
-            // Y座標を更新
-            current_y += child_size.height + context.root_font_size * 0.5; // スペーシング
+            // 各子要素（HStackまたはVStack）を再帰的にレイアウト
+            self.layout_single_node_recursive(child, context, position, eval, get_image_size, app, results);
         }
     }
     

@@ -1048,7 +1048,15 @@ fn parse_expr(pair: Pair<Rule>) -> Expr {
             let mut kvs = Vec::new();
             for kv in pair.into_inner() {
                 let mut it = kv.into_inner();
-                let k = it.next().unwrap().as_str().to_string();
+                let k_pair = it.next().unwrap();
+                
+                // キーは識別子または文字列
+                let k = match k_pair.as_rule() {
+                    Rule::ident => k_pair.as_str().to_string(),
+                    Rule::string => unquote(k_pair.as_str()),
+                    _ => k_pair.as_str().to_string(),
+                };
+                
                 let v = parse_expr(it.next().unwrap());
                 kvs.push((k, v));
             }
@@ -1447,10 +1455,54 @@ impl StencilArg {
 fn parse_state_set(pair: Pair<Rule>) -> WithSpan<ViewNode> {
     let span = pair.as_span();
     let (line, col) = span.start_pos().line_col();
-    let mut inner = pair.into_inner();                // ident_path, expr
+    let mut inner = pair.into_inner();
+    
     let path = inner.next().unwrap().as_str().to_string();
-    let value = parse_expr(inner.next().unwrap());
-    WithSpan { node: ViewNode::Set { path, value }, line, column: col, style: None }
+    
+    // 型アノテーションのパース（オプション）
+    let mut declared_type: Option<NiloType> = None;
+    let mut value_pair = None;
+    
+    for p in inner {
+        match p.as_rule() {
+            Rule::type_annotation => {
+                // 型アノテーションをパース
+                let type_inner = p.into_inner().next().unwrap();
+                declared_type = Some(parse_type_expr(type_inner));
+            }
+            Rule::expr => {
+                value_pair = Some(p);
+            }
+            _ => {}
+        }
+    }
+    
+    let value = parse_expr(value_pair.expect("set文に値がありません"));
+    
+    // 型推論と型チェック
+    let inferred_type = infer_expr_type(&value);
+    
+    // 型アノテーションがある場合は型チェック
+    if let Some(expected_type) = &declared_type {
+        if !expected_type.is_compatible_with(&inferred_type) {
+            // 警告を出力（パースエラーではない）
+            eprintln!(
+                "[Type Warning] {}:{} - 型の不一致: 変数 '{}' は {} 型ですが、{} 型の値が代入されました",
+                line, col, path, expected_type.display(), inferred_type.display()
+            );
+        }
+    }
+    
+    WithSpan { 
+        node: ViewNode::Set { 
+            path, 
+            value, 
+            inferred_type: Some(inferred_type) 
+        }, 
+        line, 
+        column: col, 
+        style: None 
+    }
 }
 
 fn parse_list_append(pair: Pair<Rule>) -> WithSpan<ViewNode> {
@@ -1776,6 +1828,32 @@ fn style_from_expr(expr: Expr) -> Style {
                     _ => v.clone()
                 };
 
+                // ★ レスポンシブ対応: window.width や window.height を含む条件をチェック
+                // 簡易実装: キーが "window.width <= 1000" のようなパターンの場合
+                if (k.contains("window.width") || k.contains("window.height")) && 
+                   (k.contains("<=") || k.contains(">=") || k.contains("<") || k.contains(">") || k.contains("==")) {
+                    eprintln!("🔍 [PARSE] レスポンシブ条件を検出: {}", k);
+                    
+                    // 条件式を解析してResponsiveRuleを作成
+                    if let Some(condition_expr) = parse_condition_string(&k) {
+                        eprintln!("   [PARSE] 条件式パース成功: {:?}", condition_expr);
+                        
+                        if let Expr::Object(_) = &resolved_value {
+                            let conditional_style = style_from_expr(resolved_value);
+                            eprintln!("   [PARSE] 条件付きスタイルを追加");
+                            s.responsive_rules.push(crate::parser::ast::ResponsiveRule {
+                                condition: condition_expr,
+                                style: Box::new(conditional_style),
+                            });
+                            continue;
+                        } else {
+                            eprintln!("   [PARSE] ⚠️ 条件の値がオブジェクトではありません: {:?}", resolved_value);
+                        }
+                    } else {
+                        eprintln!("   [PARSE] ⚠️ 条件式のパースに失敗: {}", k);
+                    }
+                }
+
                 match k.as_str() {
                     "color"        => s.color        = color_from_expr(&resolved_value),
                     "background"   => s.background   = color_from_expr(&resolved_value),
@@ -1912,11 +1990,6 @@ fn style_from_expr(expr: Expr) -> Style {
                             s.line_height = Some(*lh);
                         }
                     }
-                    "text_align" => {
-                        if let Some(Expr::String(ta)) = Some(&resolved_value) {
-                            s.text_align = Some(ta.clone());
-                        }
-                    }
                     "font_weight" => {
                         if let Some(Expr::String(fw)) = Some(&resolved_value) {
                             s.font_weight = Some(fw.clone());
@@ -1925,6 +1998,27 @@ fn style_from_expr(expr: Expr) -> Style {
                     "font_family" => {
                         if let Some(Expr::String(ff)) = Some(&resolved_value) {
                             s.font_family = Some(ff.clone());
+                        }
+                    }
+                    "wrap" => {
+                        if let Some(Expr::String(w)) = Some(&resolved_value) {
+                            s.wrap = match w.to_lowercase().as_str() {
+                                "auto" => Some(WrapMode::Auto),
+                                "none" => Some(WrapMode::None),
+                                _ => Some(WrapMode::Auto), // デフォルトはAuto
+                            };
+                        }
+                    }
+                    "align" => {
+                        if let Some(Expr::String(a)) = Some(&resolved_value) {
+                            s.align = match a.to_lowercase().as_str() {
+                                "left" => Some(Align::Left),
+                                "center" => Some(Align::Center),
+                                "right" => Some(Align::Right),
+                                "top" => Some(Align::Top),
+                                "bottom" => Some(Align::Bottom),
+                                _ => None,
+                            };
                         }
                     }
                     _ => {
@@ -1943,6 +2037,172 @@ fn parse_namespaced_flow_def(_pair: Pair<Rule>) -> Result<NamespacedFlow, String
     Err("階層的フロー定義は未実装です".to_string())
 }
 
-fn expand_namespaced_flow(_namespaced_flow: NamespacedFlow, timelines: Vec<Timeline>) -> Result<(Flow, Vec<Timeline>), String> {
+fn expand_namespaced_flow(_namespaced_flow: NamespacedFlow, _timelines: Vec<Timeline>) -> Result<(Flow, Vec<Timeline>), String> {
     Err("階層的フロー展開は未実装です".to_string())
+}
+
+/// 条件文字列を解析してExprに変換する
+/// 例: "window.width <= 1000" -> BinaryOp { left: Path("window.width"), op: Le, right: Number(1000) }
+fn parse_condition_string(condition: &str) -> Option<Expr> {
+    // 先頭と末尾のダブルクォートを除去（文字列として渡される場合）
+    let condition = condition.trim().trim_matches('"').trim();
+    
+    eprintln!("   [parse_condition_string] 入力: '{}'", condition);
+    
+    // 比較演算子を検出
+    let (op, op_str) = if condition.contains("<=") {
+        (BinaryOperator::Le, "<=")
+    } else if condition.contains(">=") {
+        (BinaryOperator::Ge, ">=")
+    } else if condition.contains("==") {
+        (BinaryOperator::Eq, "==")
+    } else if condition.contains("!=") {
+        (BinaryOperator::Ne, "!=")
+    } else if condition.contains("<") {
+        (BinaryOperator::Lt, "<")
+    } else if condition.contains(">") {
+        (BinaryOperator::Gt, ">")
+    } else {
+        eprintln!("   [parse_condition_string] 演算子が見つかりません");
+        return None;
+    };
+    
+    // 演算子で分割
+    let parts: Vec<&str> = condition.split(op_str).collect();
+    if parts.len() != 2 {
+        eprintln!("   [parse_condition_string] 分割に失敗: parts.len() = {}", parts.len());
+        return None;
+    }
+    
+    let left_str = parts[0].trim();
+    let right_str = parts[1].trim();
+    
+    eprintln!("   [parse_condition_string] left='{}', op={:?}, right='{}'", left_str, op, right_str);
+    
+    // 左辺を解析（通常はwindow.widthやwindow.height）
+    let left = if left_str.contains('.') {
+        Expr::Path(left_str.to_string())
+    } else {
+        Expr::Ident(left_str.to_string())
+    };
+    
+    // 右辺を解析（数値）
+    let right = if let Ok(num) = right_str.parse::<f32>() {
+        Expr::Number(num)
+    } else {
+        Expr::String(right_str.to_string())
+    };
+    
+    let result = Expr::BinaryOp {
+        left: Box::new(left),
+        op,
+        right: Box::new(right),
+    };
+    
+    eprintln!("   [parse_condition_string] 結果: {:?}", result);
+    
+    Some(result)
+}
+
+// ========================================
+// 型推論関数
+// ========================================
+
+/// 式から基本的な型を推論する（パーサーレベル）
+pub fn infer_expr_type(expr: &Expr) -> NiloType {
+    match expr {
+        // プリミティブ型の推論
+        Expr::Number(_) => NiloType::Number,
+        Expr::String(_) => NiloType::String,
+        Expr::Bool(_) => NiloType::Bool,
+        
+        // 配列の型推論
+        Expr::Array(items) => {
+            if items.is_empty() {
+                // 空配列はAny[]
+                NiloType::Array(Box::new(NiloType::Any))
+            } else {
+                // 最初の要素の型を配列の型とする（簡易版）
+                let first_type = infer_expr_type(&items[0]);
+                NiloType::Array(Box::new(first_type))
+            }
+        }
+        
+        // 二項演算の型推論
+        Expr::BinaryOp { left, op, right } => {
+            let left_ty = infer_expr_type(left);
+            let right_ty = infer_expr_type(right);
+            
+            match op {
+                BinaryOperator::Add | BinaryOperator::Sub |
+                BinaryOperator::Mul | BinaryOperator::Div => {
+                    // 算術演算: 両方がNumberならNumber、それ以外はString（暗黙変換）
+                    if left_ty == NiloType::Number && right_ty == NiloType::Number {
+                        NiloType::Number
+                    } else {
+                        NiloType::String
+                    }
+                }
+                BinaryOperator::Eq | BinaryOperator::Ne |
+                BinaryOperator::Lt | BinaryOperator::Le |
+                BinaryOperator::Gt | BinaryOperator::Ge => {
+                    // 比較演算: 常にBool
+                    NiloType::Bool
+                }
+            }
+        }
+        
+        // その他の式は型が不明
+        Expr::Path(_) | Expr::Ident(_) => NiloType::Unknown,
+        Expr::Object(_) => NiloType::Unknown,
+        Expr::Dimension(_) => NiloType::Number,  // 次元値は数値として扱う
+        Expr::CalcExpr(inner) => infer_expr_type(inner),
+        Expr::Match { .. } => NiloType::Unknown,  // Matchは複雑なので後で実装
+        Expr::FunctionCall { .. } => NiloType::Unknown,  // 関数の戻り値は不明
+    }
+}
+
+/// 型付き式を作成（パーサーで使用）
+pub fn make_typed_expr(expr: Expr) -> TypedExpr {
+    let inferred_type = infer_expr_type(&expr);
+    TypedExpr::new(expr, inferred_type)
+}
+
+/// 型の互換性をチェック
+pub fn check_type_compatibility(expected: &NiloType, actual: &NiloType) -> Result<(), String> {
+    if expected.is_compatible_with(actual) {
+        Ok(())
+    } else {
+        Err(format!(
+            "型エラー: {} 型が期待されていますが、{} 型が見つかりました",
+            expected.display(),
+            actual.display()
+        ))
+    }
+}
+
+/// 型式をパースする
+fn parse_type_expr(pair: Pair<Rule>) -> NiloType {
+    let type_str = pair.as_str();
+    let mut inner = pair.into_inner();
+    let primitive_pair = inner.next().unwrap();
+    
+    // プリミティブ型を取得
+    let mut base_type = match primitive_pair.as_str() {
+        "number" => NiloType::Number,
+        "string" => NiloType::String,
+        "bool" => NiloType::Bool,
+        "any" => NiloType::Any,
+        _ => NiloType::Unknown,
+    };
+    
+    // "[]" の数だけ配列でラップ
+    let remaining_text = type_str[primitive_pair.as_str().len()..].trim();
+    let array_depth = remaining_text.matches("[]").count();
+    
+    for _ in 0..array_depth {
+        base_type = NiloType::Array(Box::new(base_type));
+    }
+    
+    base_type
 }

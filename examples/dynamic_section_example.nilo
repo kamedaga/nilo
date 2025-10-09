@@ -1,0 +1,93 @@
+// dynamic_section の使用例
+// dynamic_section は毎フレーム再描画されるセクションです
+
+flow {
+    start: DynamicDemo
+}
+
+timeline DynamicDemo {
+    font: "japanese"
+    
+    // カウンター（毎フレーム変更される値）
+    state.frame_count = 0
+    state.time = 0.0
+    
+    VStack(style: {width: 100ww, height: 100wh, background: "#1a1a2e", padding: 20}) {
+        Text("Dynamic Section デモ", style: {
+            font_size: 32px,
+            color: "#ffffff",
+            padding: [0, 0, 20, 0]
+        })
+        
+        // 静的セクション（初回のみ描画、キャッシュされる）
+        VStack(style: {
+            background: "#16213e",
+            padding: 15,
+            rounded: 8px,
+            border_color: "#0f3460"
+        }) {
+            Text("静的セクション（キャッシュされる）", style: {
+                font_size: 20px,
+                color: "#e94560"
+            })
+            Text("このテキストは初回のみ描画されます", style: {
+                font_size: 16px,
+                color: "#a4a4a4"
+            })
+        }
+        
+        Spacing(20px)
+        
+        // 動的セクション（毎フレーム再描画）
+        dynamic_section fps_counter(style: {
+            background: "#0f3460",
+            padding: 15,
+            rounded: 8px,
+            border_color: "#00d4ff"
+        }) {
+            Text("動的セクション（毎フレーム更新）", style: {
+                font_size: 20px,
+                color: "#00d4ff"
+            })
+            Text("フレーム数: {}", state.frame_count, style: {
+                font_size: 18px,
+                color: "#ffffff",
+                padding: [10, 0, 0, 0]
+            })
+            Text("経過時間: {:.2}秒", state.time, style: {
+                font_size: 16px,
+                color: "#a4f0ff"
+            })
+        }
+        
+        Spacing(20px)
+        
+        // 別の動的セクション
+        dynamic_section animation(style: {
+            background: "#16213e",
+            padding: 15,
+            rounded: 8px,
+            height: 100px
+        }) {
+            Text("アニメーション例", style: {
+                font_size: 16px,
+                color: "#e94560"
+            })
+            // ここで state.time を使ったアニメーションを表示できる
+        }
+        
+        Spacing(20px)
+        
+        Button("リセット", btn_reset, style: {
+            background: "#e94560",
+            color: "#ffffff",
+            padding: [12, 24],
+            rounded: 6px
+        })
+    }
+    
+    when ButtonPressed(btn_reset) {
+        set state.frame_count = 0
+        set state.time = 0.0
+    }
+}

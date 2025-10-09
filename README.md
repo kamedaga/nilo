@@ -19,6 +19,31 @@
   - Windows, Mac, Linux, Webで動作が可能。
 ---
 
+## 実行方法
+
+### 実行
+```bash
+cargo run 
+```
+
+### ホットリロードを使用する場合
+```bash
+cargo run -- --hotreload
+```
+
+### Releaseビルド
+```bash
+cargo build --release
+```
+
+
+### wasmビルド
+```bash
+cargo run --bin build_wasm_with_html
+```
+
+---
+
 ## 概要
 
 **nilo** は、Rustで書かれた次世代UIフレームワークです。
@@ -75,7 +100,10 @@ dom(wasm), tiny-skiaレンダラ
 ## レンダラ
 
 * 現在domレンダラの実装を行っています。
-cargo run --bin build_wasm_with_htmlでhtml, js, wasmファイルが生成されます(テスト中)
+```bash
+cargo run --bin build_wasm_with_html
+```
+でhtml, js, wasmファイルが生成されます(テスト中)
 ※wgpuレンダラと完全に見た目が一致するわけではないので、ご了承ください(比較画像も作る予定)
 
 

@@ -322,6 +322,11 @@ pub fn load_nilo_app<P: AsRef<std::path::Path>>(
         if has_error {
             error!("\nLint errors found. Use --no-lint to skip lint checks.");
         }
+        
+        // Rust状態の型チェック（main.rsを読み込む）
+        if let Ok(main_rs_content) = std::fs::read_to_string("src/main.rs") {
+            let _ = analysis::analyze_app_with_rust_state(&app, Some(&main_rs_content));
+        }
     }
 
     Ok(app)
@@ -353,6 +358,11 @@ pub fn load_embedded_nilo_app(
 
         if has_error {
             error!("\nLint errors found. Use --no-lint to skip lint checks.");
+        }
+        
+        // Rust状態の型チェック（main.rsを読み込む）
+        if let Ok(main_rs_content) = std::fs::read_to_string("src/main.rs") {
+            let _ = analysis::analyze_app_with_rust_state(&app, Some(&main_rs_content));
         }
     }
 

@@ -1,8 +1,7 @@
 pub mod wgpu;
-mod quad;
-mod triangle;
 mod text;
-mod circle;
 mod image;
+mod unified;
 
 pub use wgpu::WgpuRenderer;
+pub use unified::UnifiedRenderer;

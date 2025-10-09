@@ -13,7 +13,9 @@ nilo::nilo_state! {
         name: String,
         counter: u32,
         items: Vec<i32>,
-        ifbool: bool
+        ifbool: bool,
+        frame_count: u32,
+        elapsed_time: f32,
     }
 }
 
@@ -39,7 +41,9 @@ fn main() {
         name: "Nilo".to_string(),
         counter: 1,
         items: vec![1, 2, 3],
-        ifbool: true
+        ifbool: true,
+        frame_count: 0,
+        elapsed_time: 0.0,
     };
 
     // 自動で埋め込みファイルを使用するマクロを呼び出し
@@ -72,7 +76,9 @@ pub fn wasm_main() {
         name: "Nilo".to_string(),
         counter: 1,
         items: vec![1, 2, 3],
-        ifbool: true
+        ifbool: true,
+        frame_count: 0,
+        elapsed_time: 0.0,
     };
 
     // DOMレンダラーでNiloアプリを実行

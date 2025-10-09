@@ -6,12 +6,9 @@ use wgpu::{
 use winit::window::Window;
 
 use super::text::TextRenderer;
-use super::circle::CircleRenderer;
 use crate::renderer_abstract::command::{DrawCommand, DrawList};
-use super::quad::QuadRenderer;
-use super::triangle::TriangleRenderer;
 use super::image::ImageRenderer;
-
+use super::unified::UnifiedRenderer;
 pub struct WgpuRenderer {
     window: Arc<Window>,
     device: Device,
@@ -19,9 +16,7 @@ pub struct WgpuRenderer {
     surface: Surface<'static>,
     surface_format: TextureFormat,
     size: winit::dpi::PhysicalSize<u32>,
-    quad_renderer: QuadRenderer,
-    triangle_renderer: TriangleRenderer,
-    circle_renderer: CircleRenderer,
+    unified_renderer: UnifiedRenderer,
     text_renderer: TextRenderer,
     image_renderer: ImageRenderer,
     depth_texture: Texture,
@@ -58,9 +53,7 @@ impl WgpuRenderer {
 
         let (depth_texture, depth_view) = Self::create_depth_texture(&device, size);
 
-        let quad_renderer = QuadRenderer::new(&device, surface_format);
-        let triangle_renderer = TriangleRenderer::new(&device, surface_format);
-        let circle_renderer = CircleRenderer::new(&device, surface_format);
+        let unified_renderer = UnifiedRenderer::new(&device, surface_format);
         
         // グローバルに登録された全カスタムフォントを使用
         let custom_fonts = crate::get_all_custom_fonts();
@@ -106,9 +99,7 @@ impl WgpuRenderer {
             surface,
             surface_format,
             size,
-            quad_renderer,
-            triangle_renderer,
-            circle_renderer,
+            unified_renderer,
             text_renderer,
             image_renderer,
             depth_texture,
@@ -200,7 +191,7 @@ impl WgpuRenderer {
                     depth_slice: None,
                     resolve_target: None,
                     ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(Color::WHITE),
+                        load: wgpu::LoadOp::Clear(Color { r: 0.2, g: 0.2, b: 0.2, a: 1.0 }), // グレー背景でテスト
                         store: wgpu::StoreOp::Store,
                     },
                 })],
@@ -258,46 +249,35 @@ impl WgpuRenderer {
         scale_factor: f32,
     ) {
         // 型ごとに事前分類（借用問題を回避）
-        let mut rect_commands = Vec::new();
-        let mut circle_commands = Vec::new();
-        let mut triangle_commands = Vec::new();
+        let mut shape_commands = Vec::new();
         let mut image_commands = Vec::new();
         let mut text_commands = Vec::new();
 
         for cmd in commands {
             match cmd {
-                DrawCommand::Rect { .. } => rect_commands.push(cmd.clone()),
-                DrawCommand::Circle { .. } => circle_commands.push(cmd.clone()),
-                DrawCommand::Triangle { .. } => triangle_commands.push(cmd.clone()),
+                DrawCommand::Rect { .. } |
+                DrawCommand::Circle { .. } |
+                DrawCommand::Triangle { .. } => shape_commands.push(cmd.clone()),
                 DrawCommand::Image { .. } => image_commands.push(cmd.clone()),
                 DrawCommand::Text { content, position, size, color, font, max_width, .. } => {
-                    // ★ 修正: max_width情報も含める
                     text_commands.push((content.clone(), *position, *size, *color, font.clone(), *max_width));
                 }
             }
         }
 
-        // 安全に順次描画
-        if !rect_commands.is_empty() {
-            let list = DrawList(rect_commands);
-            self.quad_renderer.draw(rpass, &list, &self.queue, self.size, scroll_offset, scale_factor);
+        // 統合レンダラで図形を一括描画（一つのパイプライン）
+        if !shape_commands.is_empty() {
+            let list = DrawList(shape_commands);
+            self.unified_renderer.draw(rpass, &list, &self.queue, self.size, scroll_offset, scale_factor);
         }
 
-        if !circle_commands.is_empty() {
-            let list = DrawList(circle_commands);
-            self.circle_renderer.draw(rpass, &list, &self.queue, self.size, scroll_offset, scale_factor, 0.0);
-        }
-
-        if !triangle_commands.is_empty() {
-            let list = DrawList(triangle_commands);
-            self.triangle_renderer.draw(rpass, &list, &self.queue, self.size, scroll_offset, scale_factor);
-        }
-
+        // 画像描画
         if !image_commands.is_empty() {
             let list = DrawList(image_commands);
             self.image_renderer.draw(&self.device, rpass, &list, &self.queue, self.size, scroll_offset, scale_factor);
         }
 
+        // テキスト描画
         if !text_commands.is_empty() {
             self.text_renderer.render_multiple_texts(
                 rpass, &text_commands, scroll_offset, scale_factor,

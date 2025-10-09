@@ -4,6 +4,8 @@ use crate::parser::ast::{
 use crate::stencil::stencil::Stencil;
 use crate::ui::layout_diff::LayoutDiffEngine;
 use std::collections::HashMap;
+use std::collections::hash_map::DefaultHasher;
+use std::hash::{Hash, Hasher};
 use log;
 
 /// コンポーネント専用の状態管理構造体（軽量化版）
@@ -185,6 +187,9 @@ pub struct AppState<S> {
     
     /// 前回のホバーボタンID（ホバー状態変化の検出用）
     pub last_hovered_button: Option<String>,
+    
+    /// 動的セクションのキャッシュ（セクション名 -> (状態ハッシュ, ステンシル, ボタン)）
+    pub dynamic_section_cache: HashMap<String, (u64, Vec<Stencil>, Vec<(String, [f32; 2], [f32; 2])>)>,
 
     // ★ レイアウト差分計算エンジン
     /// 静的部分のレイアウト差分エンジン
@@ -221,6 +226,7 @@ impl<S> AppState<S> {
             cached_window_size: None,
             component_context: ComponentContext::new(),
             last_hovered_button: None,
+            dynamic_section_cache: HashMap::new(),
             layout_diff_static: None,
             layout_diff_dynamic: None,
             focused_text_input: None,
@@ -355,6 +361,20 @@ impl<S: StateAccess + 'static> AppState<S> {
             }
             Expr::Path(s) => {
                 // ★ 修正: path専用の処理
+                
+                // ★ レスポンシブ対応: window.width と window.height の評価
+                if s == "window.width" {
+                    if let Some([w, _]) = self.cached_window_size {
+                        return w.to_string();
+                    }
+                    return "0".to_string();
+                }
+                if s == "window.height" {
+                    if let Some([_, h]) = self.cached_window_size {
+                        return h.to_string();
+                    }
+                    return "0".to_string();
+                }
 
                 // state.プレフィックスがある場合のみカスタム状態を参照
                 if s.starts_with("state.") {
@@ -533,6 +553,38 @@ impl<S: StateAccess + 'static> AppState<S> {
         }
     }
 
+    /// レスポンシブスタイルを評価してマージする
+    /// 条件に一致するresponsive_rulesを適用して最終的なスタイルを返す
+    pub fn resolve_responsive_style(&self, base_style: &Style) -> Style {
+        let mut result = base_style.clone();
+        
+        if !base_style.responsive_rules.is_empty() {
+            eprintln!("🔍 [RUNTIME] レスポンシブスタイル解決開始: {} ルール", base_style.responsive_rules.len());
+        }
+        
+        // responsive_rulesを評価
+        for (idx, rule) in base_style.responsive_rules.iter().enumerate() {
+            // 条件式を評価
+            let condition_result = self.eval_expr_from_ast(&rule.condition);
+            
+            eprintln!("   [RUNTIME] ルール{}: {:?} => '{}'", idx + 1, rule.condition, condition_result);
+            if let Some([w, h]) = self.cached_window_size {
+                eprintln!("   [RUNTIME] 現在のウィンドウサイズ: {}x{}", w, h);
+            } else {
+                eprintln!("   [RUNTIME] ⚠️ cached_window_size が None");
+            }
+            
+            // 条件が真の場合、そのスタイルをマージ
+            if condition_result == "true" {
+                eprintln!("   [RUNTIME] ✅ 条件が真: スタイルを適用");
+                result = result.merged(&rule.style);
+            } else {
+                eprintln!("   [RUNTIME] ❌ 条件が偽: スタイルをスキップ (結果='{}')", condition_result);
+            }
+        }
+        
+        result
+    }
 
     pub fn viewnode_layouted_to_stencil(
         &mut self,
@@ -555,7 +607,11 @@ impl<S: StateAccess + 'static> AppState<S> {
         mouse_pos: [f32; 2],
         depth_counter: &mut f32,
     ) {
-        let style = lnode.node.style.clone().unwrap_or_default();
+        let base_style = lnode.node.style.clone().unwrap_or_default();
+        
+        // ★ レスポンシブスタイルを解決
+        let style = self.resolve_responsive_style(&base_style);
+        
         let is_hover = point_in_rect(mouse_pos, lnode.position, lnode.size);
 
 
@@ -746,8 +802,26 @@ impl<S: StateAccess + 'static> AppState<S> {
             }
         }
 
-        // ★ max_widthをスタイルから取得（レイアウト計算と一致させる）
-        let max_width = if let Some(ref max_w) = style.max_width {
+        // ★ wrap プロパティを優先的にチェック、なければmax_widthを使用
+        let max_width = if let Some(wrap_mode) = style.wrap {
+            use crate::parser::ast::WrapMode;
+            match wrap_mode {
+                WrapMode::Auto => {
+                    // 自動折り返し: 親要素の幅に合わせる
+                    let text_area_width = lnode.size[0] - p.left - p.right;
+                    if text_area_width > 0.0 {
+                        Some(text_area_width)
+                    } else {
+                        None
+                    }
+                }
+                WrapMode::None => {
+                    // 折り返ししない
+                    None
+                }
+            }
+        } else if let Some(ref max_w) = style.max_width {
+            // wrapが指定されていない場合はmax_widthを使用
             if max_w.unit == crate::parser::ast::Unit::Auto {
                 let text_area_width = lnode.size[0] - p.left - p.right;
                 if text_area_width > 0.0 {
@@ -764,7 +838,13 @@ impl<S: StateAccess + 'static> AppState<S> {
                 }
             }
         } else {
-            None
+            // デフォルトは auto (自動折り返し)
+            let text_area_width = lnode.size[0] - p.left - p.right;
+            if text_area_width > 0.0 {
+                Some(text_area_width)
+            } else {
+                None
+            }
         };
 
         // テキストの描画

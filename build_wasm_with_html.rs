@@ -8,16 +8,19 @@ fn main() {
     // 1. wasm-pack でビルド
     println!("📦 Running wasm-pack build...");
     let status = Command::new("wasm-pack")
+        .env("CARGO_INCREMENTAL", "1")                 // 差分ビルドON🔥
+        .env("RUSTFLAGS", "-C codegen-units=256")      // 並列ビルド強化💪
         .args(&[
             "build",
+            "--dev",                                   // devビルドで高速化
             "--target", "web",
             "--out-dir", "pkg",
             "--no-default-features",
-            "--features", "wasm",
+            "--features", "wasm",  
         ])
         .status()
         .expect("Failed to execute wasm-pack");
-    
+
     if !status.success() {
         eprintln!("❌ wasm-pack build failed");
         std::process::exit(1);
@@ -63,14 +66,12 @@ fn generate_minimal_html(pkg_dir: &Path) {
         html, body {
             width: 100%;
             height: 100%;
-            overflow: hidden;
+            overflow: auto;
         }
         #container {
-            width: 100vw;
-            height: 100vh;
-            position: fixed;
-            top: 0;
-            left: 0;
+            width: 100%;
+            min-height: 100vh;
+            position: relative;
         }
     </style>
 </head>
