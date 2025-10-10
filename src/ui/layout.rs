@@ -1789,6 +1789,7 @@ pub fn layout_node<'a>(
     let computed_size = engine.compute_node_size(node, &context, &eval, &get_image_size, &crate::parser::ast::App {
         flow: crate::parser::ast::Flow {
             start: "start".to_string(),
+            start_url: None,
             transitions: vec![],
         },
         timelines: vec![],

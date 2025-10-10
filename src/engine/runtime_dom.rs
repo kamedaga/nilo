@@ -195,7 +195,6 @@ where
         let draw_list = crate::stencil::stencil::stencil_to_wgpu_draw_list(&stencils);
         let content_h = draw_list.content_length();
         
-        log::info!("Content height calculated: {}, window height: {}", content_h, window_size[1]);
         
         // scroll_offset[1]にcontent_heightを設定（DOM版専用の仕様）
         renderer_guard.render_stencils(&stencils, [0.0, content_h], 1.0);

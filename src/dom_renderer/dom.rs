@@ -77,8 +77,6 @@ impl DomRenderer {
                             
                             // コンテナの高さをコンテンツ高さに設定（最小でもビューポート+1pxにしてスクロール確認用）
                             let height_px = content_height.max(viewport_height + 1.0);
-                            log::info!("Setting container height to: {}px (content_height: {}, viewport: {})", 
-                                      height_px, content_height, viewport_height);
                             let _ = style.set_property("height", &format!("{}px", height_px));
                         }
                     }

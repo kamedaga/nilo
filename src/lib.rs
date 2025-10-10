@@ -502,7 +502,8 @@ pub fn run_with_hotreload<S, P>(
     });
 
     let start = app.flow.start.clone();
-    let state = engine::state::AppState::new(initial_state, start);
+    let mut state = engine::state::AppState::new(initial_state, start);
+    state.initialize_router(&app.flow);
     let app = Arc::new(app);
 
     engine::runtime::run_with_hotreload_support_and_title(app, state, should_restart, current_app, window_title);
@@ -559,7 +560,16 @@ where
 
     // アプリケーション状態を作成
     let start_view = app.flow.start.clone();
-    let state = engine::state::AppState::new(initial_state, start_view);
+    let mut state = engine::state::AppState::new(initial_state, start_view.clone());
+    
+    // ルーターを初期化し、URLから初期タイムラインを取得
+    let initial_timeline = state.initialize_router_from_app(&app);
+    
+    // URLで指定されたタイムラインがあればそれに移動
+    if let Some(timeline) = initial_timeline {
+        log::info!("Setting initial timeline from URL: {}", timeline);
+        state.jump_to_timeline(&timeline);
+    }
 
     log::info!("Running Nilo app with DOM renderer...");
     
@@ -571,7 +581,7 @@ where
 
 // dynamic_foreach_test.niloの内容をコンパイル時に埋め込み
 #[cfg(target_arch = "wasm32")]
-const WASM_NILO_SOURCE: &str = include_str!("list_operations_test.nilo");
+const WASM_NILO_SOURCE: &str = include_str!("routing_test.nilo");
 
 // フォントデータを埋め込み
 #[cfg(target_arch = "wasm32")]
@@ -672,13 +682,12 @@ impl engine::state::StateAccess for WasmTestState {
 }
 
 #[cfg(target_arch = "wasm32")]
-#[wasm_bindgen(start)]
-pub fn wasm_main() {
+pub fn run_nilo_wasm_with_state() {
     // パニック時のエラーメッセージをブラウザコンソールに表示
     console_error_panic_hook::set_once();
     
-    // WebAssembly用のロガーを初期化
-    console_log::init_with_level(log::Level::Debug).expect("error initializing log");
+    // WebAssembly用のロガーを初期化（Infoレベルに設定してDebugログを抑制）
+    console_log::init_with_level(log::Level::Info).expect("error initializing log");
 
     log::info!("Nilo WASM starting...");
     log::info!("Loading list_operations_test.nilo...");

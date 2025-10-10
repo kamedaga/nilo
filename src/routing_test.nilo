@@ -1,0 +1,112 @@
+// Phase 1: URLルーティング機能テスト（タイムライン定義版）
+flow {
+  start: Home
+  Home -> [Page1, Page2]
+  Page1 -> Home
+  Page2 -> Home
+}
+
+// Buttonコンポーネントを削除し、直接Buttonビューノードを使用
+
+timeline Home("/") {
+  VStack(style: { 
+    spacing: 20px, 
+    padding: 40, 
+    align: "center",
+    background: "#f0f0f0",
+    min_height: "100vh"
+  }) {
+    Text("Nilo Routing Demo", style: {
+      font_size: 32,
+      color: "#333",
+      font_weight: "bold",
+      margin: [0, 0, 20, 0]
+    })
+    
+    Text("Current URL: /", style: {
+      font_size: 14,
+      color: "#666",
+      margin: [0, 0, 30, 0]
+    })
+    
+      Button(id: page1_btn, label: "Go to Page 1", style: {
+        background: "#4CAF50",
+        color: "white",
+        padding: 12,
+        rounded: 8
+      })
+      Button(id: page2_btn, label: "Go to Page 2", style: {
+        background: "#4CAF50",
+        color: "white", 
+        padding: 12,
+        rounded: 8
+      })
+  }
+  
+  when user.click(page1_btn) { navigate_to(Page1) }
+  when user.click(page2_btn) { navigate_to(Page2) }
+}
+
+timeline Page1("/page1") {
+  VStack(style: { 
+    spacing: 20px, 
+    padding: 40, 
+    align: "center",
+    background: "#e3f2fd",
+    min_height: "100vh"
+  }) {
+    Text("Page 1", style: {
+      font_size: 28,
+      color: "#1976d2",
+      font_weight: "bold",
+      margin: [0, 0, 20, 0]
+    })
+    
+    Text("Current URL: /page1", style: {
+      font_size: 14,
+      color: "#666",
+      margin: [0, 0, 30, 0]
+    })
+    
+    Button(id: back_btn, label: "Back to Home", style: {
+      background: "#2196F3",
+      color: "white",
+      padding: 12,
+      rounded: 8
+    })
+  }
+  
+  when user.click(back_btn) { navigate_to(Home) }
+}
+
+timeline Page2("/page2") {
+  VStack(style: { 
+    spacing: 20px, 
+    padding: 40, 
+    align: "center",
+    background: "#f3e5f5",
+    min_height: "100vh"
+  }) {
+    Text("Page 2", style: {
+      font_size: 28,
+      color: "#7b1fa2",
+      font_weight: "bold",
+      margin: [0, 0, 20, 0]
+    })
+    
+    Text("Current URL: /page2", style: {
+      font_size: 14,
+      color: "#666",
+      margin: [0, 0, 30, 0]
+    })
+    
+    Button(id: back_btn2, label: "Back to Home", style: {
+      background: "#9C27B0", 
+      color: "white",
+      padding: 12,
+      rounded: 8
+    })
+  }
+  
+  when user.click(back_btn2) { navigate_to(Home) }
+}

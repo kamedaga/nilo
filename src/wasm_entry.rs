@@ -111,7 +111,8 @@ pub fn main() {
     let start_timeline = app.flow.start.clone();
     
     // 状態を初期化
-    let state = AppState::new(TestState::default(), start_timeline);
+    let mut state = AppState::new(TestState::default(), start_timeline);
+    state.initialize_router(&app.flow);
     
     // runtime_domを使用してNiloアプリケーションを実行
     log::info!("Starting Nilo WASM app...");

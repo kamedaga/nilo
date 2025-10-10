@@ -54,10 +54,14 @@ flow_def   = { "flow" ~ "{" ~ start_def ~ transition_def* ~ "}" }
 // 新しい階層的フロー定義
 namespaced_flow_def = { "flow" ~ ident ~ "{" ~ namespaced_start_def ~ namespaced_transition_def+ ~ "}" }
 
-start_def  = { "start" ~ ":" ~ qualified_ident }
+start_def  = { "start" ~ ":" ~ (timeline_with_url | qualified_ident) }
 namespaced_start_def = { "start" ~ ":" ~ ident }
 
-transition_def = { transition_source ~ "->" ~ (qualified_ident | ("[" ~ (qualified_ident ~ ("," ~ qualified_ident)*)? ~ "]")) }
+timeline_with_url = { qualified_ident ~ "(" ~ string ~ ")" }
+
+transition_def = { transition_source ~ "->" ~ (flow_target | "[" ~ (flow_target ~ ("," ~ flow_target)*)? ~ "]") }
+
+flow_target = { timeline_with_url | qualified_ident }
 namespaced_transition_def = { namespaced_transition_source ~ "->" ~ (transition_target | ("[" ~ (transition_target ~ ("," ~ transition_target)*)? ~ "]")) }
 
 // 遷移元：単一の識別子または識別子の配列
@@ -67,7 +71,8 @@ namespaced_transition_source = { ident | ("[" ~ ident ~ ("," ~ ident)* ~ "]") }
 // 階層的フロー内での遷移先：ローカル名 または 修飾名
 transition_target = { qualified_ident | ident }
 
-timeline_def = { "timeline" ~ qualified_ident ~ timeline_config? ~ "{" ~ font_def? ~ view_nodes? ~ "}" }
+timeline_def = { "timeline" ~ qualified_ident ~ timeline_url? ~ timeline_config? ~ "{" ~ font_def? ~ view_nodes? ~ "}" }
+timeline_url = { "(" ~ string ~ ")" }
 timeline_config = { "(" ~ timeline_param ~ ("," ~ timeline_param)* ~ ")" }
 timeline_param = { "style" ~ ":" ~ expr }
 

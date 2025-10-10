@@ -1608,6 +1608,7 @@ dependencies = [
  "pest_derive",
  "placeholder",
  "pollster",
+ "regex",
  "resvg",
  "serde",
  "serde_json",

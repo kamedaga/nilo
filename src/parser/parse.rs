@@ -243,14 +243,26 @@ pub fn parse_flow_def(pair: Pair<Rule>) -> Result<Flow, String> {
     assert_eq!(pair.as_rule(), Rule::flow_def);
 
     let mut start = None;
+    let mut start_url = None;
     let mut transitions = Vec::new();
 
     for inner in pair.into_inner() {
         match inner.as_rule() {
             Rule::start_def => {
-                // 開始状態の定義を取得
-                let ident = inner.into_inner().next().unwrap(); // qualified_ident
-                start = Some(ident.as_str().to_string());
+                // 開始状態の定義を取得（URL対応）
+                let start_inner = inner.into_inner().next().unwrap();
+                match start_inner.as_rule() {
+                    Rule::timeline_with_url => {
+                        let (timeline, url) = parse_timeline_with_url(start_inner)?;
+                        start = Some(timeline);
+                        start_url = Some(url);
+                    }
+                    Rule::qualified_ident => {
+                        start = Some(start_inner.as_str().to_string());
+                        start_url = None;
+                    }
+                    _ => return Err("Invalid start definition".to_string()),
+                }
             }
             Rule::transition_def => {
                 // 遷移定義を実際に解析
@@ -263,34 +275,81 @@ pub fn parse_flow_def(pair: Pair<Rule>) -> Result<Flow, String> {
 
     // バリデーション
     let start = start.ok_or_else(|| "フロー定義にはstart:が必要です".to_string())?;
-    // ★ 単一ページアプリ対応: 遷移は必須ではない
-    // if transitions.is_empty() {
-    //     return Err("フロー定義には少なくとも1つの遷移が必要です".to_string());
-    // }
-    Ok(Flow { start, transitions })
+    
+    Ok(Flow { start, start_url, transitions })
+}
+
+/// タイムライン with URL の解析
+fn parse_timeline_with_url(pair: Pair<Rule>) -> Result<(String, String), String> {
+    assert_eq!(pair.as_rule(), Rule::timeline_with_url);
+    
+    let mut inner = pair.into_inner();
+    let timeline = inner.next().ok_or("timeline_with_urlにタイムライン名がありません")?.as_str().to_string();
+    let url_str = inner.next().ok_or("timeline_with_urlにURL文字列がありません")?.as_str();
+    let url = unquote(url_str);
+    
+    Ok((timeline, url))
+}
+
+/// フローターゲットの解析
+fn parse_flow_target(pair: Pair<Rule>) -> Result<FlowTarget, String> {
+    match pair.as_rule() {
+        Rule::flow_target => {
+            // flow_target ルールの場合、内部のルールを解析
+            let inner = pair.into_inner().next().ok_or("flow_targetが空です")?;
+            match inner.as_rule() {
+                Rule::timeline_with_url => {
+                    let (timeline, url) = parse_timeline_with_url(inner)?;
+                    Ok(FlowTarget {
+                        timeline,
+                        url: Some(url),
+                        params: std::collections::HashMap::new(),
+                    })
+                }
+                Rule::qualified_ident => {
+                    Ok(FlowTarget {
+                        timeline: inner.as_str().to_string(),
+                        url: None,
+                        params: std::collections::HashMap::new(),
+                    })
+                }
+                _ => Err(format!("Unknown flow target inner rule: {:?}", inner.as_rule())),
+            }
+        }
+        Rule::timeline_with_url => {
+            let (timeline, url) = parse_timeline_with_url(pair)?;
+            Ok(FlowTarget {
+                timeline,
+                url: Some(url),
+                params: std::collections::HashMap::new(),
+            })
+        }
+        Rule::qualified_ident => {
+            Ok(FlowTarget {
+                timeline: pair.as_str().to_string(),
+                url: None,
+                params: std::collections::HashMap::new(),
+            })
+        }
+        _ => Err(format!("Unknown flow target rule: {:?}", pair.as_rule())),
+    }
 }
 
 /// 遷移定義を解析する新しい関数
-fn parse_transition_def(pair: Pair<Rule>) -> Result<(String, Vec<String>), String> {
+fn parse_transition_def(pair: Pair<Rule>) -> Result<FlowTransition, String> {
     assert_eq!(pair.as_rule(), Rule::transition_def);
 
     let mut inner = pair.into_inner();
 
     // 遷移元の解析
     let source_pair = inner.next().ok_or("遷移定義に遷移元がありません")?;
-    let source = parse_transition_source(source_pair)?;
+    let from = parse_transition_source(source_pair)?;
 
     // 遷移先の解析
     let target_pair = inner.next().ok_or("遷移定義に遷移先がありません")?;
-    let targets = parse_transition_targets(target_pair)?;
+    let to = parse_transition_targets_new(target_pair)?;
 
-    // 現在のFlow構造では単一の遷移元のみサポートしているため、
-    // 複数の遷移元がある場合は各々を個別の遷移として扱う
-    if source.len() == 1 {
-        Ok((source[0].clone(), targets))
-    } else {
-        Ok((source[0].clone(), targets))
-    }
+    Ok(FlowTransition { from, to })
 }
 
 /// 遷移元の解析
@@ -317,7 +376,27 @@ fn parse_transition_source(pair: Pair<Rule>) -> Result<Vec<String>, String> {
     }
 }
 
-/// 遷移先の解析
+/// 遷移先の解析（新しいFlowTarget対応）
+fn parse_transition_targets_new(pair: Pair<Rule>) -> Result<Vec<FlowTarget>, String> {
+    match pair.as_rule() {
+        Rule::flow_target => {
+            // 単一の遷移先
+            Ok(vec![parse_flow_target(pair)?])
+        }
+        _ => {
+            // 配列形式の遷移先 [target1, target2, ...]
+            let mut targets = Vec::new();
+            for target_pair in pair.into_inner() {
+                if target_pair.as_rule() == Rule::flow_target {
+                    targets.push(parse_flow_target(target_pair)?);
+                }
+            }
+            Ok(targets)
+        }
+    }
+}
+
+/// 遷移先の解析（旧式・互換性維持）
 fn parse_transition_targets(pair: Pair<Rule>) -> Result<Vec<String>, String> {
     match pair.as_rule() {
         Rule::qualified_ident => {
@@ -340,12 +419,24 @@ fn parse_transition_targets(pair: Pair<Rule>) -> Result<Vec<String>, String> {
 pub fn parse_timeline_def(pair: Pair<Rule>) -> Timeline {
     let mut inner = pair.into_inner();
     let name = inner.next().unwrap().as_str().to_string();
+    let mut url_pattern: Option<String> = None;
     let mut font: Option<String> = None;
     let mut body: Vec<WithSpan<ViewNode>> = Vec::new();
     let mut whens = Vec::new(); // whenイベントを正しく解析するように修正
 
     for node_pair in inner {
+        log::info!("Processing timeline node rule: {:?}", node_pair.as_rule());
         match node_pair.as_rule() {
+            Rule::timeline_url => {
+                // timeline_url: タイムラインのURLパターンを解析
+                let url_str = node_pair.into_inner().next().unwrap().as_str();
+                url_pattern = Some(unquote(url_str));
+                log::info!("  Timeline URL pattern: {:?}", url_pattern);
+            }
+            Rule::timeline_config => {
+                // timeline_config: 今は無視（将来の拡張用）
+                log::info!("  Timeline config found (skipped)");
+            }
             Rule::font_def => {
                 // font: "fonts/font" の形式を解析
                 let font_str = node_pair.into_inner().next().unwrap().as_str();
@@ -353,9 +444,13 @@ pub fn parse_timeline_def(pair: Pair<Rule>) -> Timeline {
             }
             Rule::view_nodes => {
                 // view_nodesラッパーを剥がして個別のノードを処理
+                log::info!("  Found view_nodes wrapper");
                 for p in node_pair.into_inner() {
+                    log::info!("    Inner view node rule: {:?}", p.as_rule());
+                    log::info!("    Inner node content: '{}'", p.as_str().replace('\n', "\\n").chars().take(100).collect::<String>());
                     match p.as_rule() {
                         Rule::when_block => {
+                            log::info!("    Found when_block inside view_nodes");
                             // whenイベントを解析
                             whens.push(parse_when_block(p));
                         }
@@ -366,13 +461,21 @@ pub fn parse_timeline_def(pair: Pair<Rule>) -> Timeline {
                 }
             }
             Rule::when_block => {
+                log::info!("Direct when_block found");
                 // 直接のwhenブロックを解析
                 whens.push(parse_when_block(node_pair));
             }
-            _ => body.push(parse_view_node(node_pair)),
+            _ => {
+                log::info!("Parsing as view_node: {:?}", node_pair.as_rule());
+                body.push(parse_view_node(node_pair));
+            },
         }
     }
-    Timeline { name, font, body, whens }
+    log::info!("Creating timeline '{}' with {} when blocks, url_pattern: {:?}", name, whens.len(), url_pattern);
+    for (i, when_block) in whens.iter().enumerate() {
+        log::info!("  When block {}: {:?}", i, when_block.event);
+    }
+    Timeline { name, url_pattern, font, body, whens }
 }
 
 pub fn parse_component_def(pair: Pair<Rule>) -> Component {
@@ -499,6 +602,16 @@ fn parse_view_node(pair: Pair<Rule>) -> WithSpan<ViewNode> {
         Rule::state_toggle => parse_state_toggle(pair),
         Rule::foreach_node => parse_foreach_node(pair),
         Rule::if_node => parse_if_node(pair),
+        Rule::when_block => {
+            // when_blockは表示ノードではないため、ダミーのテキストノードとして処理
+            // タイムライン解析で直接処理されるべきなので、ここでは無視
+            WithSpan {
+                node: ViewNode::Text { format: "".to_string(), args: vec![] },
+                line,
+                column: col,
+                style: None
+            }
+        }
         Rule::font_def => {
             // font定義は表示ノードではないため、ダミーのテキストノードとして処理
             // タイムライン解析で直接処理されるべきなので、ここでは無視

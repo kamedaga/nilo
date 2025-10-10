@@ -56,7 +56,6 @@ impl TextMeasurementSystem {
         let custom_fonts = crate::get_all_custom_fonts();
         
         for (user_name, font_data) in custom_fonts {
-            println!("[TextMeasurement] カスタムフォント '{}' を読み込み中...", user_name);
             
             // フォントデータをfontdbに登録
             let ids = font_system.db_mut().load_font_source(
@@ -67,7 +66,6 @@ impl TextMeasurementSystem {
             if let Some(first_id) = ids.first() {
                 if let Some(face_info) = font_system.db().face(*first_id) {
                     if let Some((family_name, _lang)) = face_info.families.first() {
-                        println!("[TextMeasurement] '{}' -> フォントファミリー: '{}'", user_name, family_name);
                         name_map.insert(user_name.clone(), family_name.clone());
                     }
                 }
@@ -80,34 +78,28 @@ impl TextMeasurementSystem {
     /// フォントファイルを読み込んで登録（外部ファイル用、オプション）
     #[allow(dead_code)]
     fn load_and_register_font(font_system: &mut FontSystem, font_path: &str) -> Option<String> {
-        println!("[TextMeasurement] フォントファイル '{}' の読み込みを試行中...", font_path);
         
         match std::fs::read(font_path) {
             Ok(font_data) => {
-                println!("[TextMeasurement] ファイル読み込み成功: {} bytes", font_data.len());
                 
                 // フォントデータをfontdb::Sourceとして登録してIDを取得
                 let ids = font_system.db_mut().load_font_source(
                     glyphon::fontdb::Source::Binary(std::sync::Arc::new(font_data))
                 );
-                println!("[TextMeasurement] フォントデータを登録しました: {} faces", ids.len());
                 
                 // 最初のフォントフェイスから実際のファミリー名を取得
                 if let Some(first_id) = ids.first() {
                     if let Some(face_info) = font_system.db().face(*first_id) {
                         // familiesの最初の要素（通常は英語US）を使用
                         if let Some((family_name, _lang)) = face_info.families.first() {
-                            println!("[TextMeasurement] 実際のフォントファミリー名: '{}'", family_name);
                             return Some(family_name.clone());
                         }
                     }
                 }
                 
-                error!("[TextMeasurement] フォント '{}' からファミリー名を取得できませんでした", font_path);
                 None
             }
             Err(e) => {
-                error!("[TextMeasurement] フォント読み込みエラー '{}': {}", font_path, e);
                 None
             }
         }

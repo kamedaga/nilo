@@ -172,6 +172,10 @@ pub struct AppState<S> {
     pub component_context: ComponentContext,
     pub image_size_cache: std::rc::Rc<std::cell::RefCell<HashMap<String, (u32, u32)>>>,
     pub all_buttons: Vec<(String, [f32; 2], [f32; 2])>,
+    
+    // ★ ルーティング関連
+    pub router: Option<crate::engine::routing::Router>,
+    pub route_params: HashMap<String, String>,
 
     /// ボタンのonclick情報を保存
     pub button_onclick_map: HashMap<String, Expr>,
@@ -224,6 +228,8 @@ impl<S> AppState<S> {
             image_size_cache: std::rc::Rc::new(std::cell::RefCell::new(HashMap::new())),
             all_buttons: Vec::new(),
             button_onclick_map: HashMap::new(),
+            router: None,
+            route_params: HashMap::new(),
             static_stencils: None,
             static_buttons: Vec::new(),
             expanded_body: None,
@@ -367,6 +373,17 @@ impl<S: StateAccess + 'static> AppState<S> {
             }
             Expr::Path(s) => {
                 // ★ 修正: path専用の処理
+                
+                // ★ ルートパラメータアクセス: route.params.xxx, route.current
+                if s.starts_with("route.") {
+                    let route_path = s.strip_prefix("route.").unwrap();
+                    if route_path == "current" {
+                        return self.current_timeline.clone();
+                    } else if route_path.starts_with("params.") {
+                        let param_name = route_path.strip_prefix("params.").unwrap();
+                        return self.route_params.get(param_name).cloned().unwrap_or_default();
+                    }
+                }
                 
                 // ★ レスポンシブ対応: window.width と window.height の評価
                 if s == "window.width" {
@@ -589,7 +606,6 @@ impl<S: StateAccess + 'static> AppState<S> {
         let mut result = base_style.clone();
         
         if !base_style.responsive_rules.is_empty() {
-            eprintln!("🔍 [RUNTIME] レスポンシブスタイル解決開始: {} ルール", base_style.responsive_rules.len());
         }
         
         // responsive_rulesを評価
@@ -597,19 +613,13 @@ impl<S: StateAccess + 'static> AppState<S> {
             // 条件式を評価
             let condition_result = self.eval_expr_from_ast(&rule.condition);
             
-            eprintln!("   [RUNTIME] ルール{}: {:?} => '{}'", idx + 1, rule.condition, condition_result);
             if let Some([w, h]) = self.cached_window_size {
-                eprintln!("   [RUNTIME] 現在のウィンドウサイズ: {}x{}", w, h);
             } else {
-                eprintln!("   [RUNTIME] ⚠️ cached_window_size が None");
             }
             
             // 条件が真の場合、そのスタイルをマージ
             if condition_result == "true" {
-                eprintln!("   [RUNTIME] ✅ 条件が真: スタイルを適用");
                 result = result.merged(&rule.style);
-            } else {
-                eprintln!("   [RUNTIME] ❌ 条件が偽: スタイルをスキップ (結果='{}')", condition_result);
             }
         }
         
@@ -1188,4 +1198,56 @@ fn adjust_stencil_depth_dynamic(stencil: &mut Stencil, depth_counter: &mut f32) 
             }
         }
     }
+}
+
+// ★ ルーティング関連の実装
+impl<S: StateAccess + 'static> AppState<S> {
+    /// ルーターを初期化
+    pub fn initialize_router(&mut self, flow: &crate::parser::ast::Flow) {
+        self.router = Some(crate::engine::routing::Router::new(flow));
+    }
+    
+    /// Appからルーターを初期化し、必要ならURLから初期タイムラインを設定
+    pub fn initialize_router_from_app(&mut self, app: &crate::parser::ast::App) -> Option<String> {
+        let router = crate::engine::routing::Router::from_app(app);
+        
+        // 現在のURLから初期タイムラインを取得
+        let initial_timeline = router.get_timeline_from_current_url();
+        
+        self.router = Some(router);
+        initial_timeline
+    }
+    
+    /// パラメータ付きでタイムラインに遷移
+    pub fn navigate_with_params(&mut self, timeline: &str, params: HashMap<String, String>) {
+        if let Some(router) = &mut self.router {
+            if let Ok(()) = router.navigate_to_timeline(timeline, params.clone()) {
+                self.route_params = params;
+            }
+        }
+        
+        self.jump_to_timeline(timeline);
+    }
+    
+    /// 現在のルート情報を取得
+    pub fn get_route_info(&self) -> RouteInfo {
+        RouteInfo {
+            current_timeline: self.current_timeline.clone(),
+            current_url: self.router.as_ref()
+                .and_then(|r| match r {
+                    #[cfg(target_arch = "wasm32")]
+                    crate::engine::routing::Router::Wasm(wr) => wr.get_current_route().map(|s| s.to_string()),
+                    #[cfg(not(target_arch = "wasm32"))]
+                    crate::engine::routing::Router::Native(_) => None,
+                }),
+            params: self.route_params.clone(),
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct RouteInfo {
+    pub current_timeline: String,
+    pub current_url: Option<String>,
+    pub params: HashMap<String, String>,
 }

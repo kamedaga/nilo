@@ -531,7 +531,8 @@ where
 #[cfg(not(target_arch = "wasm32"))]
 pub fn run<S: StateAccess + 'static + Clone + std::fmt::Debug>(app: App, custom_state: S) {
     let start = app.flow.start.clone();
-    let state = AppState::new(custom_state, start);
+    let mut state = AppState::new(custom_state, start);
+    state.initialize_router(&app.flow);
     let app = Arc::new(app);
     run_internal(Arc::clone(&app), state);
 }
@@ -554,7 +555,8 @@ pub fn run_with_restart_flag<S: StateAccess + 'static + Clone + std::fmt::Debug>
     restart_flag: Arc<Mutex<bool>>
 ) {
     let start = app.flow.start.clone();
-    let state = AppState::new(custom_state, start);
+    let mut state = AppState::new(custom_state, start);
+    state.initialize_router(&app.flow);
     let app = Arc::new(app);
     run_internal_with_restart_flag(Arc::clone(&app), state, restart_flag);
 }
@@ -1198,7 +1200,8 @@ pub fn run_with_window_title<S: StateAccess + 'static + Clone + std::fmt::Debug>
     window_title: Option<&str>
 ) {
     let start = app.flow.start.clone();
-    let state = AppState::new(custom_state, start);
+    let mut state = AppState::new(custom_state, start);
+    state.initialize_router(&app.flow);
     let app = Arc::new(app);
 
     // env_logger::init(); // 削除: lib.rsで既に初期化されている

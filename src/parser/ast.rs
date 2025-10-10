@@ -3,6 +3,7 @@
 // ========================================
 
 use log::debug; // debug!マクロを使用するためのインポートを追加
+use std::collections::HashMap;
 
 // ========================================
 // メインアプリケーション構造
@@ -18,7 +19,28 @@ pub struct App {
 #[derive(Debug, Clone)]
 pub struct Flow {
     pub start: String,
-    pub transitions: Vec<(String, Vec<String>)>,
+    pub start_url: Option<String>,  // WASM用URL
+    pub transitions: Vec<FlowTransition>,
+}
+
+#[derive(Debug, Clone)]
+pub struct FlowTransition {
+    pub from: Vec<String>,
+    pub to: Vec<FlowTarget>,
+}
+
+#[derive(Debug, Clone)]
+pub struct FlowTarget {
+    pub timeline: String,
+    pub url: Option<String>,        // WASM用URL
+    pub params: std::collections::HashMap<String, UrlParam>,
+}
+
+#[derive(Debug, Clone)]
+pub enum UrlParam {
+    Required(String),   // :userId
+    Optional(String),   // :id?
+    Wildcard,           // *
 }
 
 // ========================================
@@ -36,6 +58,7 @@ pub struct NamespacedFlow {
 #[derive(Debug, Clone)]
 pub struct Timeline {
     pub name: String,
+    pub url_pattern: Option<String>,  // ★ 追加: タイムラインのURLパターン
     pub font: Option<String>,  // ★ 追加: タイムライン全体で使用するフォント
     pub body: Vec<WithSpan<ViewNode>>,
     pub whens: Vec<When>,
@@ -516,6 +539,7 @@ impl Default for App {
         Self {
             flow: Flow {
                 start: "Default".to_string(),
+                start_url: None,
                 transitions: vec![],
             },
             timelines: vec![],

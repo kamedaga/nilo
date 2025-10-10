@@ -1,7 +1,17 @@
+// Phase 1: URL連携対応版
 flow {
-  start: StartPage
-  StartPage -> [Dashboard, Settings, About]
-  [Dashboard, Settings, About] -> StartPage
+  start: StartPage("/")
+  StartPage -> [
+    Dashboard("/dashboard"), 
+    Settings("/settings"), 
+    About("/about")
+  ]
+  Dashboard -> [
+    UserDetail("/dashboard/users/:id"),
+    UserList("/dashboard/users"),
+    StartPage("/")
+  ]
+  [Settings, About] -> StartPage("/")
 }
 
 timeline StartPage {

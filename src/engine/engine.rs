@@ -1523,13 +1523,17 @@ impl Engine {
             .collect();
 
         if !clicked.is_empty() {
+            log::info!("Button clicked: {:?}", clicked);
             Self::handle_button_onclick(app, state, &clicked);
         }
 
         for (_i, when) in tl.whens.iter().enumerate() {
             if let EventExpr::ButtonPressed(target) = &when.event {
+                log::info!("Checking when block for target: '{}' against clicked: {:?}", target, clicked);
                 if clicked.iter().any(|&s| s == target) {
+                    log::info!("Processing when block for button: {}", target);
                     for (_j, action) in when.actions.iter().enumerate() {
+                        log::info!("Executing action: {:?}", action.node);
                         if let Some(new_tl) = Self::apply_action(app, state, action) {
                             return Some(new_tl);
                         }
@@ -1547,7 +1551,9 @@ impl Engine {
     {
         match &action.node {
             ViewNode::NavigateTo { target } => {
-                state.jump_to_timeline(target);
+                // ルーティング対応のナビゲーション（パラメータなし）
+                log::info!("Navigating to: {}", target);
+                state.navigate_with_params(target, std::collections::HashMap::new());
                 return Some(target.clone());
             }
             ViewNode::RustCall { name, args } => {

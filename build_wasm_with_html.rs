@@ -16,7 +16,8 @@ fn main() {
             "--target", "web",
             "--out-dir", "pkg",
             "--no-default-features",
-            "--features", "wasm",  
+            "--features", "wasm",
+            "--bin", "nilo",                           // main.rsをエントリーポイントに指定
         ])
         .status()
         .expect("Failed to execute wasm-pack");

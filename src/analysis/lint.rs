@@ -12,11 +12,11 @@ pub fn run_lints(app: &App) -> Vec<super::error::Diagnostic> {
     // タイムライン参照チェック
     let timeline_names: std::collections::HashSet<_> =
         app.timelines.iter().map(|t| t.name.as_str()).collect();
-    for (_from, to_list) in &app.flow.transitions {
-        for to in to_list {
-            if !timeline_names.contains(to.as_str()) {
+    for transition in &app.flow.transitions {
+        for target in &transition.to {
+            if !timeline_names.contains(target.timeline.as_str()) {
                 diags.push(super::error::Diagnostic::error(
-                    format!("Timeline '{}' referenced in flow but not defined", to),
+                    format!("Timeline '{}' referenced in flow but not defined", target.timeline),
                 ));
             }
         }
@@ -149,8 +149,11 @@ fn check_flow_consistency(app: &App, diags: &mut Vec<super::error::Diagnostic>) 
     let mut flow_transitions: std::collections::HashMap<String, std::collections::HashSet<String>> =
         std::collections::HashMap::new();
 
-    for (from, to_list) in &app.flow.transitions {
-        flow_transitions.insert(from.clone(), to_list.iter().cloned().collect());
+    for transition in &app.flow.transitions {
+        for from in &transition.from {
+            let targets: std::collections::HashSet<String> = transition.to.iter().map(|target| target.timeline.clone()).collect();
+            flow_transitions.insert(from.clone(), targets);
+        }
     }
 
     // 各timelineでnavigate_toの使用をチェック

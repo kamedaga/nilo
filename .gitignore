@@ -23,5 +23,7 @@ Thumbs.db
 *.bak
 *~
 *.txt
+
 TODO.md
+ROADMAP.md
 TYPE_SYSTEM_ROADMAP.md

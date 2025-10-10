@@ -10,7 +10,6 @@ crate-type = ["cdylib", "rlib"]
 [[bin]]
 name = "nilo"
 path = "src/main.rs"
-required-features = ["native"]
 
 [[bin]]
 name = "build_wasm_with_html"
@@ -39,6 +38,7 @@ serde = { version = "1.0.219", features = ["derive"] }
 lazy_static = "1.5.0"
 nilo_state_access_derive = { path = "./nilo_state_access_derive" }
 log = "0.4.27"
+regex = "1.11"
 
 # WASM専用の依存関係
 wasm-bindgen = { version = "0.2", optional = true }
@@ -48,6 +48,8 @@ web-sys = { version = "0.3", features = [
     "Document", 
     "HtmlElement", 
     "MouseEvent",
+    "History",
+    "Location",
     "WheelEvent",
     "CssStyleDeclaration",
     "Element",

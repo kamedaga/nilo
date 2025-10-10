@@ -54,7 +54,7 @@ Text("<format>", arg1?, arg2?, ..., style?)
 
 ### 2.2 ボタン
 ```
-Button(<id>, "<label>", onclick?, style?)
+Button(id: <id>, label: "<label>", onclick?, style?)
 ```
 - `<id>` は識別子 or 文字列。イベントは `when user.click(<id>) { ... }`。
 - `onclick` に `func_name!()` で Rust コール（任意、§8）。
@@ -130,7 +130,7 @@ Text("<format>", arg1?, arg2?, ..., style?)
 
 ### 2.2 ボタン
 ```
-Button(<id>, "<label>", onclick?, style?)
+Button(id: <id>, label: "<label>", onclick?, style?)
 ```
 - `<id>` は識別子 or 文字列。イベントは `when user.click(<id>) { ... }`。
 - `onclick` に `func_name!()` で Rust コール（任意、§8）。
