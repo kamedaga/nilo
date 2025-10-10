@@ -84,6 +84,7 @@ action_node = _{
       state_set
     | state_toggle
     | list_append
+    | list_insert
     | list_remove
     | list_clear
     | rust_call
@@ -91,6 +92,7 @@ action_node = _{
 
 view_node = _{
       list_append
+    | list_insert
     | list_remove
     | list_clear
     | vstack_node
@@ -167,9 +169,10 @@ type_annotation = { ":" ~ type_expr }
 type_expr = { primitive_type ~ "[]"* }
 primitive_type = { "number" | "string" | "bool" | "any" }
 
-// 関数呼び出し風の構文に変更
+// リスト操作の関数呼び出し風構文
 list_append = { "append" ~ "(" ~ path ~ "," ~ expr ~ ")" }
-list_remove = { "remove" ~ "(" ~ path ~ "," ~ number ~ ")" }
+list_insert = { "insert" ~ "(" ~ path ~ "," ~ number ~ "," ~ expr ~ ")" }
+list_remove = { "remove" ~ "(" ~ path ~ "," ~ expr ~ ")" }
 list_clear = { "clear" ~ "(" ~ path ~ ")" }
 
 // ステンシルは限定的に定義する
@@ -190,8 +193,9 @@ foreach_iterable = { path | ident }
 foreach_style = { "(" ~ style_arg ~ ")" }
 if_node = { "if" ~ expr ~ ("(" ~ style_arg? ~ ")")? ~ "{" ~ view_nodes? ~ "}" ~ ("else" ~ "{" ~ view_nodes? ~ "}")? }
 
-// パス識別子の定義
-path = @{ ident ~ ("." ~ ident)* }
+// パス識別子の定義（プロパティアクセス対応、メソッド呼び出し含む）
+method_call = { ident ~ "(" ~ ")" }
+path = @{ ident ~ ("." ~ (method_call | ident))* }
 
 button_id = { "id" ~ ":" ~ ident }
 button_label = { "label" ~ ":" ~ string }

@@ -1,7 +1,7 @@
 // リリースビルド時(not debug_assertions)にWindowsでコンソールウィンドウを非表示
 //#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 const MY_FONT: &[u8] = include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/fonts/NotoSansJP-Regular.ttf"));
-const APP_NILO: &str = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/app.nilo"));
+const APP_NILO: &str = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/list_operations_test.nilo"));
 
 use nilo;
 use nilo::engine::rust_call::register_rust_call;
@@ -16,6 +16,10 @@ nilo::nilo_state! {
         ifbool: bool,
         frame_count: u32,
         elapsed_time: f32,
+        show_section: bool,
+        items_count: i32,
+        filter_enabled: bool,
+        next_item_value: i32,
     }
 }
 
@@ -44,10 +48,14 @@ fn main() {
         ifbool: true,
         frame_count: 0,
         elapsed_time: 0.0,
+        show_section: true,
+        items_count: 3,
+        filter_enabled: false,
+        next_item_value: 4,
     };
 
     // 自動で埋め込みファイルを使用するマクロを呼び出し
-    nilo::run_nilo_app!("app.nilo", state, &cli_args, Some("Nilo Tutorial"));
+    nilo::run_nilo_app!("list_operations_test.nilo", state, &cli_args, Some("List Operations Test"));
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -79,6 +87,10 @@ pub fn wasm_main() {
         ifbool: true,
         frame_count: 0,
         elapsed_time: 0.0,
+        show_section: true,
+        items_count: 3,
+        filter_enabled: false,
+        next_item_value: 4,
     };
 
     // DOMレンダラーでNiloアプリを実行

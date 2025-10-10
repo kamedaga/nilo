@@ -190,6 +190,10 @@ pub struct AppState<S> {
     
     /// 動的セクションのキャッシュ（セクション名 -> (状態ハッシュ, ステンシル, ボタン)）
     pub dynamic_section_cache: HashMap<String, (u64, Vec<Stencil>, Vec<(String, [f32; 2], [f32; 2])>)>,
+    
+    /// レイアウトキャッシュ（状態ハッシュ -> レイアウト結果）
+    pub layout_cache: HashMap<u64, Vec<crate::ui::LayoutedNode<'static>>>,
+    pub last_state_hash: Option<u64>,
 
     // ★ レイアウト差分計算エンジン
     /// 静的部分のレイアウト差分エンジン
@@ -227,6 +231,8 @@ impl<S> AppState<S> {
             component_context: ComponentContext::new(),
             last_hovered_button: None,
             dynamic_section_cache: HashMap::new(),
+            layout_cache: HashMap::new(),
+            last_state_hash: None,
             layout_diff_static: None,
             layout_diff_dynamic: None,
             focused_text_input: None,
@@ -372,6 +378,30 @@ impl<S: StateAccess + 'static> AppState<S> {
                 if s == "window.height" {
                     if let Some([_, h]) = self.cached_window_size {
                         return h.to_string();
+                    }
+                    return "0".to_string();
+                }
+
+                // ★ .len()プロパティアクセスの処理
+                if s.ends_with(".len()") {
+                    let base_path = s.strip_suffix(".len()").unwrap();
+                    
+                    // state.items.len() の場合
+                    if base_path.starts_with("state.") {
+                        let field_name = base_path.strip_prefix("state.").unwrap();
+                        if let Some(v) = <S as crate::engine::state::StateAccess>::get_field(&self.custom_state, field_name) {
+                            // 配列の場合は要素数を返す
+                            if let Ok(arr) = serde_json::from_str::<Vec<serde_json::Value>>(&v) {
+                                return arr.len().to_string();
+                            }
+                        }
+                    } else {
+                        // 通常の変数の場合
+                        if let Some(v) = self.variables.get(base_path) {
+                            if let Ok(arr) = serde_json::from_str::<Vec<serde_json::Value>>(v) {
+                                return arr.len().to_string();
+                            }
+                        }
                     }
                     return "0".to_string();
                 }
@@ -1107,7 +1137,8 @@ pub trait StateAccess {
     fn set(&mut self, _path: &str, _value: String) -> Result<(), String>;
     fn toggle(&mut self, _path: &str) -> Result<(), String>;
     fn list_append(&mut self, _path: &str, _value: String) -> Result<(), String>;
-    fn list_remove(&mut self, _path: &str, _index: usize) -> Result<(), String>;
+    fn list_insert(&mut self, _path: &str, _index: usize, _value: String) -> Result<(), String>;
+    fn list_remove(&mut self, _path: &str, _value: String) -> Result<(), String>;
     fn list_clear(&mut self, _path: &str) -> Result<(), String>;
 }
 

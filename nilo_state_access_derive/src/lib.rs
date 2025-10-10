@@ -167,14 +167,79 @@ pub fn derive_state_access(input: TokenStream) -> TokenStream {
         }
     });
 
+    // ---- list_insert ----
+    let list_insert_arms = fs.iter().map(|f| {
+        let field = &f.ident; let key = &f.key;
+        if let Some(inner) = vec_inner(&f.ty) {
+            if is_ty(&inner, "String") {
+                quote! { #key => { 
+                    if index <= self.#field.len() {
+                        self.#field.insert(index, value); 
+                        Ok(())
+                    } else {
+                        Err("Index out of bounds".to_string())
+                    }
+                } }
+            } else if is_ty(&inner, "bool") {
+                quote! { #key => {
+                    if index <= self.#field.len() {
+                        let v = matches!(value.as_str(),"true"|"1"|"True"|"TRUE");
+                        self.#field.insert(index, v);
+                        Ok(())
+                    } else {
+                        Err("Index out of bounds".to_string())
+                    }
+                } }
+            } else {
+                quote! { #key => {
+                    if index <= self.#field.len() {
+                        let v = value.parse::<#inner>().map_err(|e| format!("parse {} item: {}", #key, e))?;
+                        self.#field.insert(index, v); 
+                        Ok(())
+                    } else {
+                        Err("Index out of bounds".to_string())
+                    }
+                } }
+            }
+        } else {
+            quote! { #key => { Err(format!("{} is not a list", #key)) } }
+        }
+    });
+
     // ---- list_remove ----
     let list_remove_arms = fs.iter().map(|f| {
         let field = &f.ident; let key = &f.key;
-        if vec_inner(&f.ty).is_some() {
-            quote! { #key => {
-                if index < self.#field.len() { self.#field.remove(index); }
-                Ok(())
-            } }
+        if let Some(inner) = vec_inner(&f.ty) {
+            if is_ty(&inner, "String") {
+                quote! { #key => {
+                    if let Some(pos) = self.#field.iter().position(|x| *x == value) {
+                        self.#field.remove(pos);
+                        Ok(())
+                    } else {
+                        Err(format!("Item {} not found", value))
+                    }
+                } }
+            } else if is_ty(&inner, "bool") {
+                quote! { #key => {
+                    let target = matches!(value.as_str(),"true"|"1"|"True"|"TRUE");
+                    if let Some(pos) = self.#field.iter().position(|x| *x == target) {
+                        self.#field.remove(pos);
+                        Ok(())
+                    } else {
+                        Err(format!("Item {} not found", value))
+                    }
+                } }
+            } else {
+                quote! { #key => {
+                    let v = value.parse::<#inner>().map_err(|e| format!("parse {} item: {}", #key, e))?;
+                    if let Some(pos) = self.#field.iter().position(|x| *x == v) {
+                        self.#field.remove(pos);
+                        Ok(())
+                    } else {
+                        Err(format!("Item {} not found", value))
+                    }
+                } }
+            }
         } else {
             quote! { #key => { Err(format!("{} is not a list", #key)) } }
         }
@@ -207,7 +272,10 @@ pub fn derive_state_access(input: TokenStream) -> TokenStream {
             fn list_append(&mut self, path: &str, value: String) -> Result<(), String> {
                 match path { #(#list_append_arms,)* _ => Err(format!("unknown field: {}", path)) }
             }
-            fn list_remove(&mut self, path: &str, index: usize) -> Result<(), String> {
+            fn list_insert(&mut self, path: &str, index: usize, value: String) -> Result<(), String> {
+                match path { #(#list_insert_arms,)* _ => Err(format!("unknown field: {}", path)) }
+            }
+            fn list_remove(&mut self, path: &str, value: String) -> Result<(), String> {
                 match path { #(#list_remove_arms,)* _ => Err(format!("unknown field: {}", path)) }
             }
             fn list_clear(&mut self, path: &str) -> Result<(), String> {

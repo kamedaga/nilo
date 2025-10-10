@@ -198,6 +198,7 @@ impl Engine {
     where
         S: crate::engine::state::StateAccess + 'static,
     {
+        // layout_static_partログを削除
         // ★ レスポンシブスタイルを解決
         let resolved_nodes = Self::resolve_responsive_nodes(nodes, state);
         
@@ -275,101 +276,9 @@ impl Engine {
     {
         for lnode in layouted {
             match &lnode.node.node {
-                ViewNode::DynamicSection { name, body } => {
-                    // 動的セクション内で使用されているstate変数を抽出
-                    let state_fields = Self::extract_state_fields(body);
-                    let field_refs: Vec<&str> = state_fields.iter().map(|s| s.as_str()).collect();
-                    
-                    // 現在の状態ハッシュを計算
-                    let current_hash = Self::compute_state_hash(&state.custom_state, &field_refs);
-                    
-                    // キャッシュをチェック
-                    let cache_key = name.clone();
-                    let use_cache = if let Some((cached_hash, _, _)) = state.dynamic_section_cache.get(&cache_key) {
-                        *cached_hash == current_hash
-                    } else {
-                        false
-                    };
-                    
-                    if use_cache {
-                        // キャッシュから取得
-                        if let Some((_, cached_stencils, cached_buttons)) = state.dynamic_section_cache.get(&cache_key) {
-                            stencils.extend(cached_stencils.clone());
-                            buttons.extend(cached_buttons.clone());
-                            continue;
-                        }
-                    }
-                    
-                    // キャッシュが無効または存在しない場合は再計算
-                    let mut section_stencils = Vec::new();
-                    let mut section_buttons = Vec::new();
-                    
-                    // DynamicSectionの背景を描画（スタイルがあれば）
-                    if let Some(style) = &lnode.node.style {
-                        Self::render_dynamic_section_background(lnode, style, &mut section_stencils);
-                    }
-                    
-                    // DynamicSection内部のコンテンツをレイアウト・描画
-                    let padding = lnode.node.style.as_ref()
-                        .and_then(|s| s.padding)
-                        .unwrap_or_default();
-                    
-                    let inner_params = LayoutParams {
-                        start: [
-                            lnode.position[0] + padding.left,
-                            lnode.position[1] + padding.top
-                        ],
-                        spacing: 8.0,
-                        window_size,
-                        parent_size: [
-                            lnode.size[0] - padding.left - padding.right,
-                            lnode.size[1] - padding.top - padding.bottom
-                        ],
-                        root_font_size: 16.0,
-                        font_size: 16.0,
-                        default_font: default_font.to_string(),
-                    };
-                    
-                    let eval_fn = |e: &Expr| state.eval_expr_from_ast(e);
-                    let get_img_size = |path: &str| state.get_image_size(path);
-                    let inner_layouted = crate::ui::layout::layout_vstack(
-                        body,
-                        inner_params.clone(),
-                        app,
-                        &eval_fn,
-                        &get_img_size
-                    );
-                    
-                    // 内部のノードを描画（DynamicSectionがネストしている場合も対応）
-                    let (inner_stencils, inner_buttons) = Self::layout_nodes_lightweight(
-                        app, state, body, inner_params, mouse_pos, mouse_down, prev_mouse_down, 1
-                    );
-                    section_stencils.extend(inner_stencils);
-                    section_buttons.extend(inner_buttons);
-                    
-                    // さらにネストしたDynamicSectionを探索
-                    Self::collect_dynamic_sections(
-                        &inner_layouted,
-                        app,
-                        state,
-                        &mut section_stencils,
-                        &mut section_buttons,
-                        mouse_pos,
-                        mouse_down,
-                        prev_mouse_down,
-                        window_size,
-                        default_font,
-                    );
-                    
-                    // 結果を追加
-                    stencils.extend(section_stencils.clone());
-                    buttons.extend(section_buttons.clone());
-                    
-                    // キャッシュに保存
-                    state.dynamic_section_cache.insert(
-                        cache_key,
-                        (current_hash, section_stencils, section_buttons)
-                    );
+                ViewNode::DynamicSection { name: _, body: _ } => {
+                    // DynamicSectionはレイアウト段階で展開済みなので、ここでは何もしない
+                    // 実際の子要素は既にレイアウト済みでrenderingされる
                 }
                 ViewNode::VStack(children) | ViewNode::HStack(children) => {
                     // VStack/HStack内のDynamicSectionも処理
@@ -510,6 +419,7 @@ impl Engine {
     where
         S: crate::engine::state::StateAccess + 'static,
     {
+
         let mut stencils = Vec::new();
         let mut buttons = Vec::new();
         let mut depth_counter = (nest_level as f32) * 0.1;
@@ -551,9 +461,10 @@ impl Engine {
                     state.handle_rust_call_viewnode(name, &args);
                 }
                 ViewNode::ForEach { var, iterable, body } => {
+                    // レンダリング段階でForeach変数を適切に設定してレンダリング
                     let window_size = params.window_size;
                     let spacing = params.spacing;
-                    Self::render_foreach_optimized(lnode, var, iterable, &body, app, state, &mut stencils, &mut depth_counter, window_size, spacing);
+                    Self::render_foreach_for_layout(lnode, var, iterable, &body, app, state, &mut stencils, &mut depth_counter, window_size, spacing);
                 }
                 ViewNode::If { condition, then_body, else_body } => {
                     Self::render_if_optimized(lnode, condition, &then_body, else_body, state, &mut stencils, &mut depth_counter, params.window_size, params.parent_size);
@@ -1088,6 +999,93 @@ impl Engine {
         }
     }
 
+    /// レイアウト済みのForeachノードをレンダリング
+    fn render_foreach_for_layout<S>(
+        lnode: &crate::ui::LayoutedNode<'_>,
+        var: &str,
+        iterable: &Expr,
+        body: &[WithSpan<ViewNode>],
+        app: &App,
+        state: &mut AppState<S>,
+        stencils: &mut Vec<Stencil>,
+        depth_counter: &mut f32,
+        window_size: [f32; 2],
+        spacing: f32,
+    ) where
+        S: crate::engine::state::StateAccess + 'static,
+    {
+        log::info!("render_foreach_for_layout: 開始！var={}, iterable={:?}", var, iterable);
+        let iterable_value = state.eval_expr_from_ast(iterable);
+        let items: Vec<String> = if iterable_value.starts_with('[') && iterable_value.ends_with(']') {
+            serde_json::from_str::<Vec<serde_json::Value>>(&iterable_value)
+                .map(|vs| vs.into_iter().map(|v| match v {
+                    serde_json::Value::String(s) => s,
+                    serde_json::Value::Number(n) => n.to_string(),
+                    serde_json::Value::Bool(b) => b.to_string(),
+                    _ => v.to_string()
+                }).collect())
+                .unwrap_or_default()
+        } else {
+            vec![iterable_value]
+        };
+
+        let item_height = lnode.size[1] / items.len().max(1) as f32;
+        
+        for (idx, item) in items.iter().enumerate() {
+            // foreach変数を設定
+            state.component_context.enter_foreach();
+            state.component_context.set_foreach_var(var.to_string(), item.clone());
+            state.component_context.set_foreach_var(format!("{}_index", var), idx.to_string());
+
+            // 各アイテムの位置を計算
+            let item_y = lnode.position[1] + (idx as f32) * (item_height + spacing);
+            
+            // bodyの各要素をレンダリング
+            for child in body {
+                match &child.node {
+                    ViewNode::Text { format, args } => {
+                        // Textノードを直接レンダリング（foreach変数を使用）
+                        let format_expanded = state.eval_expr_from_ast(&Expr::String(format.clone()));
+                        let args_expanded: Vec<String> = args.iter().map(|arg| {
+                            log::info!("render_foreach_for_layout: 評価前 arg={:?}, 現在のforeach変数 {}={}", arg, var, item);
+                            let result = state.eval_expr_from_ast(arg);
+                            log::info!("render_foreach_for_layout: 評価後 result={}", result);
+                            if result == "item" {
+                                log::error!("ERROR: foreach変数 'item' が置換されていません！現在の値: {}", item);
+                                log::error!("ERROR: component_contextの状態を確認してください");
+                            }
+                            result
+                        }).collect();
+                        
+                        // 簡単なフォーマット処理
+                        let mut text = format_expanded;
+                        for arg in args_expanded {
+                            text = text.replacen("{}", &arg, 1);
+                        }
+                        
+                        // テキストステンシルを作成
+                        let text_stencil = crate::stencil::stencil::Stencil::Text {
+                            content: text,
+                            position: [lnode.position[0], item_y],
+                            size: 14.0,
+                            color: [1.0, 1.0, 1.0, 1.0],
+                            font: "default".to_string(),
+                            max_width: Some(lnode.size[0]),
+                            scroll: true,
+                            depth: *depth_counter,
+                        };
+                        stencils.push(text_stencil);
+                    }
+                    _ => {
+                        // 他のノード型は省略（必要に応じて実装）
+                    }
+                }
+            }
+            
+            state.component_context.exit_foreach();
+        }
+    }
+
     fn render_if_optimized<S>(
         lnode: &crate::ui::LayoutedNode<'_>,
         condition: &Expr,
@@ -1606,23 +1604,49 @@ impl Engine {
                     state.variables.insert(key, serde_json::to_string(&arr).unwrap());
                 }
             }
-            ViewNode::ListRemove { path, index } => {
+            ViewNode::ListInsert { path, index, value } => {
                 if path.starts_with("state.") {
                     let key = path.strip_prefix("state.").unwrap().to_string();
+                    let v = state.eval_expr_from_ast(value);
 
                     // state.xxxアクセス時はエラーでクラッシュ
-                    if let Err(e) = state.custom_state.list_remove(&key, *index) {
-                        panic!("Failed to remove from state.{}: {:?}. State access failed - this should crash the application.", key, e);
+                    if let Err(e) = state.custom_state.list_insert(&key, *index, v.clone()) {
+                        panic!("Failed to insert into state.{}: {:?}. State access failed - this should crash the application.", key, e);
                     }
                 } else {
                     let key = path.to_string();
+                    let v = state.eval_expr_from_ast(value);
                     let mut arr: Vec<String> = state
                         .variables
                         .get(&key)
                         .and_then(|s| serde_json::from_str(s).ok())
                         .unwrap_or_default();
-                    if *index < arr.len() {
-                        arr.remove(*index);
+                    if *index <= arr.len() {
+                        arr.insert(*index, v);
+                        state.variables.insert(key, serde_json::to_string(&arr).unwrap());
+                    }
+                }
+            }
+            ViewNode::ListRemove { path, value } => {
+                if path.starts_with("state.") {
+                    let key = path.strip_prefix("state.").unwrap().to_string();
+                    let v = state.eval_expr_from_ast(value);
+
+                    // state.xxxアクセス時はエラーでクラッシュ
+                    if let Err(e) = state.custom_state.list_remove(&key, v.clone()) {
+                        panic!("Failed to remove from state.{}: {:?}. State access failed - this should crash the application.", key, e);
+                    }
+                } else {
+                    let key = path.to_string();
+                    let v = state.eval_expr_from_ast(value);
+                    let mut arr: Vec<String> = state
+                        .variables
+                        .get(&key)
+                        .and_then(|s| serde_json::from_str(s).ok())
+                        .unwrap_or_default();
+                    // 値に一致する最初の要素を削除
+                    if let Some(pos) = arr.iter().position(|x| x == &v) {
+                        arr.remove(pos);
                         state.variables.insert(key, serde_json::to_string(&arr).unwrap());
                     }
                 }

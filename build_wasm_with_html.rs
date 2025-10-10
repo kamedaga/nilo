@@ -47,6 +47,8 @@ fn main() {
     
     println!("\n🎉 Build complete! To test:");
     println!("   cd pkg && python -m http.server 8000");
+    println!("   http-server -p 8000");
+    println!("   Or use any static file server of your choice.");
     println!("   Then open: http://localhost:8000");
 }
 

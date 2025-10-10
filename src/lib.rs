@@ -10,10 +10,6 @@ pub mod engine;
 pub mod hotreload;
 pub mod analysis;
 
-// WASM専用エントリーポイント
-#[cfg(target_arch = "wasm32")]
-pub mod wasm_entry;
-
 use parser::{parse_nilo_file, parse_embedded_nilo, ast::App};
 #[cfg(feature = "colored")]
 use colored::*;
@@ -21,6 +17,10 @@ use std::env;
 use log::{info, error}; // ログマクロを追加
 use std::sync::{RwLock, OnceLock};
 use std::collections::HashMap;
+
+// WASM用の依存関係
+#[cfg(target_arch = "wasm32")]
+use wasm_bindgen::prelude::*;
 
 pub use engine::exec::{AppState, StateAccess};
 #[cfg(not(target_arch = "wasm32"))]
@@ -565,4 +565,130 @@ where
     
     // DOM環境でアプリを実行
     engine::runtime_dom::run_dom(app, state);
+}
+
+// WASM専用のエントリーポイント
+
+// dynamic_foreach_test.niloの内容をコンパイル時に埋め込み
+#[cfg(target_arch = "wasm32")]
+const WASM_NILO_SOURCE: &str = include_str!("list_operations_test.nilo");
+
+// フォントデータを埋め込み
+#[cfg(target_arch = "wasm32")]
+const WASM_FONT: &[u8] = include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/fonts/NotoSansJP-Regular.ttf"));
+
+// dynamic_foreach_test.nilo用のState構造体
+#[cfg(target_arch = "wasm32")]
+#[derive(Debug, Clone)]
+struct WasmTestState {
+    items: Vec<i32>,
+    next_item_value: i32,
+}
+
+#[cfg(target_arch = "wasm32")]
+impl Default for WasmTestState {
+    fn default() -> Self {
+        Self {
+            items: vec![1, 2, 3],
+            next_item_value: 4,
+        }
+    }
+}
+
+#[cfg(target_arch = "wasm32")]
+impl engine::state::StateAccess for WasmTestState {
+    fn get_field(&self, key: &str) -> Option<String> {
+        match key {
+            "items" => Some(format!("{:?}", self.items)),
+            "next_item_value" => Some(self.next_item_value.to_string()),
+            _ => None,
+        }
+    }
+    
+    fn set(&mut self, path: &str, value: String) -> Result<(), String> {
+        match path {
+            "next_item_value" => {
+                self.next_item_value = value.parse().map_err(|e| format!("Failed to parse next_item_value: {}", e))?;
+                Ok(())
+            }
+            _ => Err(format!("Unknown field: {}", path))
+        }
+    }
+    
+    fn toggle(&mut self, _path: &str) -> Result<(), String> {
+        Ok(())
+    }
+    
+    fn list_append(&mut self, path: &str, value: String) -> Result<(), String> {
+        match path {
+            "items" => {
+                let item: i32 = value.parse().map_err(|e| format!("Failed to parse item: {}", e))?;
+                self.items.push(item);
+                Ok(())
+            }
+            _ => Err(format!("Unknown list field: {}", path))
+        }
+    }
+    
+    fn list_insert(&mut self, path: &str, index: usize, value: String) -> Result<(), String> {
+        match path {
+            "items" => {
+                let item: i32 = value.parse().map_err(|e| format!("Failed to parse item: {}", e))?;
+                if index <= self.items.len() {
+                    self.items.insert(index, item);
+                    Ok(())
+                } else {
+                    Err("Index out of bounds".to_string())
+                }
+            }
+            _ => Err(format!("Unknown list field: {}", path))
+        }
+    }
+    
+    fn list_remove(&mut self, path: &str, value: String) -> Result<(), String> {
+        match path {
+            "items" => {
+                let item: i32 = value.parse().map_err(|e| format!("Failed to parse item: {}", e))?;
+                if let Some(pos) = self.items.iter().position(|x| *x == item) {
+                    self.items.remove(pos);
+                    Ok(())
+                } else {
+                    Err(format!("Item {} not found", item))
+                }
+            }
+            _ => Err(format!("Unknown list field: {}", path))
+        }
+    }
+    
+    fn list_clear(&mut self, path: &str) -> Result<(), String> {
+        match path {
+            "items" => {
+                self.items.clear();
+                Ok(())
+            }
+            _ => Err(format!("Unknown list field: {}", path))
+        }
+    }
+}
+
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen(start)]
+pub fn wasm_main() {
+    // パニック時のエラーメッセージをブラウザコンソールに表示
+    console_error_panic_hook::set_once();
+    
+    // WebAssembly用のロガーを初期化
+    console_log::init_with_level(log::Level::Debug).expect("error initializing log");
+
+    log::info!("Nilo WASM starting...");
+    log::info!("Loading list_operations_test.nilo...");
+
+    // カスタムフォントを登録
+    set_custom_font("japanese", WASM_FONT);
+
+    // 初期状態を作成
+    let state = WasmTestState::default();
+
+    // DOMレンダラーでNiloアプリを実行
+    run_nilo_wasm(WASM_NILO_SOURCE, state);
 }

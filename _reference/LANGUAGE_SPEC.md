@@ -28,6 +28,7 @@
 
 ### 1.4 式（Expression）
 - リテラル / 識別子 / **パス式** `state.user.name`
+- **メソッド呼び出し** `state.items.len()` — Vector型フィールドの長さ取得
 - 配列 `[e1, e2, ...]` / オブジェクト `{ key: expr, ... }`
 - 二項算術 `+ - * /` （例: `state.count + 1`）
 - 関数呼び出し糖衣 `rust_func!(arg1, {...})`（§8）
@@ -278,10 +279,25 @@ match state.route {
 ### 6.2 状態操作（State Ops）
 - `set state.path.to.field = <expr>`
 - トグル: `state.flag = !state.flag`（同一パス前提）
-- 参照透過の関数形式:
-    - `append(state.items, <value>)`
-    - `remove(state.items, <index>)`（0 起算）
-    - `clear(state.items)`
+
+#### 6.2.1 リスト操作（Vector型フィールド限定）
+- `append(state.items, <value>)` — リスト末尾に値を追加
+- `insert(state.items, <index>, <value>)` — 指定位置に値を挿入
+- `remove(state.items, <value>)` — 指定値と一致する最初の要素を削除
+- `clear(state.items)` — リストを空にする
+
+#### 6.2.2 リスト長取得
+- `state.items.len()` — リストの要素数を取得（式で使用可能）
+
+**型制約**:
+- リスト操作は `Vec<T>` 型のフィールドにのみ適用可能
+- 非Vector型フィールドへの操作は「not a list」エラー
+- 内部型は自動パース: `Vec<String>`, `Vec<i32>`, `Vec<bool>` など対応
+
+**エラーハンドリング**:
+- `insert`: インデックス範囲外で「Index out of bounds」
+- `remove`: 値が存在しない場合「Item not found」
+- パース失敗時は詳細なエラーメッセージ
 
 > 状態変更は即座に UI 再評価の対象。存在しないフィールドはエラー。
 
@@ -391,9 +407,58 @@ timeline Result {
 }
 ```
 
+### 10.1 リスト操作の実例
+
+```nilo
+flow {
+  start: ListDemo
+}
+
+timeline ListDemo {
+  VStack(style: { spacing: 15px, padding: 20px }) {
+    Text("リスト操作デモ", style: { font_size: 24px })
+    Text("要素数: {}", state.items.len(), style: { font_size: 16px })
+    
+    // リスト内容表示
+    foreach item in state.items {
+      Text("アイテム: {}", item, style: { 
+        padding: 5px, 
+        background: "#333333" 
+      })
+    }
+    
+    // 操作ボタン
+    HStack(style: { gap: 10px }) {
+      Button(id: add_btn, label: "追加")
+      Button(id: insert_btn, label: "先頭挿入")  
+      Button(id: remove_btn, label: "削除")
+      Button(id: clear_btn, label: "全削除")
+    }
+  }
+  
+  when user.click(add_btn) {
+    append(state.items, state.next_value)
+    set state.next_value = state.next_value + 1
+  }
+  
+  when user.click(insert_btn) {
+    insert(state.items, 0, state.next_value)
+    set state.next_value = state.next_value + 1
+  }
+  
+  when user.click(remove_btn) {
+    remove(state.items, 1)  // 値"1"を削除
+  }
+  
+  when user.click(clear_btn) {
+    clear(state.items)
+  }
+}
+```
+
 ---
 
-## 11. 既知の制約（2025-09 時点）
+## 11. 既知の制約（2025-10 時点）
 - `SpacingAuto` は固定扱い（伸縮空白は将来対応）
 - コンポーネント内 `when` はイベント伝播未確立の実装がある
 - Timeline 直下 `font` の反映は実装差あり（AST には保持）
@@ -424,8 +489,11 @@ DynamicSection := "dynamic_section" Ident "(" Style? ")" Block
 Block      := "{" (View | Action | Control)* "}"
 Action     := Navigate | StateOp | RustCall
 Navigate   := "navigate_to" "(" State ")"
-StateOp    := "set" Path "=" Expr | "append" "(" Path "," Expr ")"
-            | "remove" "(" Path "," Number ")" | "clear" "(" Path ")"
+StateOp    := "set" Path "=" Expr | ListOp
+ListOp     := "append" "(" Path "," Expr ")"
+            | "insert" "(" Path "," Number "," Expr ")"
+            | "remove" "(" Path "," Expr ")" 
+            | "clear" "(" Path ")"
 RustCall   := Ident "!" "(" ArgList? ")"
 Control    := If | Foreach | Match
 If         := "if" Expr "(" Style? ")"? Block ("else" Block)?
@@ -434,8 +502,10 @@ Match      := "match" Expr "(" Style? ")"? "{" (Case+ Default?) "}"
 Case       := "case" Expr Block
 Default    := "default" Block
 
-Expr       := ...（リテラル/配列/オブジェクト/パス/二項算術）
+Expr       := Literal | Array | Object | Path | BinaryOp | MethodCall
 Path       := "state" ("." Ident)+
+MethodCall := Path "." Method "(" ")"
+Method     := "len"
 Style      := "style:" Object
 ArgList    := Expr ("," Expr)*
 Qualified  := Ident ("::" Ident)+

@@ -314,6 +314,10 @@ impl LayoutEngine {
             ViewNode::ForEach { var, iterable, body } => {
                 self.compute_foreach_size(var, iterable, body, context, eval, get_image_size, app)
             }
+            ViewNode::DynamicSection { name: _, body } => {
+                // DynamicSectionの内容のサイズを計算
+                self.compute_vstack_size(body, None, context, eval, get_image_size, app)
+            }
             // 状態操作ノード（Set, RustCallなど）はUIに干渉しない
             ViewNode::Set { .. } | ViewNode::RustCall { .. } => {
                 ComputedSize {
@@ -1306,21 +1310,26 @@ impl LayoutEngine {
             
             // 特別な処理が必要なノードタイプをチェック
             match &child.node {
-                ViewNode::ForEach { var: _, iterable: _, body: _ } => {
-                    // Foreach文用のプレースホルダー LayoutedNode を作成
-                    // 実際の展開は render_foreach_optimized で行う
-
-                    
-                    let layouted_node = LayoutedNode {
-                        node: child,
-                        position: child_position,
-                        size: [0.0, 0.0], // プレースホルダーサイズ
-                    };
-                    results.push(layouted_node);
+                ViewNode::ForEach { var, iterable, body } => {
+                    // Foreach文を展開してレイアウト
+                    self.layout_foreach_recursive(var, iterable, body, &child_context, child_position, eval, get_image_size, app, &mut results);
                 }
                 ViewNode::If { condition, then_body, else_body } => {
                     // If文を直接処理
                     self.layout_if_recursive(condition, then_body, else_body.as_ref(), &child_context, child_position, eval, get_image_size, app, &mut results);
+                }
+                ViewNode::DynamicSection { name: _, body } => {
+                    // DynamicSectionを展開してレイアウト
+                    let child_results = self.layout_with_positioning(
+                        body,
+                        &child_context,
+                        [child_size.width, available_size[1] - current_y],
+                        child_position,
+                        eval,
+                        get_image_size,
+                        app,
+                    );
+                    results.extend(child_results);
                 }
                 _ => {
                     // 通常のノードを再帰的にレイアウト
@@ -1474,65 +1483,184 @@ impl LayoutEngine {
         F: Fn(&Expr) -> String,
         G: Fn(&str) -> (u32, u32),
     {
-        // 反復対象の評価
+        // 配列の値を取得
         let iterable_value = eval(iterable);
-
+        
+        // 簡単な配列パース：[1, 2, 3] -> ["1", "2", "3"]
         let items: Vec<String> = if iterable_value.starts_with('[') && iterable_value.ends_with(']') {
-            // JSON配列として解析を試行
-            serde_json::from_str::<Vec<serde_json::Value>>(&iterable_value)
-                .map(|vs| vs.into_iter().map(|v| match v {
-                    serde_json::Value::String(s) => s,
-                    serde_json::Value::Number(n) => n.to_string(),
-                    serde_json::Value::Bool(b) => b.to_string(),
-                    _ => v.to_string().trim_matches('"').to_string(),
-                }).collect())
-                .unwrap_or_else(|_| vec![iterable_value])
+            let inner = &iterable_value[1..iterable_value.len()-1];
+            if inner.trim().is_empty() {
+                vec![]
+            } else {
+                inner.split(',')
+                    .map(|s| s.trim().to_string())
+                    .collect()
+            }
         } else {
             vec![iterable_value]
         };
         
-
+        // パフォーマンス最適化：デバッグ出力を削除
         
         let mut current_y = position[1];
         
-        // 各アイテムに対してボディを展開
-        for (index, item) in items.iter().enumerate() {
-            // 変数置換のための評価関数を作成
-            let foreach_eval = |expr: &Expr| -> String {
-                match expr {
-                    Expr::Ident(s) if s == var => item.clone(),
-                    Expr::Ident(s) if s == &format!("{}_index", var) => index.to_string(),
-                    _ => eval(expr),
-                }
-            };
-            
-            // bodyの各ノードを処理（再帰を避けるため直接処理）
+        // 各itemを処理
+        for (item_index, item) in items.iter().enumerate() {
             for child in body {
-                let child_context = LayoutContext {
-                    window_size: context.window_size,
-                    parent_size: context.parent_size,
-                    root_font_size: context.root_font_size,
-                    font_size: context.font_size,
-                    default_font: context.default_font.clone(),
-                };
-                
-                let child_size = self.compute_node_size(child, &child_context, &foreach_eval, get_image_size, app);
-                
-                // LayoutedNodeを直接作成（再帰を避ける）
-                let layouted_node = LayoutedNode {
-                    node: child,
-                    position: [position[0], current_y],
-                    size: [child_size.width, child_size.height],
-                };
-
-                results.push(layouted_node);
-                
-                // Y座標を更新
-                current_y += child_size.height + context.root_font_size * 0.5; // スペーシング
+                self.process_foreach_node_recursive(child, var, item, &item_index.to_string(), context, [position[0], current_y], eval, get_image_size, app, results, &mut current_y);
             }
         }
     }
-    
+
+    /// foreach内のノードを再帰的に処理（HStack/VStackも展開）- パフォーマンス最適化版
+    fn process_foreach_node_recursive<'a, F, G>(
+        &mut self,
+        node: &'a WithSpan<ViewNode>,
+        var: &str,
+        item_value: &str,
+        item_index_value: &str,
+        context: &LayoutContext,
+        position: [f32; 2],
+        eval: &F,
+        get_image_size: &G,
+        app: &'a App,
+        results: &mut Vec<LayoutedNode<'a>>,
+        current_y: &mut f32,
+    )
+    where
+        F: Fn(&Expr) -> String,
+        G: Fn(&str) -> (u32, u32),
+    {
+        match &node.node {
+            ViewNode::Text { format, args } => {
+                let mut final_format = format.clone();
+                
+                // 各引数を処理（高速化）
+                for arg in args {
+                    let value = match arg {
+                        Expr::Path(path) if path == var => item_value.to_string(),
+                        Expr::Path(path) if path == "item_index" => item_index_value.to_string(),
+                        _ => eval(arg),
+                    };
+                    final_format = final_format.replacen("{}", &value, 1);
+                }
+                
+                // 新しいTextノードを作成
+                let new_node = Box::leak(Box::new(WithSpan {
+                    node: ViewNode::Text {
+                        format: final_format,
+                        args: vec![]
+                    },
+                    line: node.line,
+                    column: node.column,
+                    style: node.style.clone(),
+                }));
+                
+                // サイズ計算
+                let size = self.compute_node_size(new_node, context, eval, get_image_size, app);
+                
+                // LayoutedNodeを作成
+                let layouted = LayoutedNode {
+                    node: new_node,
+                    position: [position[0], *current_y],
+                    size: [size.width, size.height],
+                };
+                
+                results.push(layouted);
+                *current_y += size.height + 4.0; // spacing
+            },
+            ViewNode::HStack(children) => {
+                let mut x_offset = position[0];
+                for child in children {
+                    let child_start_y = *current_y;
+                    self.process_foreach_node_recursive(child, var, item_value, item_index_value, context, [x_offset, child_start_y], eval, get_image_size, app, results, current_y);
+                    x_offset += 150.0; // 固定幅でX座標を進める
+                    *current_y = child_start_y; // Y座標をリセット（横並びのため）
+                }
+                *current_y += 25.0; // HStack全体の高さ分Y座標を進める
+            },
+            ViewNode::VStack(children) => {
+                for child in children {
+                    self.process_foreach_node_recursive(child, var, item_value, item_index_value, context, [position[0], *current_y], eval, get_image_size, app, results, current_y);
+                }
+            },
+            _ => {
+                // 他のノードタイプはスキップ
+            }
+        }
+    }
+
+    /// ノード内の変数を展開したノードを作成
+    fn expand_node_variables<F>(&self, node: &WithSpan<ViewNode>, eval: &F) -> WithSpan<ViewNode>
+    where
+        F: Fn(&Expr) -> String,
+    {
+        let expanded_viewnode = match &node.node {
+            ViewNode::Text { format, args } => {
+                // format文字列と引数を展開
+                let expanded_args: Vec<Expr> = args.iter().map(|arg| {
+                    let value = eval(arg);
+                    Expr::String(value)
+                }).collect();
+                
+                ViewNode::Text {
+                    format: format.clone(),
+                    args: expanded_args,
+                }
+            }
+            ViewNode::VStack(children) => {
+                let expanded_children: Vec<WithSpan<ViewNode>> = children.iter()
+                    .map(|child| self.expand_node_variables(child, eval))
+                    .collect();
+                ViewNode::VStack(expanded_children)
+            }
+            ViewNode::HStack(children) => {
+                let expanded_children: Vec<WithSpan<ViewNode>> = children.iter()
+                    .map(|child| self.expand_node_variables(child, eval))
+                    .collect();
+                ViewNode::HStack(expanded_children)
+            }
+            ViewNode::If { condition, then_body, else_body } => {
+                // 条件も評価し、bodyも再帰的に展開
+                let expanded_then: Vec<WithSpan<ViewNode>> = then_body.iter()
+                    .map(|child| self.expand_node_variables(child, eval))
+                    .collect();
+                let expanded_else = else_body.as_ref().map(|body| {
+                    body.iter().map(|child| self.expand_node_variables(child, eval)).collect()
+                });
+                
+                ViewNode::If {
+                    condition: condition.clone(),
+                    then_body: expanded_then,
+                    else_body: expanded_else,
+                }
+            }
+            ViewNode::DynamicSection { name, body } => {
+                let expanded_body: Vec<WithSpan<ViewNode>> = body.iter()
+                    .map(|child| self.expand_node_variables(child, eval))
+                    .collect();
+                ViewNode::DynamicSection {
+                    name: name.clone(),
+                    body: expanded_body,
+                }
+            }
+            // ForEachノードは展開せず、エラーログを出力
+            ViewNode::ForEach { .. } => {
+                log::warn!("ネストされたForEachが見つかりました。これは現在サポートされていません");
+                node.node.clone()
+            }
+            // その他のノード型はそのまま返す
+            _ => node.node.clone(),
+        };
+
+        WithSpan {
+            node: expanded_viewnode,
+            style: node.style.clone(),
+            line: node.line,
+            column: node.column,
+        }
+    }
+
     /// If文のレイアウト処理（再帰的）
     fn layout_if_recursive<'a, F, G>(
         &mut self,

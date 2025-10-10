@@ -1,0 +1,292 @@
+// Dynamic Foreach デモ
+// 動的リストと繰り返し処理のリアルタイム表示
+
+flow {
+    start: DynamicForeachDemo
+}
+
+timeline DynamicForeachDemo {
+    font: "japanese"
+    
+    VStack(style: {
+        width: 100ww, 
+        height: 100wh, 
+        background: "#0a0e27", 
+        padding: 20,
+        gap: 16px
+    }) {
+        // ヘッダー（静的）
+        VStack(style: {width: 100%, padding: [20, 0]}) {
+            Text("� Dynamic Foreach デモ �", style: {
+                font_size: 32px, 
+                color: "#00d4ff"
+            })
+            Text("動的リスト処理とforeach繰り返しのリアルタイム表示", style: {
+                font_size: 16px, 
+                color: "#a4f0ff"
+            })
+        }
+        
+        // 動的Foreachデモコンテンツ
+        VStack(style: {width: 100%, gap: 20px}) {
+            
+            // 基本的なForeach - 静的配列の繰り返し
+            VStack(style: {
+                background: "#1a2332",
+                padding: 20,
+                rounded: 12px,
+                border_color: "#00d4ff"
+            }) {
+                Text("📋 基本的なForeach - 静的配列", style: {
+                    font_size: 20px,
+                    color: "#00d4ff",
+                    padding: [0, 0, 12, 0]
+                })
+                
+                Text("state.items の内容:", style: {
+                    font_size: 16px,
+                    color: "#ffffff"
+                })
+                
+                Text("DEBUG: state.items = {}", state.items, style: {
+                    font_size: 14px,
+                    color: "#ffff00"
+                })
+                
+                dynamic_section static_foreach() {
+                    VStack(style: {width: 100%, gap: 4px}) {
+                        foreach item in state.items {
+                            Text("アイテム: {}", item, style: {
+                                font_size: 14px,
+                                color: "#a4f0ff",
+                                padding: [4, 8]
+                            })
+                        }
+                    }
+                }
+                
+                Text("アイテム数: {}", state.items_count, style: {
+                    font_size: 14px,
+                    color: "#00d4ff"
+                })
+            }
+            
+            // 動的リスト処理のシミュレーション
+            VStack(style: {
+                background: "#16213e",
+                padding: 20,
+                rounded: 12px,
+                border_color: "#e94560"
+            }) {
+                Text("� 数値範囲のForeach", style: {
+                    font_size: 20px,
+                    color: "#e94560",
+                    padding: [0, 0, 12, 0]
+                })
+                
+                Text("カウンターに基づく動的範囲:", style: {
+                    font_size: 16px,
+                    color: "#ffffff"
+                })
+                
+                dynamic_section counter_foreach() {
+                    VStack(style: {width: 100%, gap: 8px}) {
+                        Text("現在のカウンター: {}", state.counter, style: {
+                            font_size: 16px,
+                            color: "#ffffff"
+                        })
+                        
+                        if state.counter > 0 {
+                            VStack(style: {width: 100%, gap: 4px}) {
+                                Text("カウンター分の要素を表示:", style: {
+                                    font_size: 14px,
+                                    color: "#e94560"
+                                })
+                                
+                                VStack(style: {width: 100%, gap: 2px, padding: [4, 0]}) {
+                                    // カウンターの値に応じて動的に要素を表示
+                                    if state.counter >= 1 {
+                                        Text("• 要素 1", style: {color: "#ff6b6b", font_size: 14px, padding: [2, 0]})
+                                    }
+                                    if state.counter >= 2 {
+                                        Text("• 要素 2", style: {color: "#4ecdc4", font_size: 14px, padding: [2, 0]})
+                                    }
+                                    if state.counter >= 3 {
+                                        Text("• 要素 3", style: {color: "#45b7d1", font_size: 14px, padding: [2, 0]})
+                                    }
+                                    if state.counter >= 4 {
+                                        Text("• 要素 4", style: {color: "#f9ca24", font_size: 14px, padding: [2, 0]})
+                                    }
+                                    if state.counter >= 5 {
+                                        Text("• 要素 5", style: {color: "#6c5ce7", font_size: 14px, padding: [2, 0]})
+                                    }
+                                }
+                            }
+                        } else {
+                            Text("カウンターが0以下です", style: {
+                                font_size: 14px,
+                                color: "#888888"
+                            })
+                        }
+                    }
+                }
+            }
+            
+            // 条件付きForeach
+            VStack(style: {
+                background: "#1a1a2e",
+                padding: 20,
+                rounded: 12px,
+                border_color: "#a855f7"
+            }) {
+                Text("✨ 条件付きForeach", style: {
+                    font_size: 20px,
+                    color: "#a855f7",
+                    padding: [0, 0, 12, 0]
+                })
+                
+                Text("フィルター状態に応じた表示:", style: {
+                    font_size: 16px,
+                    color: "#ffffff"
+                })
+                
+                dynamic_section filtered_foreach() {
+                    VStack(style: {width: 100%, gap: 8px}) {
+                        Text("フィルター有効: {}", match state.filter_enabled {
+                            case true { "はい" }
+                            case false { "いいえ"  }
+                        }, style: {
+                            font_size: 16px,
+                            color: "#a855f7"
+                        })
+                        
+                        if state.filter_enabled {
+                            VStack(style: {width: 100%, gap: 4px}) {
+                                Text("フィルター適用中 - 奇数のみ表示:", style: {
+                                    font_size: 14px,
+                                    color: "#ffffff"
+                                })
+                                
+                                VStack(style: {width: 100%, gap: 2px, padding: [4, 0]}) {
+                                    foreach item in state.items {
+                                        // 奇数のみ表示する条件
+                                        if item == 1 {
+                                            Text("✓ 奇数: {}", item, style: {
+                                                font_size: 14px,
+                                                color: "#10b981",
+                                                padding: [2, 8]
+                                            })
+                                        }
+                                        if item == 3 {
+                                            Text("✓ 奇数: {}", item, style: {
+                                                font_size: 14px,
+                                                color: "#10b981",
+                                                padding: [2, 8]
+                                            })
+                                        }
+                                    }
+                                }
+                            }
+                        } else {
+                            VStack(style: {width: 100%, gap: 4px}) {
+                                Text("フィルター無効 - 全て表示:", style: {
+                                    font_size: 14px,
+                                    color: "#ffffff"
+                                })
+                                
+                                VStack(style: {width: 100%, gap: 2px, padding: [4, 0]}) {
+                                    foreach item in state.items {
+                                        Text("○ 全て: {}", item, style: {
+                                            font_size: 14px,
+                                            color: "#8b5cf6",
+                                            padding: [2, 8]
+                                        })
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            
+            // リアルタイム進捗表示
+            VStack(style: {
+                background: "#0f3460",
+                padding: 20,
+                rounded: 12px,
+                border_color: "#fbbf24"
+            }) {
+                Text("⏱️ リアルタイム進捗表示", style: {
+                    font_size: 20px,
+                    color: "#fbbf24",
+                    padding: [0, 0, 12, 0]
+                })
+                
+                Text("時間経過によるプログレスバー:", style: {
+                    font_size: 16px,
+                    color: "#ffffff"
+                })
+                
+                dynamic_section progress_foreach() {
+                    VStack(style: {width: 100%, gap: 8px}) {
+                        Text("経過時間: {:.1}秒", state.elapsed_time, style: {
+                            font_size: 16px,
+                            color: "#fbbf24"
+                        })
+                        
+                        VStack(style: {width: 100%, gap: 4px}) {
+                            Text("プログレス:", style: {
+                                font_size: 14px,
+                                color: "#ffffff"
+                            })
+                            
+                            // 10秒周期でリピート
+                            VStack(style: {width: 100%, padding: [8, 0]}) {
+                                // 進捗表示（簡易版）
+                                HStack(style: {gap: 2px}) {
+                                    Text("█", style: {color: "#10b981", font_size: 12px})
+                                    Text("█", style: {color: "#10b981", font_size: 12px})
+                                    Text("█", style: {color: "#10b981", font_size: 12px})
+                                    Text("░", style: {color: "#374151", font_size: 12px})
+                                    Text("░", style: {color: "#374151", font_size: 12px})
+                                    Text("░", style: {color: "#374151", font_size: 12px})
+                                    Text("░", style: {color: "#374151", font_size: 12px})
+                                    Text("░", style: {color: "#374151", font_size: 12px})
+                                    Text("░", style: {color: "#374151", font_size: 12px})
+                                    Text("░", style: {color: "#374151", font_size: 12px})
+                                }
+                            }
+                            
+                            Text("進捗率: 30%", style: {
+                                font_size: 12px,
+                                color: "#fbbf24"
+                            })
+                        }
+                    }
+                }
+            }
+        }
+        
+        // フッター情報
+        dynamic_section footer_info(style: {
+            background: "#0f1419",
+            padding: 16,
+            rounded: 8px,
+            border_color: "#374151"
+        }) {
+            VStack(style: {width: 100%}) {
+                Text("Nilo Dynamic Foreach Demo - 動的繰り返し処理", style: {
+                    font_size: 14px,
+                    color: "#9ca3af"
+                })
+                Text("フレーム: {} | アイテム数: {} | フィルター: {}", state.frame_count, state.items_count, match state.filter_enabled {
+                    case true { "ON" }
+                    case false { "OFF" }
+                }, style: {
+                    font_size: 14px,
+                    color: "#9ca3af"
+                })
+            }
+        }
+    }
+}

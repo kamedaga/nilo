@@ -1,0 +1,76 @@
+flow {
+    start: ListTest
+}
+
+timeline ListTest {
+    VStack(style: {
+        width: 100ww,
+        height: 100wh,
+        background: "#1a1a1a",
+        padding: 20px,
+        gap: 15px
+    }) {
+        Text("リスト操作テスト", style: {
+            color: "#ffffff",
+            font_size: 24px,
+            margin_bottom: 10px
+        })
+        
+        Text("要素数: {}", state.items.len(), style: {
+            color: "#ffff00",
+            font_size: 16px,
+            margin_bottom: 10px
+        })
+        
+        Text("現在のリスト:", style: {
+            color: "#cccccc",
+            font_size: 16px,
+            margin_bottom: 10px
+        })
+        
+        foreach item in state.items {
+            Text("アイテム: {}", item, style: {
+                color: "#00ff00",
+                font_size: 14px,
+                padding: 5px,
+                background: "#333333",
+                margin_bottom: 2px
+            })
+        }
+        
+        Text("操作ボタン:", style: {
+            color: "#ffffff",
+            font_size: 18px,
+            margin_top: 20px,
+            margin_bottom: 10px
+        })
+        
+        HStack(style: {
+            gap: 10px,
+            wrap: true
+        }) {
+            Button(id: append_btn, label: "追加 (append)")
+            Button(id: insert_btn, label: "先頭挿入 (insert)")
+            Button(id: remove_btn, label: "値削除 (remove)")
+            Button(id: clear_btn, label: "全削除 (clear)")
+        }
+    }
+    
+    when user.click(append_btn) {
+        append(state.items, state.next_item_value)
+        set state.next_item_value = state.next_item_value + 1
+    }
+    
+    when user.click(insert_btn) {
+        insert(state.items, 0, state.next_item_value)
+        set state.next_item_value = state.next_item_value + 1
+    }
+    
+    when user.click(remove_btn) {
+        remove(state.items, 1)
+    }
+    
+    when user.click(clear_btn) {
+        clear(state.items)
+    }
+}

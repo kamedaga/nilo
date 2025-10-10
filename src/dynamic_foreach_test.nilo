@@ -1,0 +1,197 @@
+// 動的Foreach専用テスト - リスト操作とリアルタイム更新
+flow {
+    start: DynamicForeachTest
+}
+
+timeline DynamicForeachTest {
+    font: "japanese"
+    
+    VStack(style: {
+        width: 100ww, 
+        height: 100wh, 
+        background: "#0a0e27", 
+        padding: 20,
+        gap: 16px
+    }) {
+        // ヘッダー
+        VStack(style: {width: 100%, padding: [20, 0]}) {
+            Text("🔄 Dynamic Foreach Test", style: {
+                font_size: 32px, 
+                color: "#00ff88"
+            })
+            Text("リアルタイム配列操作とforeach自動更新", style: {
+                font_size: 16px, 
+                color: "#88ffbb"
+            })
+        }
+        
+        // 操作パネル
+        VStack(style: {
+            background: "#1a1a2e",
+            padding: 20,
+            rounded: 12px,
+            border_color: "#00ff88"
+        }) {
+            Text("📋 リスト操作", style: {
+                font_size: 20px,
+                color: "#00ff88",
+                padding: [0, 0, 12, 0]
+            })
+            
+            HStack(style: {gap: 12px}) {
+                Button(id: add_item, label: "要素追加", style: {
+                    background: "#00aa55",
+                    color: "#ffffff",
+                    padding: [8, 16],
+                    rounded: 6px
+                })
+                
+                Button(id: remove_item, label: "要素削除", style: {
+                    background: "#aa5500",
+                    color: "#ffffff", 
+                    padding: [8, 16],
+                    rounded: 6px
+                })
+                
+                Button(id: clear_list, label: "全削除", style: {
+                    background: "#aa0000",
+                    color: "#ffffff",
+                    padding: [8, 16],
+                    rounded: 6px
+                })
+            }
+            
+            Text("現在の要素数: {}", state.items.length, style: {
+                font_size: 16px,
+                color: "#ffffff",
+                padding: [8, 0, 0, 0]
+            })
+        }
+        
+        // 動的配列の表示セクション
+        VStack(style: {
+            background: "#16213e",
+            padding: 20,
+            rounded: 12px,
+            border_color: "#4466ff"
+        }) {
+            Text("📝 配列内容 (foreach自動更新)", style: {
+                font_size: 20px,
+                color: "#4466ff",
+                padding: [0, 0, 12, 0]
+            })
+            
+            Text("Raw配列: {}", state.items, style: {
+                font_size: 14px,
+                color: "#ffff44"
+            })
+            
+            dynamic_section list_display() {
+                VStack(style: {width: 100%, gap: 6px, padding: [10, 0]}) {
+                    foreach item in state.items {
+                        HStack(style: {
+                            background: "#223366", 
+                            padding: [8, 12], 
+                            rounded: 8px,
+                            gap: 12px
+                        }) {
+                            Text("Item:", style: {
+                                color: "#88ccff",
+                                font_size: 14px
+                            })
+                            Text("{}", item, style: {
+                                color: "#ffffff", 
+                                font_size: 16px,
+                                font_weight: "bold"
+                            })
+                            Text("(Index: {})", item_index, style: {
+                                color: "#aaaaaa",
+                                font_size: 12px
+                            })
+                        }
+                    }
+                }
+            }
+        }
+        
+        // 統計情報
+        VStack(style: {
+            background: "#2e1a3e", 
+            padding: 20,
+            rounded: 12px,
+            border_color: "#aa66ff"
+        }) {
+            Text("📊 統計", style: {
+                font_size: 20px,
+                color: "#aa66ff",
+                padding: [0, 0, 12, 0]
+            })
+            
+            dynamic_section stats() {
+                VStack(style: {gap: 8px}) {
+                    HStack(style: {gap: 20px}) {
+                        Text("総要素数: {}", state.items.length, style: {
+                            color: "#ffffff",
+                            font_size: 16px
+                        })
+                        Text("次の値: {}", state.next_item_value, style: {
+                            color: "#cccccc", 
+                            font_size: 14px
+                        })
+                    }
+                    
+                    if state.items.length > 0 {
+                        VStack(style: {gap: 4px, padding: [8, 0]}) {
+                            Text("Foreach処理状況:", style: {
+                                color: "#aa66ff",
+                                font_size: 14px
+                            })
+                            foreach item in state.items {
+                                Text("✓ Processing: {}", item, style: {
+                                    color: "#44ff44",
+                                    font_size: 12px,
+                                    padding: [2, 16]
+                                })
+                            }
+                        }
+                    } else {
+                        Text("(配列が空です)", style: {
+                            color: "#888888",
+                            font_style: "italic"
+                        })
+                    }
+                }
+            }
+        }
+        
+        // フッター
+        VStack(style: {
+            background: "#0f1419",
+            padding: 16,
+            rounded: 8px,
+            border_color: "#374151"
+        }) {
+            Text("Dynamic Foreach Test - 配列操作とリアルタイム更新", style: {
+                font_size: 14px,
+                color: "#9ca3af"
+            })
+        }
+    }
+    
+    // イベント処理
+    when user.click(add_item) {
+        append(state.items, state.next_item_value)
+        set state.next_item_value = state.next_item_value + 1
+    }
+
+    when user.click(remove_item) {
+        if state.items.length > 0 {
+            remove(state.items, 0)  // 最初の要素を削除
+        }
+    }
+
+    when user.click(clear_list) {
+        clear(state.items)
+        set state.next_item_value = 1  // リセット
+    }
+}

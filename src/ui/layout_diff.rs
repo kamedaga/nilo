@@ -140,10 +140,16 @@ impl NodeHash {
                 s.push_str(path);
                 s.push_str(&eval(value));
             }
-            ViewNode::ListRemove { path, index } => {
-                s.push_str("ListRemove:");
+            ViewNode::ListInsert { path, index, value } => {
+                s.push_str("ListInsert:");
                 s.push_str(path);
                 s.push_str(&format!(":{}", index));
+                s.push_str(&eval(value));
+            }
+            ViewNode::ListRemove { path, value } => {
+                s.push_str("ListRemove:");
+                s.push_str(path);
+                s.push_str(&eval(value));
             }
             ViewNode::ListClear { path } => {
                 s.push_str("ListClear:");
@@ -372,6 +378,7 @@ impl<'a> LayoutDiffEngine<'a> {
             ViewNode::Set { .. } => "Set",
             ViewNode::Toggle { .. } => "Toggle",
             ViewNode::ListAppend { .. } => "ListAppend",
+            ViewNode::ListInsert { .. } => "ListInsert",
             ViewNode::ListRemove { .. } => "ListRemove",
             ViewNode::ListClear { .. } => "ListClear",
             ViewNode::When { .. } => "When",

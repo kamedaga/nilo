@@ -147,7 +147,8 @@ pub enum ViewNode {
     Set { path: String, value: Expr, inferred_type: Option<NiloType> },
     Toggle { path: String },
     ListAppend { path: String, value: Expr },
-    ListRemove { path: String, index: usize },
+    ListInsert { path: String, index: usize, value: Expr },
+    ListRemove { path: String, value: Expr },
     ListClear { path: String },
 
     // イベントハンドラー

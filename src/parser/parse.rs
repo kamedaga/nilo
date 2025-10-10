@@ -493,6 +493,7 @@ fn parse_view_node(pair: Pair<Rule>) -> WithSpan<ViewNode> {
         // 状態操作関連のノード
         Rule::state_set    => parse_state_set(pair),
         Rule::list_append  => parse_list_append(pair),
+        Rule::list_insert  => parse_list_insert(pair),
         Rule::list_remove  => parse_list_remove(pair),
         Rule::list_clear   => parse_list_clear(pair),
         Rule::state_toggle => parse_state_toggle(pair),
@@ -1514,13 +1515,23 @@ fn parse_list_append(pair: Pair<Rule>) -> WithSpan<ViewNode> {
     WithSpan { node: ViewNode::ListAppend { path, value }, line, column: col, style: None }
 }
 
+fn parse_list_insert(pair: Pair<Rule>) -> WithSpan<ViewNode> {
+    let span = pair.as_span();
+    let (line, col) = span.start_pos().line_col();
+    let mut inner = pair.into_inner();                // path, number, expr
+    let path = inner.next().unwrap().as_str().to_string();
+    let index = inner.next().unwrap().as_str().parse::<usize>().unwrap();
+    let value = parse_expr(inner.next().unwrap());
+    WithSpan { node: ViewNode::ListInsert { path, index, value }, line, column: col, style: None }
+}
+
 fn parse_list_remove(pair: Pair<Rule>) -> WithSpan<ViewNode> {
     let span = pair.as_span();
     let (line, col) = span.start_pos().line_col();
-    let mut inner = pair.into_inner();                // path, number
+    let mut inner = pair.into_inner();                // path, expr
     let path = inner.next().unwrap().as_str().to_string();
-    let index = inner.next().unwrap().as_str().parse::<usize>().unwrap();
-    WithSpan { node: ViewNode::ListRemove { path, index }, line, column: col, style: None }
+    let value = parse_expr(inner.next().unwrap());
+    WithSpan { node: ViewNode::ListRemove { path, value }, line, column: col, style: None }
 }
 
 fn parse_list_clear(pair: Pair<Rule>) -> WithSpan<ViewNode> {
