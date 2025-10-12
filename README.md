@@ -126,7 +126,7 @@ cargo run --bin build_wasm_with_html
 
 ## 作者
 
-* [@kamezuki](https://github.com/kamezuki)
+* [@kamedaga](https://github.com/kamedaga)
 
 ---
 
