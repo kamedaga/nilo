@@ -1,10 +1,10 @@
 // リリースビルド時(not debug_assertions)にWindowsでコンソールウィンドウを非表示
 //#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 const MY_FONT: &[u8] = include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/fonts/NotoSansJP-Regular.ttf"));
-const APP_NILO: &str = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/routing_test.nilo"));
 
 use nilo;
-use nilo::engine::rust_call::register_rust_call;
+use nilo::engine::rust_call::{register_rust_call, register_state_accessible_call};
+use nilo::engine::state::AppState;
 use nilo::parser::ast::Expr;
 use log::info; // ログマクロを追加
 
@@ -20,11 +20,49 @@ nilo::nilo_state! {
         items_count: i32,
         filter_enabled: bool,
         next_item_value: i32,
+        user_name: String,
     }
+}
+
+// onclick用の基本的な関数
+fn hello_from_rust(_args: &[Expr]) {
+    info!("🎉 hello_from_rust called!");
+    println!("Hello from Rust!");
 }
 
 fn hello_world(args: &[Expr]) {
     info!("Hello from Rust! Args: {:?}", args);
+}
+
+fn greet_user(args: &[Expr]) {
+    info!("👋 greet_user called with {} arguments", args.len());
+    println!("Greeting user!");
+}
+
+fn log_message(args: &[Expr]) {
+    if let Some(Expr::String(msg)) = args.first() {
+        info!("📝 Log: {}", msg);
+        println!("Log: {}", msg);
+    }
+}
+
+// State変更可能な関数
+fn increment_counter<S>(state: &mut AppState<S>, _args: &[Expr])
+where
+    S: nilo::engine::state::StateAccess,
+{
+    // カウンター値を取得
+    let current = state.custom_state.get_field("counter")
+        .and_then(|v| v.parse::<u32>().ok())
+        .unwrap_or(0);
+    
+    let new_value = current + 1;
+    
+    // stateを更新
+    let _ = state.custom_state.set("counter", new_value.to_string());
+    
+    info!("✅ Counter incremented: {} -> {}", current, new_value);
+    println!("Counter: {} -> {}", current, new_value);
 }
 
 fn main() {
@@ -36,11 +74,17 @@ fn main() {
     
     let cli_args = nilo::parse_args();
 
+    // onclick用の関数を登録
+    register_rust_call("hello_from_rust", hello_from_rust);
     register_rust_call("hello_rust", |_args: &[Expr]| {
         info!("Hello from Rust!"); // println!をinfo!に変更
     });
-
     register_rust_call("hello_world", hello_world);
+    register_rust_call("greet_user", greet_user);
+    register_rust_call("log_message", log_message);
+    
+    // State変更可能な関数を登録
+    register_state_accessible_call("increment_counter", increment_counter::<State>);
 
     let state = State {
         name: "Nilo".to_string(),
@@ -53,15 +97,11 @@ fn main() {
         items_count: 3,
         filter_enabled: false,
         next_item_value: 4,
+        user_name: "Test User".to_string(),
     };
 
     // 自動で埋め込みファイルを使用するマクロを呼び出し
-    nilo::run_nilo_app!("routing_test.nilo", state, &cli_args, Some("Nilo Routing Test"));
-    }
-    
-    #[cfg(target_arch = "wasm32")]
-    {
-        // WASM環境では何もしない（wasm_main関数で処理）
+    nilo::run_nilo_app!("onclick_test.nilo", state, &cli_args, Some("Nilo Phase 2: Components"));
     }
 }
 
@@ -89,10 +129,16 @@ pub fn wasm_main() {
     nilo::set_custom_font("japanese", MY_FONT);
 
     // Rust関数を登録
+    register_rust_call("hello_from_rust", hello_from_rust);
     register_rust_call("hello_rust", |_args: &[Expr]| {
         log::info!("Hello from Rust!");
     });
     register_rust_call("hello_world", hello_world);
+    register_rust_call("greet_user", greet_user);
+    register_rust_call("log_message", log_message);
+    
+    // State変更可能な関数を登録
+    register_state_accessible_call("increment_counter", increment_counter::<State>);
 
     // 初期状態を作成
     let state = State {
@@ -106,8 +152,9 @@ pub fn wasm_main() {
         items_count: 3,
         filter_enabled: false,
         next_item_value: 4,
+        user_name: "Test User".to_string(),
     };
 
-    // DOMレンダラーでNiloアプリを実行（tutorial.niloのルーティング機能付き）
-    nilo::run_nilo_wasm(APP_NILO, state);
+    // run_nilo_appマクロを使用（WASM版でも統一）
+    nilo::run_nilo_app!("local_vars_test.nilo", state);
 }

@@ -149,21 +149,30 @@ impl WasmRouter {
     fn match_route(&self, pathname: &str) -> Option<(String, HashMap<String, String>)> {
         log::info!("Matching route for pathname: {}", pathname);
         
+        // URL正規化: 末尾の/を削除（ルートパス以外）
+        let normalized_path = if pathname != "/" && pathname.ends_with('/') {
+            pathname.trim_end_matches('/')
+        } else {
+            pathname
+        };
+        
+        log::info!("Normalized pathname: {}", normalized_path);
+        
         // まず完全一致を試みる
-        if let Some(timeline) = self.url_to_timeline.get(pathname) {
-            log::info!("Found exact match: {} -> {}", pathname, timeline);
+        if let Some(timeline) = self.url_to_timeline.get(normalized_path) {
+            log::info!("Found exact match: {} -> {}", normalized_path, timeline);
             return Some((timeline.clone(), HashMap::new()));
         }
         
         // URL パターンマッチング
         for (timeline, route_info) in &self.routes {
-            if let Some(params) = self.extract_params(&route_info.pattern, pathname) {
-                log::info!("Found pattern match: {} matches {} -> {}", pathname, route_info.pattern, timeline);
+            if let Some(params) = self.extract_params(&route_info.pattern, normalized_path) {
+                log::info!("Found pattern match: {} matches {} -> {}", normalized_path, route_info.pattern, timeline);
                 return Some((timeline.clone(), params));
             }
         }
         
-        log::warn!("No matching route found for: {}", pathname);
+        log::warn!("No matching route found for: {}", normalized_path);
         None
     }
     

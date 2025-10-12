@@ -1,4 +1,4 @@
-//! Runtime module for Nilo engine
+﻿//! Runtime module for Nilo engine
 //! 
 //! This module contains the runtime implementation for native (non-WASM) environments.
 //! For WASM environments, see runtime_dom.rs
@@ -413,7 +413,7 @@ where
                 self.mouse_pos = adjusted_mouse_pos;
 
                 // ホバー状態を確実に反映するため、毎フレーム新しくレイアウト
-                let (stencils, buttons) = Engine::layout_and_stencil(
+                let (stencils, buttons, text_inputs) = Engine::layout_and_stencil(
                     &self.app, &mut self.state,
                     self.mouse_pos, self.mouse_down, self.prev_mouse_down,
                     window_size
@@ -467,7 +467,7 @@ where
                         }
 
                         // タイムライン変更後は描画を更新
-                        let (new_stencils, new_buttons) = Engine::layout_and_stencil(
+                        let (new_stencils, new_buttons, _new_text_inputs) = Engine::layout_and_stencil(
                             &self.app, &mut self.state,
                             self.mouse_pos, self.mouse_down, self.prev_mouse_down,
                             window_size
@@ -1084,7 +1084,7 @@ where
                 self.mouse_pos = adjusted_mouse_pos;
 
                 // ホバー状態を確実に反映するため、毎フレーム新しくレイアウト
-                let (stencils, buttons) = Engine::layout_and_stencil(
+                let (stencils, buttons, _text_inputs) = Engine::layout_and_stencil(
                     &self.current_app, &mut self.state,
                     self.mouse_pos, self.mouse_down, self.prev_mouse_down,
                     window_size
@@ -1133,7 +1133,7 @@ where
                             });
                         }
 
-                        let (new_stencils, new_buttons) = Engine::layout_and_stencil(
+                        let (new_stencils, new_buttons, _new_text_inputs) = Engine::layout_and_stencil(
                             &self.current_app, &mut self.state,
                             self.mouse_pos, self.mouse_down, self.prev_mouse_down,
                             window_size
@@ -1640,7 +1640,7 @@ where
                 self.mouse_pos = adjusted_mouse_pos;
 
                 // ホバー状態を確実に反映するため、毎フレーム新しくレイアウト
-                let (stencils, buttons) = Engine::layout_and_stencil(
+                let (stencils, buttons, _text_inputs) = Engine::layout_and_stencil(
                     &self.current_app, &mut self.state,
                     self.mouse_pos, self.mouse_down, self.prev_mouse_down,
                     window_size
@@ -1689,7 +1689,7 @@ where
                             });
                         }
 
-                        let (new_stencils, new_buttons) = Engine::layout_and_stencil(
+                        let (new_stencils, new_buttons, _new_text_inputs) = Engine::layout_and_stencil(
                             &self.current_app, &mut self.state,
                             self.mouse_pos, self.mouse_down, self.prev_mouse_down,
                             window_size
@@ -1755,3 +1755,4 @@ where
 // Re-export all public functions for native environments
 #[cfg(not(target_arch = "wasm32"))]
 pub use native::*;
+

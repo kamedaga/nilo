@@ -19,6 +19,13 @@ pub struct ComponentContext {
     // ★ 新規追加: foreach変数のスタック管理
     pub foreach_vars: HashMap<String, String>,
     pub foreach_vars_stack: Vec<HashMap<String, String>>,
+    
+    // ★ 新規追加: ローカル変数のスタック管理（timeline専用）
+    pub local_vars: HashMap<String, String>,
+    pub local_vars_stack: Vec<HashMap<String, String>>,
+    
+    // ★ 新規追加: const変数の追跡（再代入禁止用）
+    pub const_vars: std::collections::HashSet<String>,
 }
 
 impl ComponentContext {
@@ -30,6 +37,9 @@ impl ComponentContext {
             args_stack: Vec::new(),
             foreach_vars: HashMap::new(),
             foreach_vars_stack: Vec::new(),
+            local_vars: HashMap::new(),
+            local_vars_stack: Vec::new(),
+            const_vars: std::collections::HashSet::new(),
         }
     }
 
@@ -106,6 +116,9 @@ impl ComponentContext {
         self.args_stack.clear();
         self.foreach_vars.clear();
         self.foreach_vars_stack.clear();
+        self.local_vars.clear();
+        self.local_vars_stack.clear();
+        self.const_vars.clear();
     }
 
     // ★ 新規追加: foreach変数管理メソッド
@@ -158,6 +171,64 @@ impl ComponentContext {
             self.foreach_vars = previous_vars;
         } else {
             self.foreach_vars.clear();
+        }
+    }
+    
+    // ★ 新規追加: ローカル変数管理メソッド
+    
+    /// ローカル変数を設定（timeline内でのみ使用可能）
+    pub fn set_local_var(&mut self, name: String, value: String) {
+        self.local_vars.insert(name, value);
+    }
+    
+    /// const変数として登録（再代入禁止）
+    pub fn set_const_var(&mut self, name: String, value: String) {
+        self.local_vars.insert(name.clone(), value);
+        self.const_vars.insert(name);
+    }
+    
+    /// 変数がconst変数かチェック
+    pub fn is_const_var(&self, name: &str) -> bool {
+        self.const_vars.contains(name)
+    }
+    
+    /// ローカル変数を取得
+    pub fn get_local_var(&self, name: &str) -> Option<&String> {
+        // 現在のレベルから検索
+        if let Some(value) = self.local_vars.get(name) {
+            return Some(value);
+        }
+        
+        // 上位レベルのスタックから検索（ただしtimeline内のみ）
+        for vars in self.local_vars_stack.iter().rev() {
+            if let Some(value) = vars.get(name) {
+                return Some(value);
+            }
+        }
+        
+        None
+    }
+    
+    /// timeline開始時にローカル変数をクリア
+    /// ★ 実際の変数宣言は Engine::initialize_local_variables で一度だけ行われる
+    /// ★ レイアウト再計算時には再宣言されない
+    pub fn enter_timeline(&mut self) {
+        self.local_vars.clear();
+        self.local_vars_stack.clear();
+        self.const_vars.clear();
+    }
+    
+    /// コンポーネント呼び出し時にローカル変数をブロック（コンポーネントからはアクセス不可）
+    pub fn block_local_vars(&mut self) {
+        // 既存のローカル変数をスタックに退避し、新しいスコープを開始
+        self.local_vars_stack.push(self.local_vars.clone());
+        self.local_vars.clear();
+    }
+    
+    /// コンポーネントから戻る時にローカル変数を復元
+    pub fn unblock_local_vars(&mut self) {
+        if let Some(previous_vars) = self.local_vars_stack.pop() {
+            self.local_vars = previous_vars;
         }
     }
 }
@@ -259,6 +330,7 @@ impl<S> AppState<S> {
         self.current_timeline(app).and_then(|tl| tl.body.get(self.position))
     }
 
+    /// タイムラインに遷移（ローカル変数は初期化される）
     pub fn jump_to_timeline(&mut self, timeline_name: &str) {
         self.current_timeline = timeline_name.to_string();
         self.position = 0;
@@ -267,6 +339,11 @@ impl<S> AppState<S> {
         self.static_buttons.clear();
         self.expanded_body = None;
         self.cached_window_size = None;
+        
+        // ★ ローカル変数をクリア（新しいtimelineに入るため）
+        // ★ 実際のローカル変数の宣言は Engine::initialize_local_variables で行われる
+        // ★ レイアウト再計算時には再宣言されない
+        self.component_context.enter_timeline();
     }
 
     #[inline]
@@ -363,12 +440,19 @@ impl<S: StateAccess + 'static> AppState<S> {
             Expr::Number(n) => n.to_string(),
             Expr::Bool(b) => if *b { "true".into() } else { "false".into() },
             Expr::Ident(s) => {
-                // ★ 修正: foreach変数を最優先で確認
+                // ★ 優先順位: 1. ローカル変数 → 2. foreach変数 → 3. コンポーネント引数 → 4. そのまま返す
+                
+                // 1. ローカル変数を最優先でチェック
+                if let Some(v) = self.component_context.get_local_var(s) {
+                    return v.clone();
+                }
+                
+                // 2. foreach変数とコンポーネント引数をチェック
                 if let Some(v) = self.component_context.get_var(s) {
                     return v.clone();
                 }
 
-                // 識別子をそのまま返す
+                // 3. 識別子をそのまま返す
                 s.clone()
             }
             Expr::Path(s) => {
@@ -432,9 +516,62 @@ impl<S: StateAccess + 'static> AppState<S> {
                     return s.clone();
                 }
 
+                // ★ ローカル変数もチェック（pathの場合）
+                if let Some(v) = self.component_context.get_local_var(s) {
+                    return v.clone();
+                }
+
                 // foreach変数やコンポーネント引数もチェック
                 if let Some(v) = self.component_context.get_var(s) {
                     return v.clone();
+                }
+
+                // ★ オブジェクトプロパティアクセス（例: user.name）の処理
+                if let Some(dot_pos) = s.find('.') {
+                    let obj_name = &s[..dot_pos];
+                    let property_path = &s[dot_pos+1..];
+                    
+                    // ローカル変数からオブジェクトを取得
+                    if let Some(obj_value) = self.component_context.get_local_var(obj_name) {
+                        if let Ok(obj) = serde_json::from_str::<serde_json::Value>(&obj_value) {
+                            let mut current = &obj;
+                            for part in property_path.split('.') {
+                                if let Some(next) = current.get(part) {
+                                    current = next;
+                                } else {
+                                    return s.clone();
+                                }
+                            }
+                            return match current {
+                                serde_json::Value::String(s) => s.clone(),
+                                serde_json::Value::Number(n) => n.to_string(),
+                                serde_json::Value::Bool(b) => b.to_string(),
+                                serde_json::Value::Null => "null".to_string(),
+                                _ => current.to_string(),
+                            };
+                        }
+                    }
+                    
+                    // コンポーネント引数からオブジェクトを取得
+                    if let Some(obj_value) = self.component_context.get_var(obj_name) {
+                        if let Ok(obj) = serde_json::from_str::<serde_json::Value>(&obj_value) {
+                            let mut current = &obj;
+                            for part in property_path.split('.') {
+                                if let Some(next) = current.get(part) {
+                                    current = next;
+                                } else {
+                                    return s.clone();
+                                }
+                            }
+                            return match current {
+                                serde_json::Value::String(s) => s.clone(),
+                                serde_json::Value::Number(n) => n.to_string(),
+                                serde_json::Value::Bool(b) => b.to_string(),
+                                serde_json::Value::Null => "null".to_string(),
+                                _ => current.to_string(),
+                            };
+                        }
+                    }
                 }
 
                 // 識別子をそのまま返す
@@ -574,9 +711,7 @@ impl<S: StateAccess + 'static> AppState<S> {
         // 引数を評価
         let _arg_values: Vec<String> = args.iter().map(|arg| self.eval_expr_from_ast(arg)).collect();
 
-
         use crate::engine::rust_call::{execute_rust_call, has_rust_call};
-
 
         if has_rust_call(name) {
             execute_rust_call(name, args);
@@ -598,6 +733,28 @@ impl<S: StateAccess + 'static> AppState<S> {
                 format!("unknown_function({})", name)
             }
         }
+    }
+    
+    /// onclick属性で使用される関数呼び出しを実行（stateアクセス可能）
+    pub fn execute_onclick_function_call(&mut self, name: &str, args: &[Expr]) -> bool {
+        log::info!("🖱️ onclick: Executing function '{}'", name);
+        
+        // stateにアクセス可能な関数を優先的に実行
+        if crate::engine::rust_call::execute_state_accessible_call(name, self, args) {
+            log::info!("✅ onclick: State-accessible function '{}' executed successfully", name);
+            return true;
+        }
+        
+        // 従来の引数のみの関数を実行
+        use crate::engine::rust_call::{execute_rust_call, has_rust_call};
+        if has_rust_call(name) {
+            execute_rust_call(name, args);
+            log::info!("✅ onclick: Basic function '{}' executed successfully", name);
+            return true;
+        }
+        
+        log::warn!("⚠️ onclick: Function '{}' is not registered", name);
+        false
     }
 
     /// レスポンシブスタイルを評価してマージする

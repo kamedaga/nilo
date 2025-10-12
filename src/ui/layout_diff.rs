@@ -95,7 +95,7 @@ impl NodeHash {
                 let else_len = else_body.as_ref().map(|b| b.len()).unwrap_or(0);
                 s.push_str(&format!("{}:{}", then_body.len(), else_len));
             }
-            ViewNode::ComponentCall { name, args } => {
+            ViewNode::ComponentCall { name, args, slots: _ } => {
                 s.push_str("Component:");
                 s.push_str(name);
                 for arg in args {
@@ -155,9 +155,23 @@ impl NodeHash {
                 s.push_str("ListClear:");
                 s.push_str(path);
             }
+            ViewNode::LetDecl { name, value, mutable, declared_type: _ } => {
+                s.push_str(if *mutable { "Let:" } else { "Const:" });
+                s.push_str(name);
+                s.push_str(&eval(value));
+            }
             ViewNode::When { event, actions } => {
                 s.push_str("When:");
                 s.push_str(&format!("{:?}:{}", event, actions.len()));
+            }
+            // ★ Phase 2: スロット処理
+            ViewNode::Slot { name } => {
+                s.push_str("Slot:");
+                s.push_str(name);
+            }
+            ViewNode::SlotCheck { name } => {
+                s.push_str("SlotCheck:");
+                s.push_str(name);
             }
         }
 
@@ -371,6 +385,8 @@ impl<'a> LayoutDiffEngine<'a> {
             ViewNode::If { .. } => "If",
             ViewNode::Match { .. } => "Match",
             ViewNode::ComponentCall { .. } => "Component",
+            ViewNode::Slot { .. } => "Slot",  // ★ Phase 2
+            ViewNode::SlotCheck { .. } => "SlotCheck",  // ★ Phase 2
             ViewNode::Stencil(_) => "Stencil",
             ViewNode::RustCall { .. } => "RustCall",
             ViewNode::DynamicSection { .. } => "Dynamic",
@@ -381,6 +397,7 @@ impl<'a> LayoutDiffEngine<'a> {
             ViewNode::ListInsert { .. } => "ListInsert",
             ViewNode::ListRemove { .. } => "ListRemove",
             ViewNode::ListClear { .. } => "ListClear",
+            ViewNode::LetDecl { mutable, .. } => if *mutable { "Let" } else { "Const" },
             ViewNode::When { .. } => "When",
         }
     }

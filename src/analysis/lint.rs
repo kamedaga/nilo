@@ -152,7 +152,10 @@ fn check_flow_consistency(app: &App, diags: &mut Vec<super::error::Diagnostic>) 
     for transition in &app.flow.transitions {
         for from in &transition.from {
             let targets: std::collections::HashSet<String> = transition.to.iter().map(|target| target.timeline.clone()).collect();
-            flow_transitions.insert(from.clone(), targets);
+            // 同じfromからの複数の遷移を統合
+            flow_transitions.entry(from.clone())
+                .or_insert_with(std::collections::HashSet::new)
+                .extend(targets);
         }
     }
 
@@ -281,7 +284,7 @@ fn visit_nodes(
 ) {
     for node in nodes {
         match &node.node {
-            ViewNode::ComponentCall { name, args: _ } => {
+            ViewNode::ComponentCall { name, args: _, slots: _ } => {
                 out.insert(name.clone());
 
                 // 特別なケースのチェック

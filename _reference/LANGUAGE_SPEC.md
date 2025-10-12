@@ -458,7 +458,148 @@ timeline ListDemo {
 
 ---
 
-## 11. 既知の制約（2025-10 時点）
+## 11. WebAssembly / SPA ルーティング
+
+### 11.1 タイムラインURL定義
+```
+timeline Home("/") {
+  // ... ビュー定義
+}
+
+timeline Profile("/profile/:userId") {
+  // ... ビュー定義
+}
+
+timeline NotFound("/404") {
+  // ... ビュー定義
+}
+```
+- **構文**: `timeline <Name>("/<path>") { ... }`
+- URLパターンを括弧内に文字列で指定
+- パラメータは `:param` 形式（将来対応予定）
+- URL定義のないタイムラインはネイティブ風の動作（URLバーに反映されない）
+
+### 11.2 ルーティング動作（WASM環境）
+- **初回アクセス**: ブラウザのURLパスを解析し、一致するタイムラインを初期表示
+  - 例: `http://localhost:8000/profile` → `Profile` タイムラインを表示
+- **navigate_to実行時**: ブラウザのURL履歴に追加（`history.pushState`）
+  - 例: `navigate_to(Profile)` → URLが `/profile` に変更
+- **ブラウザの戻る/進むボタン**: タイムライン遷移に対応（将来対応予定）
+
+### 11.3 SPAサーバー要件
+WASM版Niloアプリを配信するには、以下の要件を満たすHTTPサーバーが必要：
+
+#### 11.3.1 フォールバック処理
+- 存在しないパス（例: `/profile`, `/settings`）→ `index.html` を返す
+- 静的ファイル（`.js`, `.wasm`, `.css` など）→ そのまま配信
+
+#### 11.3.2 MIMEタイプ
+必須のMIMEタイプ設定：
+- `application/wasm` : `.wasm` ファイル
+- `application/javascript` : `.js` ファイル
+- `text/html` : `.html` ファイル
+
+#### 11.3.3 公式SPAサーバー
+Niloプロジェクトには専用のSPAサーバーが含まれています：
+
+**場所**: `spa_server/` ディレクトリ
+
+**使用方法**:
+```bash
+cd spa_server
+cargo run --release
+
+# カスタムポート
+cargo run -- 3000
+
+# カスタムディレクトリ
+cargo run -- 8000 /path/to/dist
+```
+
+**機能**:
+- ✅ SPAルーティング対応（全ルートを`index.html`にフォールバック）
+- ✅ 適切なMIMEタイプ自動設定
+- ✅ ディレクトリトラバーサル攻撃防止
+- ✅ CORS対応
+- ✅ マルチスレッド対応
+
+**環境変数**:
+```bash
+PORT=3000 ROOT_DIR=./dist cargo run
+```
+
+### 11.4 ルーティング実装例
+
+#### 基本的なSPA
+```nilo
+flow {
+  start: Home
+  Home -> [About, Contact]
+  [About, Contact] -> Home
+}
+
+timeline Home("/") {
+  VStack(style: { spacing: 20px, padding: 40px }) {
+    Text("ホーム", style: { font_size: 32px })
+    Button(id: about_btn, label: "About")
+    Button(id: contact_btn, label: "Contact")
+  }
+  when user.click(about_btn) { navigate_to(About) }
+  when user.click(contact_btn) { navigate_to(Contact) }
+}
+
+timeline About("/about") {
+  VStack(style: { spacing: 20px, padding: 40px }) {
+    Text("Aboutページ", style: { font_size: 32px })
+    Button(id: back_btn, label: "ホームに戻る")
+  }
+  when user.click(back_btn) { navigate_to(Home) }
+}
+
+timeline Contact("/contact") {
+  VStack(style: { spacing: 20px, padding: 40px }) {
+    Text("Contactページ", style: { font_size: 32px })
+    Button(id: back_btn, label: "ホームに戻る")
+  }
+  when user.click(back_btn) { navigate_to(Home) }
+}
+```
+
+#### URLパラメータ付き（将来対応予定）
+```nilo
+timeline UserProfile("/user/:id") {
+  VStack {
+    Text("ユーザープロフィール: {}", route.params.id)
+    // ... 詳細
+  }
+}
+```
+
+### 11.5 デプロイメント
+
+#### 開発環境
+```bash
+# 1. WASMビルド
+cargo run --bin build_wasm_with_html
+
+# 2. SPAサーバー起動
+cd spa_server
+cargo run --release
+
+# 3. ブラウザで確認
+# http://localhost:8000
+```
+
+#### 本番環境
+Niloの公式SPAサーバーまたは以下のいずれかを使用：
+- **nginx**: `try_files $uri $uri/ /index.html;`
+- **Caddy**: `try_files {path} /index.html`
+- **Apache**: `RewriteRule ^ /index.html [L]`
+- **Vercel/Netlify**: 自動的にSPAフォールバック対応
+
+---
+
+## 12. 既知の制約（2025-10 時点）
 - `SpacingAuto` は固定扱い（伸縮空白は将来対応）
 - コンポーネント内 `when` はイベント伝播未確立の実装がある
 - Timeline 直下 `font` の反映は実装差あり（AST には保持）
@@ -466,14 +607,25 @@ timeline ListDemo {
 
 ---
 
-## 12. 付録：EBNF（抜粋・概念）
+## 12. 既知の制約（2025-10 時点）
+- `SpacingAuto` は固定扱い（伸縮空白は将来対応）
+- コンポーネント内 `when` はイベント伝播未確立の実装がある
+- Timeline 直下 `font` の反映は実装差あり（AST には保持）
+- Stencil の座標は画面基準（親原点基準切替は将来検討）
+- URLパラメータ（`:param`）は構文のみ定義、実装は将来対応
+- ブラウザの戻る/進むボタンによるタイムライン遷移は将来対応
+
+---
+
+## 13. 付録：EBNF（抜粋・概念）
 ```
 File       := (Flow | Timeline | Component)*
 Flow       := "flow" "{" "start:" Ident (Transition)* "}"
 Transition := State "->" (State | "[" State ("," State)* "]")
 State      := Ident | Qualified
 
-Timeline   := "timeline" State "{" (TimelineDecl | View | Event)* "}"
+Timeline   := "timeline" State TimelineUrl? "{" (TimelineDecl | View | Event)* "}"
+TimelineUrl:= "(" String ")"
 TimelineDecl := "font:" String
 Event      := "when" "user" "." "click" "(" (Ident | String) ")" Block
 

@@ -1,6 +1,17 @@
 pub mod ast;
 pub mod parse;
 
+// 新しいモジュール構造
+pub mod utils;
+pub mod expr;
+pub mod flow;
+pub mod timeline;
+pub mod component;
+pub mod style;
+pub mod namespace;
+pub mod types;
+pub mod view_node;
+
 use std::path::Path;
 use std::fs;
 use parse::parse_nilo;

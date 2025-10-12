@@ -167,7 +167,7 @@ impl LayoutEngine {
         G: Fn(&str) -> (u32, u32),
     {
         // ComponentCallの場合は特別処理
-        if let ViewNode::ComponentCall { name, args: _ } = &node.node {
+        if let ViewNode::ComponentCall { name, args: _, slots: _ } = &node.node {
             return self.compute_component_size_with_style(node, name, context, eval, get_image_size, app);
         }
         
@@ -286,7 +286,7 @@ impl LayoutEngine {
             ViewNode::HStack(children) => {
                 self.compute_hstack_size(children, node.style.as_ref(), context, eval, get_image_size, app)
             }
-            ViewNode::ComponentCall { name, args } => {
+            ViewNode::ComponentCall { name, args: _, slots: _ } => {
                 self.compute_component_size_with_style(node, name, context, eval, get_image_size, app)
             }
             ViewNode::Spacing(dimension_value) => {
@@ -319,7 +319,18 @@ impl LayoutEngine {
                 self.compute_vstack_size(body, None, context, eval, get_image_size, app)
             }
             // 状態操作ノード（Set, RustCallなど）はUIに干渉しない
-            ViewNode::Set { .. } | ViewNode::RustCall { .. } => {
+            ViewNode::Set { .. } | ViewNode::RustCall { .. } | ViewNode::LetDecl { .. } => {
+                ComputedSize {
+                    width: 0.0,
+                    height: 0.0,
+                    intrinsic_width: 0.0,
+                    intrinsic_height: 0.0,
+                    has_explicit_width: true,
+                    has_explicit_height: true,
+                }
+            }
+            // ★ Phase 2: スロットはプレースホルダーとして最小サイズ
+            ViewNode::Slot { .. } | ViewNode::SlotCheck { .. } => {
                 ComputedSize {
                     width: 0.0,
                     height: 0.0,
@@ -1195,7 +1206,7 @@ impl LayoutEngine {
                 self.layout_hstack_recursive(children, node.style.as_ref(), context, [computed_size.width, computed_size.height], position, eval, get_image_size, app)
                     .into_iter().for_each(|child| results.push(child));
             }
-            ViewNode::ComponentCall { name, args: _ } => {
+            ViewNode::ComponentCall { name, args: _, slots: _ } => {
                 // コンポーネントの本体を展開（既にcompute_component_size_with_styleでサイズ計算済み）
                 if let Some(component) = app.components.iter().find(|c| &c.name == name) {
                     // 重要: ComponentCallで確定したサイズを固定値として使用し、相対値の再計算を避ける
@@ -1218,6 +1229,13 @@ impl LayoutEngine {
             ViewNode::If { condition, then_body, else_body } => {
                 // If文の条件評価と展開処理
                 self.layout_if_recursive(condition, then_body, else_body.as_ref(), context, position, eval, get_image_size, app, results);
+            }
+            // ★ Phase 2: スロット処理（プレースホルダーとして何もしない）
+            ViewNode::Slot { .. } => {
+                // スロットはコンポーネント展開時に置換されるため、ここでは何もしない
+            }
+            ViewNode::SlotCheck { .. } => {
+                // has_slot()チェックも実行時評価のため、ここでは何もしない
             }
             _ => {
                 // その他のノード（Text, Button, Image等）は子要素なし

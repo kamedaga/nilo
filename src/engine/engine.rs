@@ -1,4 +1,10 @@
-// src/engine/engine.rs の軽量化版
+// src/engine/engine.rs
+// 
+// ★ アーキテクチャ:
+// - タイムライン初期化時にローカル変数を一度だけ宣言（initialize_local_variables）
+// - レイアウト再計算時にはローカル変数を再宣言しない（layout_nodes_lightweight）
+// - 差分表示のロジックは ui::layout_diff モジュールに分離されている
+//
 use crate::parser::ast::{App, ViewNode, WithSpan, Expr, EventExpr, Component, Style};
 use crate::stencil::stencil::Stencil;
 use crate::ui::{LayoutParams, layout_vstack};
@@ -111,6 +117,59 @@ impl Engine {
         fields.into_iter().collect()
     }
     
+    /// タイムライン初期化時にローカル変数を一度だけ宣言
+    /// レイアウト再計算時には呼ばれない
+    fn initialize_local_variables<S>(
+        nodes: &[WithSpan<ViewNode>],
+        state: &mut AppState<S>,
+    )
+    where
+        S: crate::engine::state::StateAccess + 'static,
+    {
+        for node in nodes {
+            match &node.node {
+                ViewNode::LetDecl { name, value, mutable, declared_type: _ } => {
+                    // ローカル変数を評価して設定
+                    let v = state.eval_expr_from_ast(value);
+                    
+                    if *mutable {
+                        // let変数（可変）
+                        state.component_context.set_local_var(name.clone(), v);
+                        log::debug!("Initialized mutable variable '{}' at timeline load", name);
+                    } else {
+                        // const変数（不変）
+                        state.component_context.set_const_var(name.clone(), v);
+                        log::debug!("Initialized const variable '{}' at timeline load", name);
+                    }
+                }
+                ViewNode::VStack(children) | ViewNode::HStack(children) => {
+                    Self::initialize_local_variables(children, state);
+                }
+                ViewNode::ForEach { body, .. } => {
+                    Self::initialize_local_variables(body, state);
+                }
+                ViewNode::If { then_body, else_body, .. } => {
+                    Self::initialize_local_variables(then_body, state);
+                    if let Some(else_nodes) = else_body {
+                        Self::initialize_local_variables(else_nodes, state);
+                    }
+                }
+                ViewNode::Match { arms, default, .. } => {
+                    for (_, body) in arms {
+                        Self::initialize_local_variables(body, state);
+                    }
+                    if let Some(default_body) = default {
+                        Self::initialize_local_variables(default_body, state);
+                    }
+                }
+                ViewNode::DynamicSection { body, .. } => {
+                    Self::initialize_local_variables(body, state);
+                }
+                _ => {}
+            }
+        }
+    }
+    
     /// LayoutParams生成の共通化
     fn make_layout_params(window_size: [f32; 2], default_font: String) -> LayoutParams {
         LayoutParams {
@@ -194,7 +253,7 @@ impl Engine {
         mouse_down: bool,
         prev_mouse_down: bool,
         window_size: [f32; 2],
-    ) -> (Vec<Stencil>, Vec<(String, [f32; 2], [f32; 2])>)
+    ) -> (Vec<Stencil>, Vec<(String, [f32; 2], [f32; 2])>, Vec<(String, [f32; 2], [f32; 2])>)
     where
         S: crate::engine::state::StateAccess + 'static,
     {
@@ -223,7 +282,7 @@ impl Engine {
         mouse_down: bool,
         prev_mouse_down: bool,
         window_size: [f32; 2],
-    ) -> (Vec<Stencil>, Vec<(String, [f32; 2], [f32; 2])>)
+    ) -> (Vec<Stencil>, Vec<(String, [f32; 2], [f32; 2])>, Vec<(String, [f32; 2], [f32; 2])>)
     where
         S: crate::engine::state::StateAccess + 'static
     {
@@ -232,6 +291,7 @@ impl Engine {
         
         let mut stencils = Vec::new();
         let mut buttons = Vec::new();
+        let mut text_inputs = Vec::new();
         let default_font = if let Some(tl) = state.current_timeline(app) {
             tl.font.clone().unwrap_or_else(|| "default".to_string())
         } else {
@@ -249,6 +309,7 @@ impl Engine {
             state,
             &mut stencils,
             &mut buttons,
+            &mut text_inputs,
             mouse_pos,
             mouse_down,
             prev_mouse_down,
@@ -256,7 +317,7 @@ impl Engine {
             &params.default_font,
         );
         
-        (stencils, buttons)
+        (stencils, buttons, text_inputs)
     }
 
     /// DynamicSectionを再帰的に収集して描画
@@ -266,6 +327,7 @@ impl Engine {
         state: &mut AppState<S>,
         stencils: &mut Vec<Stencil>,
         buttons: &mut Vec<(String, [f32; 2], [f32; 2])>,
+        text_inputs: &mut Vec<(String, [f32; 2], [f32; 2])>,
         mouse_pos: [f32; 2],
         mouse_down: bool,
         prev_mouse_down: bool,
@@ -306,6 +368,7 @@ impl Engine {
                         state,
                         stencils,
                         buttons,
+                        text_inputs,
                         mouse_pos,
                         mouse_down,
                         prev_mouse_down,
@@ -415,13 +478,14 @@ impl Engine {
         mouse_down: bool,
         prev_mouse_down: bool,
         nest_level: u32,
-    ) -> (Vec<Stencil>, Vec<(String, [f32; 2], [f32; 2])>)
+    ) -> (Vec<Stencil>, Vec<(String, [f32; 2], [f32; 2])>, Vec<(String, [f32; 2], [f32; 2])>)
     where
         S: crate::engine::state::StateAccess + 'static,
     {
 
         let mut stencils = Vec::new();
         let mut buttons = Vec::new();
+        let mut text_inputs = Vec::new();
         let mut depth_counter = (nest_level as f32) * 0.1;
 
         let eval_fn = |e: &Expr| state.eval_expr_from_ast(e);
@@ -443,7 +507,7 @@ impl Engine {
                     Self::render_button_lightweight(lnode, &mut stencils, &mut depth_counter, is_hover, &params.default_font);
                 }
                 ViewNode::TextInput { id, .. } => {
-                    buttons.push((id.clone(), lnode.position, lnode.size));
+                    text_inputs.push((id.clone(), lnode.position, lnode.size));
                     Self::render_text_input_lightweight(lnode, state, &mut stencils, &mut depth_counter, mouse_pos);
                 }
                 ViewNode::Text { .. } => {
@@ -459,6 +523,11 @@ impl Engine {
                 }
                 ViewNode::RustCall { name, args } => {
                     state.handle_rust_call_viewnode(name, &args);
+                }
+                ViewNode::LetDecl { .. } => {
+                    // ★ ローカル変数はタイムライン初期化時に一度だけ宣言される
+                    // レイアウト再計算時には何もしない（既に宣言済み）
+                    // 処理は initialize_local_variables() で行われる
                 }
                 ViewNode::ForEach { var, iterable, body } => {
                     // レンダリング段階でForeach変数を適切に設定してレンダリング
@@ -476,7 +545,7 @@ impl Engine {
                 }
             }
         }
-        (stencils, buttons)
+        (stencils, buttons, text_inputs)
     }
 
     /// 軽量化されたテキスト入力フィールド描画
@@ -1294,14 +1363,14 @@ impl Engine {
         mouse_down: bool,
         prev_mouse_down: bool,
         window_size: [f32; 2],
-    ) -> (Vec<Stencil>, Vec<(String, [f32; 2], [f32; 2])>)
+    ) -> (Vec<Stencil>, Vec<(String, [f32; 2], [f32; 2])>, Vec<(String, [f32; 2], [f32; 2])>)
     where
         S: crate::engine::state::StateAccess + 'static,
     {
         state.all_buttons.clear();
 
         let Some(tl) = state.current_timeline(app) else {
-            return (Vec::new(), Vec::new());
+            return (Vec::new(), Vec::new(), Vec::new());
         };
 
         let cache_invalid = state.cached_window_size.map_or(true, |cached| {
@@ -1316,23 +1385,29 @@ impl Engine {
         }
 
         if state.expanded_body.is_none() {
-            state.expanded_body = Some(expand_component_calls_lightweight(&tl.body, app, state));
+            let expanded_nodes = expand_component_calls_lightweight(&tl.body, app, state);
+            
+            // ★ タイムライン初期化時にローカル変数を一度だけ宣言
+            Self::initialize_local_variables(&expanded_nodes, state);
+            
+            state.expanded_body = Some(expanded_nodes);
         }
 
         let expanded = state.expanded_body.as_ref().unwrap().clone();
 
-        let (mut stencils, mut buttons) = Self::layout_static_part(
+        let (mut stencils, mut buttons, mut text_inputs) = Self::layout_static_part(
             app, state, &expanded, mouse_pos, mouse_down, prev_mouse_down, window_size
         );
 
-        let (ds, db) = Self::layout_dynamic_part(
+        let (ds, db, dt) = Self::layout_dynamic_part(
             app, state, &expanded, mouse_pos, mouse_down, prev_mouse_down, window_size
         );
 
         stencils.extend(ds);
         buttons.extend(db);
+        text_inputs.extend(dt);
 
-        (stencils, buttons)
+        (stencils, buttons, text_inputs)
     }
 
     /// 簡略化されたボタン同期
@@ -1378,7 +1453,7 @@ impl Engine {
         }
     }
 
-    /// ボタンのonclick属性��処理
+    /// ボタンのonclick属性を処理
     fn handle_button_onclick<S>(
         _app: &App,
         state: &mut AppState<S>,
@@ -1387,8 +1462,18 @@ impl Engine {
         S: crate::engine::state::StateAccess + 'static,
     {
         for id in clicked {
-            if let Some(onclick_expr) = state.button_onclick_map.get(*id) {
-                state.eval_expr_from_ast(onclick_expr);
+            if let Some(onclick_expr) = state.button_onclick_map.get(*id).cloned() {
+                // onclick式を評価して実行
+                match &onclick_expr {
+                    Expr::FunctionCall { name, args } => {
+                        // 関数呼び出しの場合、stateアクセス可能な専用メソッドを使用
+                        state.execute_onclick_function_call(name, args);
+                    }
+                    _ => {
+                        // その他の式は通常の評価
+                        state.eval_expr_from_ast(&onclick_expr);
+                    }
+                }
             }
         }
     }
@@ -1560,17 +1645,28 @@ impl Engine {
                 state.handle_rust_call_viewnode(name, args);
             }
             ViewNode::Set { path, value, .. } => {
-                if path.starts_with("state.") {
-                    let key = path.strip_prefix("state.").unwrap().trim().to_string();
-                    let v = state.eval_expr_from_ast(value);
-
+                // ★ 優先順位: 1. ローカル変数 → 2. state変数 → 3. その他の変数
+                let key = path.trim().to_string();
+                let v = state.eval_expr_from_ast(value);
+                
+                // 1. ローカル変数をチェック
+                if state.component_context.get_local_var(&key).is_some() {
+                    // const変数への再代入チェック
+                    if state.component_context.is_const_var(&key) {
+                        panic!("Cannot reassign to const variable '{}'", key);
+                    }
+                    log::debug!("Setting local variable '{}' = '{}'", key, v);
+                    state.component_context.set_local_var(key, v);
+                } else if path.starts_with("state.") {
+                    // 2. state変数
+                    let state_key = path.strip_prefix("state.").unwrap().trim().to_string();
+                    
                     // state.xxxアクセス時はエラーでクラッシュ
-                    if let Err(e) = state.custom_state.set(&key, v.clone()) {
-                        panic!("Failed to set state.{}: {:?}. State access failed - this should crash the application.", key, e);
+                    if let Err(e) = state.custom_state.set(&state_key, v.clone()) {
+                        panic!("Failed to set state.{}: {:?}. State access failed - this should crash the application.", state_key, e);
                     }
                 } else {
-                    let key = path.trim().to_string();
-                    let v = state.eval_expr_from_ast(value);
+                    // 3. その他の変数
                     state.variables.insert(key, v);
                 }
             }
@@ -1670,6 +1766,11 @@ impl Engine {
                     state.variables.insert(key, "[]".to_string());
                 }
             }
+            ViewNode::LetDecl { .. } => {
+                // ★ ローカル変数はタイムライン初期化時に一度だけ宣言される
+                // 処理は initialize_local_variables() で行われる
+                // ここでは何もしない
+            }
             _ => {}
         }
         None
@@ -1689,18 +1790,28 @@ where
 
     for node in nodes {
         match &node.node {
-            ViewNode::ComponentCall { name, args } => {
+            ViewNode::ComponentCall { name, args, slots: _ } => {
                 if let Some(comp) = app.components.iter().find(|c| c.name == *name) {
-                    
                     // コンポーネントのボディをクローンして引数を適用
                     let mut expanded_body = comp.body.clone();
                     
-                    // パラメータの置換を実行
-                    for (i, arg) in args.iter().enumerate() {
-                        if let Some(param_name) = comp.params.get(i) {
-                            // Parameter substitution
-                            substitute_parameter_in_nodes(&mut expanded_body, param_name, arg);
-                        }
+                    // ★ Phase 2: デフォルト値を考慮したパラメータ置換
+                    for (i, param) in comp.params.iter().enumerate() {
+                        let arg_value = if let Some(arg) = args.get(i) {
+                            // 引数が渡されている場合はそれを使用
+                            arg.clone()
+                        } else if let Some(default) = &param.default_value {
+                            // 引数がなくデフォルト値がある場合はデフォルト値を使用
+                            default.clone()
+                        } else if param.optional {
+                            // オプショナルで値がない場合はスキップ
+                            continue;
+                        } else {
+                            // 必須パラメータで値がない場合はスキップ
+                            continue;
+                        };
+                        
+                        substitute_parameter_in_nodes(&mut expanded_body, &param.name, &arg_value);
                     }
                     
                     // デフォルトスタイルを適用（ComponentCallのスタイルがない場合のみ）
@@ -1767,20 +1878,89 @@ fn substitute_parameter_in_node(node: &mut ViewNode, param_name: &str, arg: &Exp
         ViewNode::Text { args, .. } => {
             // Text argsの中でパラメータを探す
             for text_arg in args {
-                if let Expr::Path(path) = text_arg {
-                    if path == param_name {
-                        // Text parameter replacement
-                        *text_arg = arg.clone();
+                match text_arg {
+                    Expr::Path(path) => {
+                        // 完全一致の場合: user == user
+                        if path == param_name {
+                            *text_arg = arg.clone();
+                        }
+                        // パスの先頭一致の場合: user.name の user部分を置換
+                        else if path.starts_with(&format!("{}.", param_name)) {
+                            let property_path = &path[(param_name.len() + 1)..]; // "name" or "email"
+                            
+                            // 引数がObjectの場合、プロパティアクセスを解決
+                            if let Expr::Object(fields) = arg {
+                                // property_pathから値を取得（ドット区切りサポート）
+                                let parts: Vec<&str> = property_path.split('.').collect();
+                                if let Some(value) = get_nested_object_property(fields, &parts) {
+                                    *text_arg = value.clone();
+                                }
+                            }
+                        }
                     }
+                    Expr::Ident(ident) => {
+                        // 識別子の場合も同様
+                        if ident == param_name {
+                            *text_arg = arg.clone();
+                        }
+                    }
+                    _ => {}
                 }
             }
         }
         ViewNode::VStack(children) | ViewNode::HStack(children) => {
             substitute_parameter_in_nodes(children, param_name, arg);
         }
+        ViewNode::If { condition, then_body, else_body } => {
+            // if文の条件式内のパラメータを置換
+            substitute_expr_parameter(condition, param_name, arg);
+            // then/elseブランチの子ノードも置換
+            substitute_parameter_in_nodes(then_body, param_name, arg);
+            if let Some(else_nodes) = else_body {
+                substitute_parameter_in_nodes(else_nodes, param_name, arg);
+            }
+        }
         // 他のノードタイプも必要に応じて追加
         _ => {}
     }
+}
+
+/// 式内のパラメータを置換する
+fn substitute_expr_parameter(expr: &mut Expr, param_name: &str, arg: &Expr) {
+    match expr {
+        Expr::Ident(ident) if ident == param_name => {
+            *expr = arg.clone();
+        }
+        Expr::Path(path) if path == param_name => {
+            *expr = arg.clone();
+        }
+        // 他の式タイプも必要に応じて追加
+        _ => {}
+    }
+}
+
+/// オブジェクトからネストされたプロパティを取得
+fn get_nested_object_property<'a>(fields: &'a [(String, Expr)], path: &[&str]) -> Option<&'a Expr> {
+    if path.is_empty() {
+        return None;
+    }
+    
+    let first_key = path[0];
+    for (key, value) in fields {
+        if key == first_key {
+            if path.len() == 1 {
+                // 最後のキー
+                return Some(value);
+            } else {
+                // ネストアクセス
+                if let Expr::Object(nested_fields) = value {
+                    return get_nested_object_property(nested_fields, &path[1..]);
+                }
+                return None;
+            }
+        }
+    }
+    None
 }
 
 /// ComponentCallのスタイルを既存のスタイルにマージ（ComponentCallが優先）

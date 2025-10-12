@@ -1,6 +1,7 @@
 pub mod lint;
 pub mod error;
 pub mod state_type_checker;
+pub mod component_validator;  // ★ Phase 2: コンポーネント型バリデーション
 
 use crate::parser::ast::{App};
 
@@ -38,9 +39,15 @@ pub fn analyze_app_with_rust_state(app: &App, rust_source: Option<&str>) -> Anal
         if let Some(schema) = state_type_checker::RustStateSchema::parse_from_source(source) {
             let type_warnings = state_type_checker::check_state_access_types(app, &schema);
             for warning in type_warnings {
-                eprintln!("[State Type Warning] {}", warning);
+                log::warn!("[State Type Warning] {}", warning);
             }
         }
+    }
+    
+    // ★ Phase 2: コンポーネント型バリデーション
+    let component_warnings = component_validator::validate_component_calls(app);
+    for warning in component_warnings {
+        log::warn!("[Component Warning] {}", warning);
     }
 
     AnalysisResult { diagnostics, warnings }

@@ -1,7 +1,8 @@
 # Rust build artifacts
 /target/
-Cargo.lock\
+Cargo.lock/
 .cargo/
+
 
 # IDE files
 .vscode/

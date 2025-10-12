@@ -42,6 +42,11 @@ cargo build --release
 cargo run --bin build_wasm_with_html
 ```
 
+## spaサーバーを起動
+'''bash
+cd spa_server ; cargo run --release
+'''
+
 ---
 
 ## 概要
@@ -63,6 +68,13 @@ WGPU対応を前提とした設計で、**Mac/Windows**で動作します。(動
 * 不要なログを削除しました
 * 汎用的なレイアウトシステムに根本から変更しました。 詳しくはLAYOUT_SYSTEM_NEW.md
 * styleで計算式を使えるように
+* timelineでルーティングに対応
+* spaサーバーの実装
+* 名前空間timelineの実装
+* onclick関数呼び出し対応
+* object対応
+* component再利用性をアップ
+* dynamic_sectionの挙動を修正
 
 ---
 

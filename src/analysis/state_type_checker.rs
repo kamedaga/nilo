@@ -1,4 +1,4 @@
-use crate::parser::ast::{App, ViewNode, Expr, WithSpan, NiloType};
+use crate::parser::ast::{App, ViewNode, Expr, WithSpan, NiloType, BinaryOperator};
 use std::collections::HashMap;
 
 /// Rust側の状態型定義を表す
@@ -137,6 +137,29 @@ impl RustStateSchema {
     }
 }
 
+/// ローカル変数のコンテキスト
+#[derive(Debug, Clone)]
+struct LocalVarContext {
+    /// 変数名 -> NiloType のマッピング
+    variables: HashMap<String, NiloType>,
+}
+
+impl LocalVarContext {
+    fn new() -> Self {
+        Self {
+            variables: HashMap::new(),
+        }
+    }
+    
+    fn declare_var(&mut self, name: String, var_type: NiloType) {
+        self.variables.insert(name, var_type);
+    }
+    
+    fn get_var_type(&self, name: &str) -> Option<&NiloType> {
+        self.variables.get(name)
+    }
+}
+
 /// state.xxx アクセスの型チェック
 pub fn check_state_access_types(
     app: &App,
@@ -146,11 +169,13 @@ pub fn check_state_access_types(
     
     // すべてのタイムラインとコンポーネントをチェック
     for timeline in &app.timelines {
-        check_nodes(&timeline.body, schema, &mut warnings);
+        let mut local_ctx = LocalVarContext::new();
+        check_nodes(&timeline.body, schema, &mut warnings, &mut local_ctx);
     }
     
     for component in &app.components {
-        check_nodes(&component.body, schema, &mut warnings);
+        let mut local_ctx = LocalVarContext::new();
+        check_nodes(&component.body, schema, &mut warnings, &mut local_ctx);
     }
     
     warnings
@@ -160,9 +185,135 @@ fn check_nodes(
     nodes: &[WithSpan<ViewNode>],
     schema: &RustStateSchema,
     warnings: &mut Vec<String>,
+    local_ctx: &mut LocalVarContext,
 ) {
     for node_span in nodes {
-        check_node(&node_span.node, node_span.line, node_span.column, schema, warnings);
+        check_node(&node_span.node, node_span.line, node_span.column, schema, warnings, local_ctx);
+    }
+}
+
+/// 式から型を推論する簡易版
+fn infer_expr_type(expr: &Expr, local_ctx: &LocalVarContext) -> NiloType {
+    match expr {
+        Expr::String(_) => NiloType::String,
+        Expr::Number(_) => NiloType::Number,
+        Expr::Bool(_) => NiloType::Bool,
+        Expr::Path(path) => {
+            // ローカル変数の場合
+            if !path.starts_with("state.") {
+                let var_name = path.trim();
+                if let Some(var_type) = local_ctx.get_var_type(var_name) {
+                    var_type.clone()
+                } else {
+                    NiloType::Unknown
+                }
+            } else {
+                // state.xxx の場合、schemaから取得（簡易版）
+                NiloType::Unknown
+            }
+        }
+        Expr::Ident(name) => {
+            // ローカル変数
+            if let Some(var_type) = local_ctx.get_var_type(name) {
+                var_type.clone()
+            } else {
+                NiloType::Unknown
+            }
+        }
+        Expr::BinaryOp { left, op, right } => {
+            let left_ty = infer_expr_type(left, local_ctx);
+            let right_ty = infer_expr_type(right, local_ctx);
+            match op {
+                BinaryOperator::Add | BinaryOperator::Sub |
+                BinaryOperator::Mul | BinaryOperator::Div => {
+                    if left_ty == NiloType::Number && right_ty == NiloType::Number {
+                        NiloType::Number
+                    } else {
+                        NiloType::String
+                    }
+                }
+                BinaryOperator::Eq | BinaryOperator::Ne |
+                BinaryOperator::Lt | BinaryOperator::Le |
+                BinaryOperator::Gt | BinaryOperator::Ge => {
+                    NiloType::Bool
+                }
+            }
+        }
+        Expr::Array(items) => {
+            if items.is_empty() {
+                NiloType::Array(Box::new(NiloType::String)) // デフォルト
+            } else {
+                let first_type = infer_expr_type(&items[0], local_ctx);
+                NiloType::Array(Box::new(first_type))
+            }
+        }
+        _ => NiloType::String, // デフォルト
+    }
+}
+
+/// 式内の変数アクセスをチェックする関数
+fn check_expr(
+    expr: &Expr,
+    line: usize,
+    column: usize,
+    schema: &RustStateSchema,
+    warnings: &mut Vec<String>,
+    local_ctx: &LocalVarContext,
+) {
+    match expr {
+        Expr::Ident(var_name) => {
+            // ローカル変数の使用チェック
+            if local_ctx.get_var_type(var_name).is_none() {
+                warnings.push(format!(
+                    "{}:{} - 未定義の変数: ローカル変数 '{}' が宣言されていません",
+                    line, column, var_name
+                ));
+            }
+        }
+        Expr::Path(path) => {
+            // state.xxx の形式をチェック
+            if let Some(field_name) = path.strip_prefix("state.") {
+                if schema.fields.get(field_name).is_none() {
+                    warnings.push(format!(
+                        "{}:{} - 未定義のフィールド: state.{} は Rust の State 構造体に存在しません",
+                        line, column, field_name
+                    ));
+                }
+            }
+        }
+        Expr::BinaryOp { left, right, .. } => {
+            check_expr(left, line, column, schema, warnings, local_ctx);
+            check_expr(right, line, column, schema, warnings, local_ctx);
+        }
+        Expr::FunctionCall { args, .. } => {
+            for arg in args {
+                check_expr(arg, line, column, schema, warnings, local_ctx);
+            }
+        }
+        Expr::Array(items) => {
+            for item in items {
+                check_expr(item, line, column, schema, warnings, local_ctx);
+            }
+        }
+        Expr::Object(fields) => {
+            for (_, value) in fields {
+                check_expr(value, line, column, schema, warnings, local_ctx);
+            }
+        }
+        Expr::Match { expr: match_expr, arms, default } => {
+            check_expr(match_expr, line, column, schema, warnings, local_ctx);
+            for arm in arms {
+                check_expr(&arm.pattern, line, column, schema, warnings, local_ctx);
+                check_expr(&arm.value, line, column, schema, warnings, local_ctx);
+            }
+            if let Some(default_expr) = default {
+                check_expr(default_expr, line, column, schema, warnings, local_ctx);
+            }
+        }
+        Expr::CalcExpr(inner) => {
+            check_expr(inner, line, column, schema, warnings, local_ctx);
+        }
+        _ => {} // String, Number, Bool, Dimension はチェック不要
     }
 }
 
@@ -172,30 +323,58 @@ fn check_node(
     column: usize,
     schema: &RustStateSchema,
     warnings: &mut Vec<String>,
+    local_ctx: &mut LocalVarContext,
 ) {
     match node {
+        ViewNode::LetDecl { name, value, declared_type, .. } => {
+            // ローカル変数の宣言: 型注釈があればそれを使用、なければ値から推論
+            let var_type = if let Some(decl_type) = declared_type {
+                decl_type.clone()
+            } else {
+                infer_expr_type(value, local_ctx)
+            };
+            
+            local_ctx.declare_var(name.clone(), var_type);
+        }
         ViewNode::Set { path, value, inferred_type } => {
-            // state.xxx の形式をチェック
-            if let Some(field_name) = path.strip_prefix("state.") {
-                if let Some(rust_type) = schema.fields.get(field_name) {
-                    let expected_nilo_type = rust_type.to_nilo_type();
-                    
-                    // 推論された型をチェック
-                    if let Some(inferred) = inferred_type {
-                        if !expected_nilo_type.is_compatible_with(inferred) {
-                            warnings.push(format!(
-                                "{}:{} - 型の不一致: state.{} は Rust で {} 型として定義されていますが、{} 型の値が代入されました",
-                                line, column, field_name, rust_type.display(), inferred.display()
-                            ));
-                        }
+            // ローカル変数への代入チェック
+            if !path.starts_with("state.") {
+                let var_name = path.trim();
+                if let Some(expected_type) = local_ctx.get_var_type(var_name) {
+                    // ローカル変数の型チェック: local_ctxを使って型を再推論
+                    let actual_inferred = infer_expr_type(value, local_ctx);
+                    if !expected_type.is_compatible_with(&actual_inferred) {
+                        warnings.push(format!(
+                            "{}:{} - 型の不一致: ローカル変数 {} は {} 型として宣言されていますが、{} 型の値が代入されました",
+                            line, column, var_name, expected_type.display(), actual_inferred.display()
+                        ));
                     }
-                } else {
-                    warnings.push(format!(
-                        "{}:{} - 未定義のフィールド: state.{} は Rust の State 構造体に存在しません",
-                        line, column, field_name
-                    ));
+                }
+            } else {
+                // state.xxx の形式をチェック
+                if let Some(field_name) = path.strip_prefix("state.") {
+                    if let Some(rust_type) = schema.fields.get(field_name) {
+                        let expected_nilo_type = rust_type.to_nilo_type();
+                        
+                        // 推論された型をチェック
+                        if let Some(inferred) = inferred_type {
+                            if !expected_nilo_type.is_compatible_with(inferred) {
+                                warnings.push(format!(
+                                    "{}:{} - 型の不一致: state.{} は Rust で {} 型として定義されていますが、{} 型の値が代入されました",
+                                    line, column, field_name, rust_type.display(), inferred.display()
+                                ));
+                            }
+                        }
+                    } else {
+                        warnings.push(format!(
+                            "{}:{} - 未定義のフィールド: state.{} は Rust の State 構造体に存在しません",
+                            line, column, field_name
+                        ));
+                    }
                 }
             }
+            // value の式をチェック
+            check_expr(value, line, column, schema, warnings, &*local_ctx);
         }
         ViewNode::Toggle { path } => {
             if let Some(field_name) = path.strip_prefix("state.") {
@@ -214,7 +393,61 @@ fn check_node(
                 }
             }
         }
-        ViewNode::ListAppend { path, .. } | ViewNode::ListRemove { path, .. } | ViewNode::ListClear { path } => {
+        ViewNode::ListAppend { path, value } => {
+            if let Some(field_name) = path.strip_prefix("state.") {
+                if let Some(rust_type) = schema.fields.get(field_name) {
+                    if !matches!(rust_type, RustFieldType::VecI32 | RustFieldType::VecU32 | RustFieldType::VecString | RustFieldType::VecBool) {
+                        warnings.push(format!(
+                            "{}:{} - 型エラー: state.{} は {} 型なのでリスト操作できません（Vec<T> 型のみ可能）",
+                            line, column, field_name, rust_type.display()
+                        ));
+                    }
+                } else {
+                    warnings.push(format!(
+                        "{}:{} - 未定義のフィールド: state.{} は Rust の State 構造体に存在しません",
+                        line, column, field_name
+                    ));
+                }
+            }
+            check_expr(value, line, column, schema, warnings, local_ctx);
+        }
+        ViewNode::ListInsert { path, index: _, value } => {
+            if let Some(field_name) = path.strip_prefix("state.") {
+                if let Some(rust_type) = schema.fields.get(field_name) {
+                    if !matches!(rust_type, RustFieldType::VecI32 | RustFieldType::VecU32 | RustFieldType::VecString | RustFieldType::VecBool) {
+                        warnings.push(format!(
+                            "{}:{} - 型エラー: state.{} は {} 型なのでリスト操作できません（Vec<T> 型のみ可能）",
+                            line, column, field_name, rust_type.display()
+                        ));
+                    }
+                } else {
+                    warnings.push(format!(
+                        "{}:{} - 未定義のフィールド: state.{} は Rust の State 構造体に存在しません",
+                        line, column, field_name
+                    ));
+                }
+            }
+            check_expr(value, line, column, schema, warnings, local_ctx);
+        }
+        ViewNode::ListRemove { path, value } => {
+            if let Some(field_name) = path.strip_prefix("state.") {
+                if let Some(rust_type) = schema.fields.get(field_name) {
+                    if !matches!(rust_type, RustFieldType::VecI32 | RustFieldType::VecU32 | RustFieldType::VecString | RustFieldType::VecBool) {
+                        warnings.push(format!(
+                            "{}:{} - 型エラー: state.{} は {} 型なのでリスト操作できません（Vec<T> 型のみ可能）",
+                            line, column, field_name, rust_type.display()
+                        ));
+                    }
+                } else {
+                    warnings.push(format!(
+                        "{}:{} - 未定義のフィールド: state.{} は Rust の State 構造体に存在しません",
+                        line, column, field_name
+                    ));
+                }
+            }
+            check_expr(value, line, column, schema, warnings, local_ctx);
+        }
+        ViewNode::ListClear { path } => {
             if let Some(field_name) = path.strip_prefix("state.") {
                 if let Some(rust_type) = schema.fields.get(field_name) {
                     if !matches!(rust_type, RustFieldType::VecI32 | RustFieldType::VecU32 | RustFieldType::VecString | RustFieldType::VecBool) {
@@ -231,33 +464,63 @@ fn check_node(
                 }
             }
         }
-        // 再帰的にチェック
-        ViewNode::VStack(children) | ViewNode::HStack(children) => {
-            check_nodes(children, schema, warnings);
+        ViewNode::Text { format: _, args } => {
+            for arg in args {
+                check_expr(arg, line, column, schema, warnings, local_ctx);
+            }
         }
-        ViewNode::DynamicSection { body, .. } => {
-            check_nodes(body, schema, warnings);
+        ViewNode::Button { onclick, .. } => {
+            if let Some(expr) = onclick {
+                check_expr(expr, line, column, schema, warnings, local_ctx);
+            }
         }
-        ViewNode::Match { arms, default, .. } => {
+        ViewNode::TextInput { value, on_change, .. } => {
+            if let Some(expr) = value {
+                check_expr(expr, line, column, schema, warnings, local_ctx);
+            }
+            if let Some(expr) = on_change {
+                check_expr(expr, line, column, schema, warnings, local_ctx);
+            }
+        }
+        ViewNode::ComponentCall { args, .. } => {
+            for arg in args {
+                check_expr(arg, line, column, schema, warnings, local_ctx);
+            }
+        }
+        ViewNode::Match { expr, arms, default } => {
+            check_expr(expr, line, column, schema, warnings, local_ctx);
             for (_, body) in arms {
-                check_nodes(body, schema, warnings);
+                check_nodes(body, schema, warnings, local_ctx);
             }
             if let Some(default_body) = default {
-                check_nodes(default_body, schema, warnings);
+                check_nodes(default_body, schema, warnings, local_ctx);
             }
         }
-        ViewNode::ForEach { body, .. } => {
-            check_nodes(body, schema, warnings);
+        ViewNode::ForEach { iterable, body, .. } => {
+            check_expr(iterable, line, column, schema, warnings, local_ctx);
+            // ForEach内は新しいスコープ
+            let mut foreach_ctx = local_ctx.clone();
+            check_nodes(body, schema, warnings, &mut foreach_ctx);
         }
-        ViewNode::If { then_body, else_body, .. } => {
-            check_nodes(then_body, schema, warnings);
+        ViewNode::If { condition, then_body, else_body } => {
+            check_expr(condition, line, column, schema, warnings, local_ctx);
+            check_nodes(then_body, schema, warnings, local_ctx);
             if let Some(else_b) = else_body {
-                check_nodes(else_b, schema, warnings);
+                check_nodes(else_b, schema, warnings, local_ctx);
             }
+        }
+        ViewNode::RustCall { args, .. } => {
+            for arg in args {
+                check_expr(arg, line, column, schema, warnings, local_ctx);
+            }
+        }
+        // 再帰的にチェック
+        ViewNode::VStack(children) | ViewNode::HStack(children) => {
+            check_nodes(children, schema, warnings, local_ctx);
+        }
+        ViewNode::DynamicSection { body, .. } => {
+            check_nodes(body, schema, warnings, local_ctx);
         }
         _ => {}
     }
-    
-    // Exprもチェック（state.xxxの読み取りアクセス）
-    // TODO: Exprの中のstate.xxxアクセスもチェック
 }

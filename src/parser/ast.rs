@@ -23,6 +23,32 @@ pub struct Flow {
     pub transitions: Vec<FlowTransition>,
 }
 
+impl Flow {
+    /// 配列形式の遷移元を展開して正規化する
+    /// 例: [A, B, C] -> D を A -> D, B -> D, C -> D に展開
+    pub fn normalize(mut self) -> Self {
+        let mut expanded_transitions = Vec::new();
+        
+        for transition in self.transitions {
+            if transition.from.len() == 1 {
+                // 単一の遷移元の場合はそのまま追加
+                expanded_transitions.push(transition);
+            } else {
+                // 複数の遷移元の場合は展開
+                for from_timeline in &transition.from {
+                    expanded_transitions.push(FlowTransition {
+                        from: vec![from_timeline.clone()],
+                        to: transition.to.clone(),
+                    });
+                }
+            }
+        }
+        
+        self.transitions = expanded_transitions;
+        self
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct FlowTransition {
     pub from: Vec<String>,
@@ -47,12 +73,26 @@ pub enum UrlParam {
 // 階層的フロー糖衣構文用の型定義
 // ========================================
 
-/// 階層的フロー定義の中間表現
+/// 階層的フロー定義の中間表現 (flow Login { ... })
 #[derive(Debug, Clone)]
 pub struct NamespacedFlow {
     pub name: String,
     pub start: String,
-    pub transitions: Vec<(String, Vec<String>)>,
+    pub transitions: Vec<NamespacedTransition>,
+}
+
+#[derive(Debug, Clone)]
+pub struct NamespacedTransition {
+    pub from: Vec<String>,
+    pub to: Vec<String>,
+}
+
+/// 名前空間定義 (namespace Login { ... })
+#[derive(Debug, Clone)]
+pub struct Namespace {
+    pub name: String,
+    pub timelines: Vec<Timeline>,
+    pub components: Vec<Component>,
 }
 
 #[derive(Debug, Clone)]
@@ -67,11 +107,33 @@ pub struct Timeline {
 #[derive(Debug, Clone)]
 pub struct Component {
     pub name: String,
-    pub params: Vec<String>,
+    pub params: Vec<ComponentParam>,  // ★ 変更: String から ComponentParam へ
     pub font: Option<String>,  // ★ 追加: コンポーネント全体で使用するフォント
     pub default_style: Option<Style>,  // ★ 追加: デフォルトスタイル
     pub body: Vec<WithSpan<ViewNode>>,
     pub whens: Vec<When>,
+}
+
+/// コンポーネントパラメータ定義（Phase 2対応）
+#[derive(Debug, Clone)]
+pub struct ComponentParam {
+    pub name: String,
+    pub param_type: ComponentParamType,
+    pub default_value: Option<Expr>,
+    pub optional: bool,
+}
+
+/// コンポーネントパラメータの型定義
+#[derive(Debug, Clone)]
+pub enum ComponentParamType {
+    String,
+    Number,
+    Bool,
+    Object,
+    Array,
+    Function,
+    Enum(Vec<String>),  // 列挙型: ("small" | "medium" | "large")
+    Any,
 }
 
 #[derive(Debug, Clone)]
@@ -140,7 +202,15 @@ pub enum ViewNode {
     SpacingAuto,
     
     // コンポーネント
-    ComponentCall { name: String, args: Vec<Expr> },
+    ComponentCall { 
+        name: String, 
+        args: Vec<Expr>,
+        slots: std::collections::HashMap<String, Vec<WithSpan<ViewNode>>>,  // ★ Phase 2: スロットコンテンツ
+    },
+    
+    // ★ Phase 2: スロットシステム
+    Slot { name: String },  // スロット挿入位置 (slot content)
+    SlotCheck { name: String },  // スロットの存在チェック (has_slot(footer))
     
     // 動的セクション
     DynamicSection { name: String, body: Vec<WithSpan<ViewNode>> },
@@ -174,6 +244,14 @@ pub enum ViewNode {
     ListRemove { path: String, value: Expr },
     ListClear { path: String },
 
+    // ★ 新規追加: ローカル変数宣言
+    LetDecl { 
+        name: String, 
+        value: Expr, 
+        mutable: bool,
+        declared_type: Option<NiloType>,  // 明示的な型注釈
+    },
+    
     // イベントハンドラー
     When { event: EventExpr, actions: Vec<WithSpan<ViewNode>> },
 

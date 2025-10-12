@@ -124,7 +124,7 @@ pub fn run_application_auto_embedded<S, P>(
     run_application_with_embedded(file_path, state, cli_args, window_title, Some(embedded_source));
 }
 
-// 埋め込みファイルを自動で使用するマクロ
+// 埋め込みファイルを自動で使用するマクロ（ネイティブ版）
 #[cfg(not(target_arch = "wasm32"))]
 #[macro_export]
 macro_rules! run_nilo_app {
@@ -135,6 +135,24 @@ macro_rules! run_nilo_app {
     ($file_path:expr, $state:expr, $cli_args:expr) => {{
         const EMBEDDED_NILO: &str = include_str!($file_path);
         $crate::run_application_auto_embedded($file_path, $state, $cli_args, None, EMBEDDED_NILO)
+    }};
+}
+
+// 埋め込みファイルを自動で使用するマクロ（WASM版）
+#[cfg(target_arch = "wasm32")]
+#[macro_export]
+macro_rules! run_nilo_app {
+    ($file_path:expr, $state:expr, $cli_args:expr, $window_title:expr) => {{
+        const EMBEDDED_NILO: &str = include_str!($file_path);
+        $crate::run_nilo_wasm(EMBEDDED_NILO, $state, $window_title)
+    }};
+    ($file_path:expr, $state:expr, $cli_args:expr) => {{
+        const EMBEDDED_NILO: &str = include_str!($file_path);
+        $crate::run_nilo_wasm(EMBEDDED_NILO, $state, None)
+    }};
+    ($file_path:expr, $state:expr) => {{
+        const EMBEDDED_NILO: &str = include_str!($file_path);
+        $crate::run_nilo_wasm(EMBEDDED_NILO, $state, None)
     }};
 }
 
@@ -361,9 +379,8 @@ pub fn load_embedded_nilo_app(
         }
         
         // Rust状態の型チェック（main.rsを読み込む）
-        if let Ok(main_rs_content) = std::fs::read_to_string("src/main.rs") {
-            let _ = analysis::analyze_app_with_rust_state(&app, Some(&main_rs_content));
-        }
+        let main_rs_content = include_str!("main.rs");
+        let _ = analysis::analyze_app_with_rust_state(&app, Some(main_rs_content));
     }
 
     Ok(app)
@@ -514,7 +531,7 @@ pub fn run_with_hotreload<S, P>(
 // ========================================
 
 #[cfg(target_arch = "wasm32")]
-pub fn run_nilo_wasm<S>(nilo_source: &str, initial_state: S)
+pub fn run_nilo_wasm<S>(nilo_source: &str, initial_state: S, window_title: Option<&str>)
 where
     S: StateAccess + Clone + Send + 'static + std::fmt::Debug,
 {
@@ -522,6 +539,16 @@ where
     use web_sys::{window, HtmlElement};
 
     log::info!("Nilo WASM starting...");
+
+    // ウィンドウタイトルを設定
+    if let Some(title) = window_title {
+        if let Some(window) = window() {
+            if let Some(document) = window.document() {
+                document.set_title(title);
+                log::info!("Set window title to: {}", title);
+            }
+        }
+    }
 
     // Niloソースをパース
     let app = match parser::parse::parse_nilo(nilo_source) {
@@ -699,5 +726,5 @@ pub fn run_nilo_wasm_with_state() {
     let state = WasmTestState::default();
 
     // DOMレンダラーでNiloアプリを実行
-    run_nilo_wasm(WASM_NILO_SOURCE, state);
+    run_nilo_wasm(WASM_NILO_SOURCE, state, None);
 }

@@ -3,7 +3,6 @@ use glyphon::{
 };
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, OnceLock};
-use log::error;
 
 /// テキスト測定結果
 #[derive(Debug, Clone)]
@@ -99,7 +98,7 @@ impl TextMeasurementSystem {
                 
                 None
             }
-            Err(e) => {
+            Err(_e) => {
                 None
             }
         }
