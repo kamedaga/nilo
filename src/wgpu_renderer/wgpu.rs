@@ -1,14 +1,14 @@
 use std::sync::Arc;
 use wgpu::{
-    Color, CompositeAlphaMode, Device, Instance, Queue, Surface, SurfaceConfiguration,
-    TextureFormat, TextureUsages, PresentMode, TextureViewDescriptor, Texture, TextureView,
+    Color, CompositeAlphaMode, Device, Instance, PresentMode, Queue, Surface, SurfaceConfiguration,
+    Texture, TextureFormat, TextureUsages, TextureView, TextureViewDescriptor,
 };
 use winit::window::Window;
 
-use super::text::TextRenderer;
-use crate::renderer_abstract::command::{DrawCommand, DrawList};
 use super::image::ImageRenderer;
+use super::text::TextRenderer;
 use super::unified::UnifiedRenderer;
+use crate::renderer_abstract::command::{DrawCommand, DrawList};
 pub struct WgpuRenderer {
     window: Arc<Window>,
     device: Device,
@@ -54,7 +54,7 @@ impl WgpuRenderer {
         let (depth_texture, depth_view) = Self::create_depth_texture(&device, size);
 
         let unified_renderer = UnifiedRenderer::new(&device, surface_format);
-        
+
         // グローバルに登録された全カスタムフォントを使用
         let custom_fonts = crate::get_all_custom_fonts();
         let text_renderer = if !custom_fonts.is_empty() {
@@ -89,7 +89,7 @@ impl WgpuRenderer {
                 size.height,
             )
         };
-        
+
         let image_renderer = ImageRenderer::new(&device, surface_format);
 
         let mut renderer = Self {
@@ -110,7 +110,10 @@ impl WgpuRenderer {
         renderer
     }
 
-    fn create_depth_texture(device: &Device, size: winit::dpi::PhysicalSize<u32>) -> (Texture, TextureView) {
+    fn create_depth_texture(
+        device: &Device,
+        size: winit::dpi::PhysicalSize<u32>,
+    ) -> (Texture, TextureView) {
         let depth_texture = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("Depth Texture"),
             size: wgpu::Extent3d {
@@ -169,7 +172,9 @@ impl WgpuRenderer {
             .surface
             .get_current_texture()
             .expect("Failed to acquire next surface texture");
-        let texture_view = surface_texture.texture.create_view(&TextureViewDescriptor::default());
+        let texture_view = surface_texture
+            .texture
+            .create_view(&TextureViewDescriptor::default());
 
         let mut encoder = self.device.create_command_encoder(&Default::default());
 
@@ -179,7 +184,9 @@ impl WgpuRenderer {
         // 深度順にソート（in-place）
         let mut commands = draw_list.0.clone();
         commands.sort_unstable_by(|a, b| {
-            self.get_command_depth(a).partial_cmp(&self.get_command_depth(b)).unwrap_or(std::cmp::Ordering::Equal)
+            self.get_command_depth(a)
+                .partial_cmp(&self.get_command_depth(b))
+                .unwrap_or(std::cmp::Ordering::Equal)
         });
 
         // 単一のRenderPassで全て描画
@@ -191,7 +198,12 @@ impl WgpuRenderer {
                     depth_slice: None,
                     resolve_target: None,
                     ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(Color { r: 0.2, g: 0.2, b: 0.2, a: 1.0 }), // グレー背景でテスト
+                        load: wgpu::LoadOp::Clear(Color {
+                            r: 1.0,
+                            g: 1.0,
+                            b: 1.0,
+                            a: 1.0,
+                        }), // 白背景をデフォルトに
                         store: wgpu::StoreOp::Store,
                     },
                 })],
@@ -221,22 +233,19 @@ impl WgpuRenderer {
     #[inline]
     fn get_command_depth(&self, cmd: &DrawCommand) -> f32 {
         match cmd {
-            DrawCommand::Rect { depth, .. } |
-            DrawCommand::Circle { depth, .. } |
-            DrawCommand::Triangle { depth, .. } |
-            DrawCommand::Image { depth, .. } |
-            DrawCommand::Text { depth, .. } => *depth,
+            DrawCommand::Rect { depth, .. }
+            | DrawCommand::Circle { depth, .. }
+            | DrawCommand::Triangle { depth, .. }
+            | DrawCommand::Image { depth, .. }
+            | DrawCommand::Text { depth, .. } => *depth,
         }
     }
 
     fn preload_images(&mut self, commands: &[DrawCommand]) {
-        let mut loaded = false;
         for cmd in commands {
             if let DrawCommand::Image { path, .. } = cmd {
-                if !loaded {
-                    self.image_renderer.load_texture(&self.device, &self.queue, path);
-                    loaded = true; // 最初の画像のみロード（最適化）
-                }
+                self.image_renderer
+                    .load_texture(&self.device, &self.queue, path);
             }
         }
     }
@@ -255,12 +264,27 @@ impl WgpuRenderer {
 
         for cmd in commands {
             match cmd {
-                DrawCommand::Rect { .. } |
-                DrawCommand::Circle { .. } |
-                DrawCommand::Triangle { .. } => shape_commands.push(cmd.clone()),
+                DrawCommand::Rect { .. }
+                | DrawCommand::Circle { .. }
+                | DrawCommand::Triangle { .. } => shape_commands.push(cmd.clone()),
                 DrawCommand::Image { .. } => image_commands.push(cmd.clone()),
-                DrawCommand::Text { content, position, size, color, font, max_width, .. } => {
-                    text_commands.push((content.clone(), *position, *size, *color, font.clone(), *max_width));
+                DrawCommand::Text {
+                    content,
+                    position,
+                    size,
+                    color,
+                    font,
+                    max_width,
+                    ..
+                } => {
+                    text_commands.push((
+                        content.clone(),
+                        *position,
+                        *size,
+                        *color,
+                        font.clone(),
+                        *max_width,
+                    ));
                 }
             }
         }
@@ -268,20 +292,41 @@ impl WgpuRenderer {
         // 統合レンダラで図形を一括描画（一つのパイプライン）
         if !shape_commands.is_empty() {
             let list = DrawList(shape_commands);
-            self.unified_renderer.draw(rpass, &list, &self.queue, self.size, scroll_offset, scale_factor);
+            self.unified_renderer.draw(
+                rpass,
+                &list,
+                &self.queue,
+                self.size,
+                scroll_offset,
+                scale_factor,
+            );
         }
 
         // 画像描画
         if !image_commands.is_empty() {
             let list = DrawList(image_commands);
-            self.image_renderer.draw(&self.device, rpass, &list, &self.queue, self.size, scroll_offset, scale_factor);
+            self.image_renderer.draw(
+                &self.device,
+                rpass,
+                &list,
+                &self.queue,
+                self.size,
+                scroll_offset,
+                scale_factor,
+            );
         }
 
         // テキスト描画
         if !text_commands.is_empty() {
             self.text_renderer.render_multiple_texts(
-                rpass, &text_commands, scroll_offset, scale_factor,
-                &self.queue, &self.device, self.size.width, self.size.height,
+                rpass,
+                &text_commands,
+                scroll_offset,
+                scale_factor,
+                &self.queue,
+                &self.device,
+                self.size.width,
+                self.size.height,
             );
         }
     }

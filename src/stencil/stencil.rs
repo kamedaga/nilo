@@ -72,24 +72,84 @@ pub fn stencil_to_wgpu_draw_list(stencils: &[Stencil]) -> DrawList {
     sorted_stencils.sort_by(|a, b| {
         let depth_a = get_stencil_depth(a);
         let depth_b = get_stencil_depth(b);
-        depth_b.partial_cmp(&depth_a).unwrap_or(std::cmp::Ordering::Equal)
+        depth_b
+            .partial_cmp(&depth_a)
+            .unwrap_or(std::cmp::Ordering::Equal)
     });
 
     fn recurse(stencil: &Stencil, draw_list: &mut DrawList) {
         match stencil {
-            Stencil::Rect { position, width, height, color, scroll, depth } => draw_list.push(DrawCommand::Rect {
-                position: *position, width: *width, height: *height, color: *color, scroll: *scroll, depth: *depth,
+            Stencil::Rect {
+                position,
+                width,
+                height,
+                color,
+                scroll,
+                depth,
+            } => draw_list.push(DrawCommand::Rect {
+                position: *position,
+                width: *width,
+                height: *height,
+                color: *color,
+                scroll: *scroll,
+                depth: *depth,
             }),
-            Stencil::Circle { center, radius, color, scroll, depth } => draw_list.push(DrawCommand::Circle {
-                center: *center, radius: *radius, color: *color, segments: 32, scroll: *scroll, depth: *depth,
+            Stencil::Circle {
+                center,
+                radius,
+                color,
+                scroll,
+                depth,
+            } => draw_list.push(DrawCommand::Circle {
+                center: *center,
+                radius: *radius,
+                color: *color,
+                segments: 32,
+                scroll: *scroll,
+                depth: *depth,
             }),
-            Stencil::Triangle { p1, p2, p3, color, scroll, depth } => draw_list.push(DrawCommand::Triangle {
-                p1: *p1, p2: *p2, p3: *p3, color: *color, scroll: *scroll, depth: *depth,
+            Stencil::Triangle {
+                p1,
+                p2,
+                p3,
+                color,
+                scroll,
+                depth,
+            } => draw_list.push(DrawCommand::Triangle {
+                p1: *p1,
+                p2: *p2,
+                p3: *p3,
+                color: *color,
+                scroll: *scroll,
+                depth: *depth,
             }),
-            Stencil::Text { content, position, size, color, font, max_width, scroll, depth } => draw_list.push(DrawCommand::Text {
-                content: content.clone(), position: *position, size: *size, color: *color, font: font.clone(), max_width: *max_width, scroll: *scroll, depth: *depth,
+            Stencil::Text {
+                content,
+                position,
+                size,
+                color,
+                font,
+                max_width,
+                scroll,
+                depth,
+            } => draw_list.push(DrawCommand::Text {
+                content: content.clone(),
+                position: *position,
+                size: *size,
+                color: *color,
+                font: font.clone(),
+                max_width: *max_width,
+                scroll: *scroll,
+                depth: *depth,
             }),
-            Stencil::Image { position, width, height, path, scroll, depth } => {
+            Stencil::Image {
+                position,
+                width,
+                height,
+                path,
+                scroll,
+                depth,
+            } => {
                 draw_list.push(DrawCommand::Image {
                     position: *position,
                     width: *width,
@@ -104,7 +164,13 @@ pub fn stencil_to_wgpu_draw_list(stencils: &[Stencil]) -> DrawList {
                     recurse(child, draw_list);
                 }
             }
-            Stencil::ScrollBar { content_length, viewport_height, scroll_offset_y, viewport_width, depth } => {
+            Stencil::ScrollBar {
+                content_length,
+                viewport_height,
+                scroll_offset_y,
+                viewport_width,
+                depth,
+            } => {
                 if content_length > viewport_height {
                     let max_scroll = content_length - viewport_height;
                     let scroll_y = (-scroll_offset_y).clamp(0.0, max_scroll);
@@ -170,7 +236,15 @@ pub fn stencil_to_wgpu_draw_list(stencils: &[Stencil]) -> DrawList {
                     });
                 }
             }
-            Stencil::RoundedRect { position, width, height, radius, color, scroll, depth } => {
+            Stencil::RoundedRect {
+                position,
+                width,
+                height,
+                radius,
+                color,
+                scroll,
+                depth,
+            } => {
                 let [x, y] = *position;
                 let w = width.max(0.0);
                 let h = height.max(0.0);

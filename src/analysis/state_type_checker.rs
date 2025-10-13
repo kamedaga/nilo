@@ -1,4 +1,4 @@
-use crate::parser::ast::{App, ViewNode, Expr, WithSpan, NiloType, BinaryOperator};
+use crate::parser::ast::{App, BinaryOperator, Expr, NiloType, ViewNode, WithSpan};
 use std::collections::HashMap;
 
 /// Rust側の状態型定義を表す
@@ -71,14 +71,14 @@ impl RustStateSchema {
     /// Rustソースコードから状態スキーマを抽出（簡易実装）
     pub fn parse_from_source(source: &str) -> Option<Self> {
         let mut schema = Self::new();
-        
+
         // nilo_state! マクロの内容を探す
         let macro_start = source.find("nilo_state!")?;
         let after_macro = &source[macro_start..];
         let struct_start = after_macro.find("struct")?;
         let brace_start = after_macro[struct_start..].find('{')?;
         let content_start = struct_start + brace_start + 1;
-        
+
         // 対応する閉じ括弧を探す
         let mut brace_count = 1;
         let mut end_pos = content_start;
@@ -95,24 +95,21 @@ impl RustStateSchema {
                 _ => {}
             }
         }
-        
+
         let struct_body = &after_macro[content_start..end_pos];
-        
+
         // フィールド定義をパース
         for line in struct_body.lines() {
             let line = line.trim();
             if line.is_empty() || line.starts_with("//") {
                 continue;
             }
-            
+
             // field_name: Type の形式をパース
             if let Some(colon_pos) = line.find(':') {
                 let field_name = line[..colon_pos].trim().to_string();
-                let type_part = line[colon_pos + 1..]
-                    .trim()
-                    .trim_end_matches(',')
-                    .trim();
-                
+                let type_part = line[colon_pos + 1..].trim().trim_end_matches(',').trim();
+
                 let field_type = match type_part {
                     "String" => Some(RustFieldType::String),
                     "bool" => Some(RustFieldType::Bool),
@@ -126,13 +123,13 @@ impl RustStateSchema {
                     "Vec<bool>" => Some(RustFieldType::VecBool),
                     _ => None,
                 };
-                
+
                 if let Some(ft) = field_type {
                     schema.add_field(field_name, ft);
                 }
             }
         }
-        
+
         Some(schema)
     }
 }
@@ -150,34 +147,31 @@ impl LocalVarContext {
             variables: HashMap::new(),
         }
     }
-    
+
     fn declare_var(&mut self, name: String, var_type: NiloType) {
         self.variables.insert(name, var_type);
     }
-    
+
     fn get_var_type(&self, name: &str) -> Option<&NiloType> {
         self.variables.get(name)
     }
 }
 
 /// state.xxx アクセスの型チェック
-pub fn check_state_access_types(
-    app: &App,
-    schema: &RustStateSchema,
-) -> Vec<String> {
+pub fn check_state_access_types(app: &App, schema: &RustStateSchema) -> Vec<String> {
     let mut warnings = Vec::new();
-    
+
     // すべてのタイムラインとコンポーネントをチェック
     for timeline in &app.timelines {
         let mut local_ctx = LocalVarContext::new();
         check_nodes(&timeline.body, schema, &mut warnings, &mut local_ctx);
     }
-    
+
     for component in &app.components {
         let mut local_ctx = LocalVarContext::new();
         check_nodes(&component.body, schema, &mut warnings, &mut local_ctx);
     }
-    
+
     warnings
 }
 
@@ -188,7 +182,14 @@ fn check_nodes(
     local_ctx: &mut LocalVarContext,
 ) {
     for node_span in nodes {
-        check_node(&node_span.node, node_span.line, node_span.column, schema, warnings, local_ctx);
+        check_node(
+            &node_span.node,
+            node_span.line,
+            node_span.column,
+            schema,
+            warnings,
+            local_ctx,
+        );
     }
 }
 
@@ -224,19 +225,22 @@ fn infer_expr_type(expr: &Expr, local_ctx: &LocalVarContext) -> NiloType {
             let left_ty = infer_expr_type(left, local_ctx);
             let right_ty = infer_expr_type(right, local_ctx);
             match op {
-                BinaryOperator::Add | BinaryOperator::Sub |
-                BinaryOperator::Mul | BinaryOperator::Div => {
+                BinaryOperator::Add
+                | BinaryOperator::Sub
+                | BinaryOperator::Mul
+                | BinaryOperator::Div => {
                     if left_ty == NiloType::Number && right_ty == NiloType::Number {
                         NiloType::Number
                     } else {
                         NiloType::String
                     }
                 }
-                BinaryOperator::Eq | BinaryOperator::Ne |
-                BinaryOperator::Lt | BinaryOperator::Le |
-                BinaryOperator::Gt | BinaryOperator::Ge => {
-                    NiloType::Bool
-                }
+                BinaryOperator::Eq
+                | BinaryOperator::Ne
+                | BinaryOperator::Lt
+                | BinaryOperator::Le
+                | BinaryOperator::Gt
+                | BinaryOperator::Ge => NiloType::Bool,
             }
         }
         Expr::Array(items) => {
@@ -300,7 +304,11 @@ fn check_expr(
                 check_expr(value, line, column, schema, warnings, local_ctx);
             }
         }
-        Expr::Match { expr: match_expr, arms, default } => {
+        Expr::Match {
+            expr: match_expr,
+            arms,
+            default,
+        } => {
             check_expr(match_expr, line, column, schema, warnings, local_ctx);
             for arm in arms {
                 check_expr(&arm.pattern, line, column, schema, warnings, local_ctx);
@@ -326,17 +334,26 @@ fn check_node(
     local_ctx: &mut LocalVarContext,
 ) {
     match node {
-        ViewNode::LetDecl { name, value, declared_type, .. } => {
+        ViewNode::LetDecl {
+            name,
+            value,
+            declared_type,
+            ..
+        } => {
             // ローカル変数の宣言: 型注釈があればそれを使用、なければ値から推論
             let var_type = if let Some(decl_type) = declared_type {
                 decl_type.clone()
             } else {
                 infer_expr_type(value, local_ctx)
             };
-            
+
             local_ctx.declare_var(name.clone(), var_type);
         }
-        ViewNode::Set { path, value, inferred_type } => {
+        ViewNode::Set {
+            path,
+            value,
+            inferred_type,
+        } => {
             // ローカル変数への代入チェック
             if !path.starts_with("state.") {
                 let var_name = path.trim();
@@ -355,7 +372,7 @@ fn check_node(
                 if let Some(field_name) = path.strip_prefix("state.") {
                     if let Some(rust_type) = schema.fields.get(field_name) {
                         let expected_nilo_type = rust_type.to_nilo_type();
-                        
+
                         // 推論された型をチェック
                         if let Some(inferred) = inferred_type {
                             if !expected_nilo_type.is_compatible_with(inferred) {
@@ -396,7 +413,13 @@ fn check_node(
         ViewNode::ListAppend { path, value } => {
             if let Some(field_name) = path.strip_prefix("state.") {
                 if let Some(rust_type) = schema.fields.get(field_name) {
-                    if !matches!(rust_type, RustFieldType::VecI32 | RustFieldType::VecU32 | RustFieldType::VecString | RustFieldType::VecBool) {
+                    if !matches!(
+                        rust_type,
+                        RustFieldType::VecI32
+                            | RustFieldType::VecU32
+                            | RustFieldType::VecString
+                            | RustFieldType::VecBool
+                    ) {
                         warnings.push(format!(
                             "{}:{} - 型エラー: state.{} は {} 型なのでリスト操作できません（Vec<T> 型のみ可能）",
                             line, column, field_name, rust_type.display()
@@ -411,10 +434,20 @@ fn check_node(
             }
             check_expr(value, line, column, schema, warnings, local_ctx);
         }
-        ViewNode::ListInsert { path, index: _, value } => {
+        ViewNode::ListInsert {
+            path,
+            index: _,
+            value,
+        } => {
             if let Some(field_name) = path.strip_prefix("state.") {
                 if let Some(rust_type) = schema.fields.get(field_name) {
-                    if !matches!(rust_type, RustFieldType::VecI32 | RustFieldType::VecU32 | RustFieldType::VecString | RustFieldType::VecBool) {
+                    if !matches!(
+                        rust_type,
+                        RustFieldType::VecI32
+                            | RustFieldType::VecU32
+                            | RustFieldType::VecString
+                            | RustFieldType::VecBool
+                    ) {
                         warnings.push(format!(
                             "{}:{} - 型エラー: state.{} は {} 型なのでリスト操作できません（Vec<T> 型のみ可能）",
                             line, column, field_name, rust_type.display()
@@ -432,7 +465,13 @@ fn check_node(
         ViewNode::ListRemove { path, value } => {
             if let Some(field_name) = path.strip_prefix("state.") {
                 if let Some(rust_type) = schema.fields.get(field_name) {
-                    if !matches!(rust_type, RustFieldType::VecI32 | RustFieldType::VecU32 | RustFieldType::VecString | RustFieldType::VecBool) {
+                    if !matches!(
+                        rust_type,
+                        RustFieldType::VecI32
+                            | RustFieldType::VecU32
+                            | RustFieldType::VecString
+                            | RustFieldType::VecBool
+                    ) {
                         warnings.push(format!(
                             "{}:{} - 型エラー: state.{} は {} 型なのでリスト操作できません（Vec<T> 型のみ可能）",
                             line, column, field_name, rust_type.display()
@@ -450,7 +489,13 @@ fn check_node(
         ViewNode::ListClear { path } => {
             if let Some(field_name) = path.strip_prefix("state.") {
                 if let Some(rust_type) = schema.fields.get(field_name) {
-                    if !matches!(rust_type, RustFieldType::VecI32 | RustFieldType::VecU32 | RustFieldType::VecString | RustFieldType::VecBool) {
+                    if !matches!(
+                        rust_type,
+                        RustFieldType::VecI32
+                            | RustFieldType::VecU32
+                            | RustFieldType::VecString
+                            | RustFieldType::VecBool
+                    ) {
                         warnings.push(format!(
                             "{}:{} - 型エラー: state.{} は {} 型なのでリスト操作できません（Vec<T> 型のみ可能）",
                             line, column, field_name, rust_type.display()
@@ -474,7 +519,9 @@ fn check_node(
                 check_expr(expr, line, column, schema, warnings, local_ctx);
             }
         }
-        ViewNode::TextInput { value, on_change, .. } => {
+        ViewNode::TextInput {
+            value, on_change, ..
+        } => {
             if let Some(expr) = value {
                 check_expr(expr, line, column, schema, warnings, local_ctx);
             }
@@ -484,10 +531,21 @@ fn check_node(
         }
         ViewNode::ComponentCall { args, .. } => {
             for arg in args {
-                check_expr(arg, line, column, schema, warnings, local_ctx);
+                match arg {
+                    crate::parser::ast::ComponentArg::Positional(expr) => {
+                        check_expr(expr, line, column, schema, warnings, local_ctx);
+                    }
+                    crate::parser::ast::ComponentArg::Named(_, expr) => {
+                        check_expr(expr, line, column, schema, warnings, local_ctx);
+                    }
+                }
             }
         }
-        ViewNode::Match { expr, arms, default } => {
+        ViewNode::Match {
+            expr,
+            arms,
+            default,
+        } => {
             check_expr(expr, line, column, schema, warnings, local_ctx);
             for (_, body) in arms {
                 check_nodes(body, schema, warnings, local_ctx);
@@ -502,7 +560,11 @@ fn check_node(
             let mut foreach_ctx = local_ctx.clone();
             check_nodes(body, schema, warnings, &mut foreach_ctx);
         }
-        ViewNode::If { condition, then_body, else_body } => {
+        ViewNode::If {
+            condition,
+            then_body,
+            else_body,
+        } => {
             check_expr(condition, line, column, schema, warnings, local_ctx);
             check_nodes(then_body, schema, warnings, local_ctx);
             if let Some(else_b) = else_body {

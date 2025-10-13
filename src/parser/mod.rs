@@ -2,19 +2,19 @@ pub mod ast;
 pub mod parse;
 
 // 新しいモジュール構造
-pub mod utils;
+pub mod component;
 pub mod expr;
 pub mod flow;
-pub mod timeline;
-pub mod component;
-pub mod style;
 pub mod namespace;
+pub mod style;
+pub mod timeline;
 pub mod types;
+pub mod utils;
 pub mod view_node;
 
-use std::path::Path;
-use std::fs;
 use parse::parse_nilo;
+use std::fs;
+use std::path::Path;
 
 //niloをパースして返す。
 pub fn parse_nilo_file<P: AsRef<Path>>(path: P) -> Result<ast::App, String> {

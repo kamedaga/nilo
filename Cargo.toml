@@ -24,6 +24,7 @@ pollster = { version = "0.3", optional = true }
 glyphon = { git = "https://github.com/grovesNL/glyphon.git", branch = "main", optional = true }
 colored = { version = "2", optional = true }
 notify = { version = "6.1", optional = true }
+open = { version = "5.3", optional = true }
 
 # 共通の依存関係
 env_logger = "0.11.8"
@@ -39,6 +40,7 @@ lazy_static = "1.5.0"
 nilo_state_access_derive = { path = "./nilo_state_access_derive" }
 log = "0.4.27"
 regex = "1.11"
+linkme = "0.3"
 
 # WASM専用の依存関係
 wasm-bindgen = { version = "0.2", optional = true }
@@ -63,7 +65,7 @@ console_log = { version = "1.0", optional = true }
 
 [features]
 default = ["native"]
-native = ["wgpu", "winit", "pollster", "glyphon", "colored", "notify"]
+native = ["wgpu", "winit", "pollster", "glyphon", "colored", "notify", "open"]
 wasm = ["wasm-bindgen", "web-sys", "console_error_panic_hook", "wasm-bindgen-futures", "placeholder", "console_log"]
 
 [build]

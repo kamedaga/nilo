@@ -1,0 +1,304 @@
+
+flow {
+    start: Welcome
+}
+
+timeline Welcome {
+    font: "japanese"
+    VStack(style: {
+        width: 100ww, 
+        background: "#000000", 
+        padding: [80, 40],
+        align: "center"
+    }) {
+        // ヒーローセクション
+        VStack(style: {
+            align: "center", 
+            gap: 24px, 
+            padding: [100, 20, 120, 20]
+        }) {
+            Text("Nilo", style: {
+                font_size: 96px, 
+                color: "#ffffff", 
+                shadow: {blur: 30, offset: [0, 6], color: "#00d4ff66"}
+            })
+            
+            VStack(style: {align: "center", gap: 16px}) {
+                Text("The Modern UI Framework", style: {
+                    font_size: 32px, 
+                    color: "#a0a0a0",
+                })
+                Text("Rustとともに創る、次世代のUI体験", style: {
+                    font_size: 20px, 
+                    color: "#707070",
+                })
+            }
+            
+            Spacing(40px)
+            
+            HStack(style: {gap: 20px, align: "center"}) {
+                Button(id: get_started, label: "Get Started →", 
+                    onclick: open_url("https://github.com/kamedaga/nilo/blob/master/README.md"),
+                    style: {
+                        background: "#ffffff",
+                        color: "#000000",
+                        padding: [16, 32],
+                        rounded: 8,
+                        font_size: 18px,
+                        shadow: {blur: 20, offset: [0, 8], color: "#ffffff40"}
+                    }
+                )
+                
+                Button(id: learn_more, label: "Documentation", 
+                    onclick: open_url("https://github.com/kamedaga/nilo/blob/master/_reference/LANGUAGE_SPEC.md"),
+                    style: {
+                        background: "transparent",
+                        color: "#ffffff",
+                        padding: [16, 32],
+                        rounded: 8,
+                        font_size: 18px,
+                        border_color: "#404040"
+                    }
+                )
+            }
+        }
+        
+        Spacing(80px)
+        
+        // 特徴セクション
+        VStack(style: {
+            width: 100%, 
+            max_width: 1200px,
+            align: "center", 
+            gap: 60px
+        }) {
+            VStack(style: {gap: 24px, align: "center"}) {
+                FeatureCard("⚡", "Lightning Fast", "wgpuベースの高速レンダリングで、スムーズなUI体験を提供します。")
+                FeatureCard("🎨", "Beautiful Design", "モダンで直感的な構文により、美しいUIを簡単に構築できます。")
+                FeatureCard("🔒", "Type Safe", "Rustの型安全性を活かし、信頼性の高いアプリケーションを開発できます。")
+            }
+        }
+        
+        Spacing(120px)
+        
+        VStack(style: {
+            width: 100%, 
+            max_width: 900px,
+            align: "center", 
+            gap: 40px
+        }) {
+            VStack(style: {align: "center", gap: 16px}) {
+                Text("Declarative & Elegant", style: {
+                    font_size: 48px, 
+                    color: "#ffffff",
+                })
+                Text("直感的な構文で、複雑なUIも簡潔に記述", style: {
+                    font_size: 20px, 
+                    color: "#808080",
+                })
+            }
+            
+        }
+
+        Spacing(120px)
+        
+        // クロスプラットフォームセクション
+        VStack(style: {
+            width: 100%, 
+            max_width: 1200px,
+            rounded: 24px, 
+            background: "#0a0a0a",
+            padding: 64px,
+            shadow: {blur: 40, offset: [0, 20], color: "#00000080"},
+            align: "center",
+            gap: 40px
+        }) {
+            VStack(style: {align: "center", gap: 16px}) {
+                Text("🌍", style: {font_size: 64px})
+                Text("Deploy Anywhere", style: {
+                    font_size: 48px, 
+                    color: "#ffffff",
+                })
+                Text("ネイティブアプリもWebアプリも、一つのコードベースで", style: {
+                    font_size: 20px, 
+                    color: "#808080",
+                })
+                Spacing(12px)
+                Text("NiloではStencilレイヤを挟むことによってシンプルにマルチレンダラを実装しています。", style: {
+                    font_size: 24px, 
+                    color: "#808080",
+                })
+                Text("動作確認済みプラットフォーム", style: {
+                    font_size: 32px, 
+                    color: "#ffffff",
+                })
+                Text("Windows(wgpu)", style: {
+                    font_size: 24px, 
+                    color: "#808080",
+                })
+                Text("Mac(wgpu)", style: {
+                    font_size: 24px, 
+                    color: "#808080",
+                })
+                Text("Linux(wgpu)", style: {
+                    font_size: 24px, 
+                    color: "#808080",
+                })
+                Text("Web(dom)", style: {
+                    font_size: 24px, 
+                    color: "#808080",
+                })
+            }
+            
+        }
+        
+        Spacing(120px)
+        
+        // 開発者体験セクション
+        VStack(style: {
+            width: 100%, 
+            max_width: 1200px,
+            align: "center", 
+            gap: 48px
+        }) {
+            VStack(style: {align: "center", gap: 16px}) {
+                Text("Developer Experience", style: {
+                    font_size: 48px, 
+                    color: "#ffffff",
+                })
+                Text("開発者のために設計された最高の体験", style: {
+                    font_size: 20px, 
+                    color: "#808080",
+                })
+            }
+            
+            VStack(style: {width: 100%, gap: 24px}) {
+                DXCardHotReload()
+                DXCardLinter()
+                DXCardZeroConfig()
+            }
+        }
+        
+        Spacing(160px)
+        
+        // CTA フッター
+        VStack(style: {
+            align: "center", 
+            gap: 32px,
+            padding: [60, 40]
+        }) {
+            Text("Ready to get started?", style: {
+                font_size: 40px, 
+                color: "#ffffff",
+            })
+            
+            Text("app.niloから始めましょう", style: {
+                font_size: 32px, 
+                color: "#cbd8dbff",
+            })
+            
+            Spacing(40px)
+            
+            Text("© 2025 Nilo. Built with ❤️ and Rust.", style: {
+                font_size: 14px, 
+                color: "#404040",
+            })
+        }
+    }
+}
+
+component FeatureCard(icon: String, title: String, description: String, style: {flex: 1, max_width: 360px}) {
+    VStack(style: {
+        width: 100%,
+        background: "#0a0a0a", 
+        rounded: 16px, 
+        padding: 40px,
+        shadow: {blur: 24, offset: [0, 12], color: "#00000060"},
+        align: "center",
+        gap: 20px
+    }) {
+        Text("{}", icon, style: {
+            font_size: 56px
+        })
+        
+        Text("{}", title, style: {
+            font_size: 24px, 
+            color: "#ffffff",
+        })
+        
+        Text("{}", description, style: {
+            max_width: auto,
+            font_size: 16px, 
+            color: "#909090",
+            align: "center"
+        })
+    }
+}
+
+
+
+component DXCardHotReload() {
+    HStack(style: {
+        width: 100%,
+        background: "#0a0a0a", 
+        rounded: 16px, 
+        padding: 32px,
+        shadow: {blur: 24, offset: [0, 12], color: "#00000060"},
+        gap: 24px,
+        align: "center"
+    }) {
+        Text("🔥", style: {font_size: 48px})
+        VStack(style: {gap: 8px}) {
+            Text("Hot Reload", style: {font_size: 24px, color: "#ffffff"})
+            Text("変更を即座に反映。cargo run -- --hotreloadで開発効率が劇的に向上します。", style: {
+                max_width: auto,
+                font_size: 16px, 
+                color: "#909090"
+            })
+        }
+    }
+}
+
+component DXCardLinter() {
+    HStack(style: {
+        width: 100%,
+        background: "#0a0a0a", 
+        rounded: 16px, 
+        padding: 32px,
+        shadow: {blur: 24, offset: [0, 12], color: "#00000060"},
+        gap: 24px,
+        align: "center"
+    }) {
+        Text("🔍", style: {font_size: 48px})
+        VStack(style: {gap: 8px}) {
+            Text("Built-in Linter", style: {font_size: 24px, color: "#ffffff"})
+            Text("標準搭載のLintツールが、コードの問題を自動検出。品質を保ちながら開発できます。", style: {
+                max_width: auto,
+                font_size: 16px, 
+                color: "#909090"
+            })
+        }
+    }
+}
+
+component DXCardZeroConfig() {
+    HStack(style: {
+        width: 100%,
+        background: "#0a0a0a", 
+        rounded: 16px, 
+        padding: 32px,
+        shadow: {blur: 24, offset: [0, 12], color: "#00000060"},
+        gap: 24px,
+        align: "center"
+    }) {
+        Text("📦", style: {font_size: 48px})
+        VStack(style: {gap: 8px}) {
+            Text("Zero Config", style: {font_size: 24px, color: "#ffffff"})
+            Text("複雑な設定は不要。すぐに開発を始められます。", style: {
+                max_width: auto,
+                font_size: 16px, 
+                color: "#909090"
+            })
+        }
+    }
+}

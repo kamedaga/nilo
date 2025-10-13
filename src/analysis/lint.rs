@@ -15,9 +15,10 @@ pub fn run_lints(app: &App) -> Vec<super::error::Diagnostic> {
     for transition in &app.flow.transitions {
         for target in &transition.to {
             if !timeline_names.contains(target.timeline.as_str()) {
-                diags.push(super::error::Diagnostic::error(
-                    format!("Timeline '{}' referenced in flow but not defined", target.timeline),
-                ));
+                diags.push(super::error::Diagnostic::error(format!(
+                    "Timeline '{}' referenced in flow but not defined",
+                    target.timeline
+                )));
             }
         }
     }
@@ -65,9 +66,10 @@ pub fn run_lints(app: &App) -> Vec<super::error::Diagnostic> {
     }
     for (name, count) in &timeline_name_counts {
         if *count > 1 {
-            diags.push(super::error::Diagnostic::error(
-                format!("Timeline '{}' is defined more than once ({} times)", name, count),
-            ));
+            diags.push(super::error::Diagnostic::error(format!(
+                "Timeline '{}' is defined more than once ({} times)",
+                name, count
+            )));
         }
     }
 
@@ -78,9 +80,10 @@ pub fn run_lints(app: &App) -> Vec<super::error::Diagnostic> {
     }
     for (name, count) in &component_name_counts {
         if *count > 1 {
-            diags.push(super::error::Diagnostic::error(
-                format!("Component '{}' is defined more than once ({} times)", name, count),
-            ));
+            diags.push(super::error::Diagnostic::error(format!(
+                "Component '{}' is defined more than once ({} times)",
+                name, count
+            )));
         }
     }
 
@@ -151,9 +154,14 @@ fn check_flow_consistency(app: &App, diags: &mut Vec<super::error::Diagnostic>) 
 
     for transition in &app.flow.transitions {
         for from in &transition.from {
-            let targets: std::collections::HashSet<String> = transition.to.iter().map(|target| target.timeline.clone()).collect();
+            let targets: std::collections::HashSet<String> = transition
+                .to
+                .iter()
+                .map(|target| target.timeline.clone())
+                .collect();
             // 同じfromからの複数の遷移を統合
-            flow_transitions.entry(from.clone())
+            flow_transitions
+                .entry(from.clone())
                 .or_insert_with(std::collections::HashSet::new)
                 .extend(targets);
         }
@@ -161,7 +169,8 @@ fn check_flow_consistency(app: &App, diags: &mut Vec<super::error::Diagnostic>) 
 
     // 各timelineでnavigate_toの使用をチェック
     for timeline in &app.timelines {
-        let mut used_navigations: std::collections::HashSet<String> = std::collections::HashSet::new();
+        let mut used_navigations: std::collections::HashSet<String> =
+            std::collections::HashSet::new();
         collect_navigations(&timeline.body, &mut used_navigations);
         collect_navigations_from_whens(&timeline.whens, &mut used_navigations);
 
@@ -169,9 +178,10 @@ fn check_flow_consistency(app: &App, diags: &mut Vec<super::error::Diagnostic>) 
         for target in &used_navigations {
             // まずtargetが存在するtimelineかチェック
             if !timeline_names.contains(target.as_str()) {
-                diags.push(super::error::Diagnostic::error(
-                    format!("Timeline '{}' is referenced in navigate_to but not defined", target),
-                ));
+                diags.push(super::error::Diagnostic::error(format!(
+                    "Timeline '{}' is referenced in navigate_to but not defined",
+                    target
+                )));
                 continue;
             }
 
@@ -213,18 +223,17 @@ fn check_flow_consistency(app: &App, diags: &mut Vec<super::error::Diagnostic>) 
 
     // 同様にcomponent内のnavigate_toもチェック
     for component in &app.components {
-        let mut used_navigations: std::collections::HashSet<String> = std::collections::HashSet::new();
+        let mut used_navigations: std::collections::HashSet<String> =
+            std::collections::HashSet::new();
         collect_navigations(&component.body, &mut used_navigations);
         collect_navigations_from_whens(&component.whens, &mut used_navigations);
 
         for target in &used_navigations {
             if !timeline_names.contains(target.as_str()) {
-                diags.push(super::error::Diagnostic::error(
-                    format!(
-                        "Timeline '{}' is referenced in navigate_to in component '{}' but not defined",
-                        target, component.name
-                    ),
-                ));
+                diags.push(super::error::Diagnostic::error(format!(
+                    "Timeline '{}' is referenced in navigate_to in component '{}' but not defined",
+                    target, component.name
+                )));
             }
         }
     }
@@ -284,7 +293,11 @@ fn visit_nodes(
 ) {
     for node in nodes {
         match &node.node {
-            ViewNode::ComponentCall { name, args: _, slots: _ } => {
+            ViewNode::ComponentCall {
+                name,
+                args: _,
+                slots: _,
+            } => {
                 out.insert(name.clone());
 
                 // 特別なケースのチェック
@@ -292,22 +305,30 @@ fn visit_nodes(
                     let loc = Some(format!("line {}, col {}", node.line, node.column));
                     let mut d = super::error::Diagnostic::error(
                         "Using `Text(variable)` style is not supported. \
-Use `Text(\"{}\", variable)` instead to display variable values."
+Use `Text(\"{}\", variable)` instead to display variable values.",
                     );
                     d.location = loc;
                     diags.push(d);
                 } else if !defined.contains(name.as_str()) {
                     // 組み込み関数やステンシル関数をチェック
                     let builtin_functions = [
-                        "rect", "circle", "triangle", "rounded_rect", "text", "image",
-                        "Spacing", "SpacingAuto", "Image"
+                        "rect",
+                        "circle",
+                        "triangle",
+                        "rounded_rect",
+                        "text",
+                        "image",
+                        "Spacing",
+                        "SpacingAuto",
+                        "Image",
                     ];
 
                     if !builtin_functions.contains(&name.as_str()) {
                         let loc = Some(format!("line {}, col {}", node.line, node.column));
-                        let mut d = super::error::Diagnostic::error(
-                            format!("Component '{}' is called but not defined", name),
-                        );
+                        let mut d = super::error::Diagnostic::error(format!(
+                            "Component '{}' is called but not defined",
+                            name
+                        ));
                         d.location = loc;
                         diags.push(d);
                     }
@@ -385,7 +406,11 @@ fn collect_navigations(
             ViewNode::ForEach { body, .. } => {
                 collect_navigations(body, navigations);
             }
-            ViewNode::If { then_body, else_body, .. } => {
+            ViewNode::If {
+                then_body,
+                else_body,
+                ..
+            } => {
                 collect_navigations(then_body, navigations);
                 if let Some(else_nodes) = else_body {
                     collect_navigations(else_nodes, navigations);

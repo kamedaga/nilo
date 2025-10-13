@@ -1,10 +1,10 @@
+use log::error;
 use notify::{Config, Event, RecommendedWatcher, RecursiveMode, Watcher};
 use std::path::Path;
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
-use log::error;
 
 pub struct HotReloader {
     _watcher: RecommendedWatcher,
@@ -14,10 +14,12 @@ pub struct HotReloader {
 impl HotReloader {
     /// 新しいホットリローダーを作成
     pub fn new<P: AsRef<Path>>(watch_path: P) -> Result<Self, Box<dyn std::error::Error>> {
-        let (tx, rx): (Sender<notify::Result<Event>>, Receiver<notify::Result<Event>>) = mpsc::channel();
+        let (tx, rx): (
+            Sender<notify::Result<Event>>,
+            Receiver<notify::Result<Event>>,
+        ) = mpsc::channel();
 
-        let config = Config::default()
-            .with_poll_interval(Duration::from_millis(100));
+        let config = Config::default().with_poll_interval(Duration::from_millis(100));
 
         let mut watcher = RecommendedWatcher::new(
             move |res| {
@@ -30,9 +32,13 @@ impl HotReloader {
 
         watcher.watch(watch_path.as_ref(), RecursiveMode::Recursive)?;
 
-        println!("🔥 Hot reload enabled for: {}", watch_path.as_ref().display());
+        println!(
+            "🔥 Hot reload enabled for: {}",
+            watch_path.as_ref().display()
+        );
 
-        let reload_callback: Arc<Mutex<Option<Box<dyn Fn() + Send + 'static>>>> = Arc::new(Mutex::new(None));
+        let reload_callback: Arc<Mutex<Option<Box<dyn Fn() + Send + 'static>>>> =
+            Arc::new(Mutex::new(None));
 
         // ファイル監視を別スレッドで開始
         let callback_clone = Arc::clone(&reload_callback);

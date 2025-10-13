@@ -19,7 +19,7 @@ pub struct App {
 #[derive(Debug, Clone)]
 pub struct Flow {
     pub start: String,
-    pub start_url: Option<String>,  // WASM用URL
+    pub start_url: Option<String>, // WASM用URL
     pub transitions: Vec<FlowTransition>,
 }
 
@@ -28,7 +28,7 @@ impl Flow {
     /// 例: [A, B, C] -> D を A -> D, B -> D, C -> D に展開
     pub fn normalize(mut self) -> Self {
         let mut expanded_transitions = Vec::new();
-        
+
         for transition in self.transitions {
             if transition.from.len() == 1 {
                 // 単一の遷移元の場合はそのまま追加
@@ -43,7 +43,7 @@ impl Flow {
                 }
             }
         }
-        
+
         self.transitions = expanded_transitions;
         self
     }
@@ -58,15 +58,15 @@ pub struct FlowTransition {
 #[derive(Debug, Clone)]
 pub struct FlowTarget {
     pub timeline: String,
-    pub url: Option<String>,        // WASM用URL
+    pub url: Option<String>, // WASM用URL
     pub params: std::collections::HashMap<String, UrlParam>,
 }
 
 #[derive(Debug, Clone)]
 pub enum UrlParam {
-    Required(String),   // :userId
-    Optional(String),   // :id?
-    Wildcard,           // *
+    Required(String), // :userId
+    Optional(String), // :id?
+    Wildcard,         // *
 }
 
 // ========================================
@@ -98,8 +98,9 @@ pub struct Namespace {
 #[derive(Debug, Clone)]
 pub struct Timeline {
     pub name: String,
-    pub url_pattern: Option<String>,  // ★ 追加: タイムラインのURLパターン
-    pub font: Option<String>,  // ★ 追加: タイムライン全体で使用するフォント
+    pub url_pattern: Option<String>, // ★ 追加: タイムラインのURLパターン
+    pub font: Option<String>,        // ★ 追加: タイムライン全体で使用するフォント
+    pub background: Option<String>,  // ★ 追加: タイムラインの背景色
     pub body: Vec<WithSpan<ViewNode>>,
     pub whens: Vec<When>,
 }
@@ -107,9 +108,9 @@ pub struct Timeline {
 #[derive(Debug, Clone)]
 pub struct Component {
     pub name: String,
-    pub params: Vec<ComponentParam>,  // ★ 変更: String から ComponentParam へ
-    pub font: Option<String>,  // ★ 追加: コンポーネント全体で使用するフォント
-    pub default_style: Option<Style>,  // ★ 追加: デフォルトスタイル
+    pub params: Vec<ComponentParam>, // ★ 変更: String から ComponentParam へ
+    pub font: Option<String>,        // ★ 追加: コンポーネント全体で使用するフォント
+    pub default_style: Option<Style>, // ★ 追加: デフォルトスタイル
     pub body: Vec<WithSpan<ViewNode>>,
     pub whens: Vec<When>,
 }
@@ -132,8 +133,15 @@ pub enum ComponentParamType {
     Object,
     Array,
     Function,
-    Enum(Vec<String>),  // 列挙型: ("small" | "medium" | "large")
+    Enum(Vec<String>), // 列挙型: ("small" | "medium" | "large")
     Any,
+}
+
+/// コンポーネント呼び出し時の引数（位置引数または名前付き引数）
+#[derive(Debug, Clone)]
+pub enum ComponentArg {
+    Positional(Expr),    // 位置引数: Card("value")
+    Named(String, Expr), // 名前付き引数: Card(content: "value")
 }
 
 #[derive(Debug, Clone)]
@@ -149,14 +157,14 @@ pub struct When {
 #[derive(Debug, Clone)]
 pub enum EventExpr {
     ButtonPressed(String),
-    
+
     // ★ 新規追加: テキスト入力関連のイベント
-    TextChanged(String),          // テキスト入力フィールドの値が変更された
-    TextFocused(String),          // テキスト入力フィールドがフォーカスされた
-    TextBlurred(String),          // テキスト入力フィールドがフォーカスを失った
-    KeyPressed(String, String),   // キーが押された (field_id, key_name)
+    TextChanged(String),            // テキスト入力フィールドの値が変更された
+    TextFocused(String),            // テキスト入力フィールドがフォーカスされた
+    TextBlurred(String),            // テキスト入力フィールドがフォーカスを失った
+    KeyPressed(String, String),     // キーが押された (field_id, key_name)
     ImeComposition(String, String), // IME変換中のテキスト (field_id, composition_text)
-    ImeCommit(String, String),    // IME変換確定 (field_id, committed_text)
+    ImeCommit(String, String),      // IME変換確定 (field_id, committed_text)
 }
 
 // ========================================
@@ -178,82 +186,128 @@ pub struct WithSpan<T> {
 #[derive(Debug, Clone)]
 pub enum ViewNode {
     // 基本UI要素
-    Text { format: String, args: Vec<Expr> },
-    Button { id: String, label: String, onclick: Option<Expr> },
-    Image { path: String },
-    
-    // ★ 新規追加: テキスト入力フィールド（IME対応）
-    TextInput { 
-        id: String,                    // 一意識別子
-        placeholder: Option<String>,   // プレースホルダーテキスト
-        value: Option<Expr>,          // 現在の値（state.field_nameなど）
-        on_change: Option<Expr>,      // 値変更時のコールバック
-        multiline: bool,              // 複数行入力対応
-        max_length: Option<usize>,    // 最大文字数
-        ime_enabled: bool,            // IME機能の有効/無効
+    Text {
+        format: String,
+        args: Vec<Expr>,
     },
-    
+    Button {
+        id: String,
+        label: String,
+        onclick: Option<Expr>,
+    },
+    Image {
+        path: String,
+    },
+
+    // ★ 新規追加: テキスト入力フィールド（IME対応）
+    TextInput {
+        id: String,                  // 一意識別子
+        placeholder: Option<String>, // プレースホルダーテキスト
+        value: Option<Expr>,         // 現在の値（state.field_nameなど）
+        on_change: Option<Expr>,     // 値変更時のコールバック
+        multiline: bool,             // 複数行入力対応
+        max_length: Option<usize>,   // 最大文字数
+        ime_enabled: bool,           // IME機能の有効/無効
+    },
+
     // レイアウト要素
     VStack(Vec<WithSpan<ViewNode>>),
     HStack(Vec<WithSpan<ViewNode>>),
-    
+
     // スペーシング
     Spacing(DimensionValue),
     SpacingAuto,
-    
+
     // コンポーネント
-    ComponentCall { 
-        name: String, 
-        args: Vec<Expr>,
-        slots: std::collections::HashMap<String, Vec<WithSpan<ViewNode>>>,  // ★ Phase 2: スロットコンテンツ
+    ComponentCall {
+        name: String,
+        args: Vec<ComponentArg>,
+        slots: std::collections::HashMap<String, Vec<WithSpan<ViewNode>>>, // ★ Phase 2: スロットコンテンツ
     },
-    
+
     // ★ Phase 2: スロットシステム
-    Slot { name: String },  // スロット挿入位置 (slot content)
-    SlotCheck { name: String },  // スロットの存在チェック (has_slot(footer))
-    
+    Slot {
+        name: String,
+    }, // スロット挿入位置 (slot content)
+    SlotCheck {
+        name: String,
+    }, // スロットの存在チェック (has_slot(footer))
+
     // 動的セクション
-    DynamicSection { name: String, body: Vec<WithSpan<ViewNode>> },
-    
-    // 制御構造
-    Match { expr: Expr, arms: Vec<(Expr, Vec<WithSpan<ViewNode>>)>, default: Option<Vec<WithSpan<ViewNode>>> },
-    
-    // ★ 新規追加: foreach制御
-    ForEach { 
-        var: String,           // 繰り返し変数名 (e.g., "item")
-        iterable: Expr,        // 繰り返し対象 (e.g., "state.items")
+    DynamicSection {
+        name: String,
         body: Vec<WithSpan<ViewNode>>,
     },
-    
-    // ★ 新規追加: if制御
-    If { 
-        condition: Expr,       // 条件式
-        then_body: Vec<WithSpan<ViewNode>>,  // trueの場合の内容
-        else_body: Option<Vec<WithSpan<ViewNode>>>,  // falseの場合の内容（オプション）
+
+    // 制御構造
+    Match {
+        expr: Expr,
+        arms: Vec<(Expr, Vec<WithSpan<ViewNode>>)>,
+        default: Option<Vec<WithSpan<ViewNode>>>,
     },
-    
+
+    // ★ 新規追加: foreach制御
+    ForEach {
+        var: String,    // 繰り返し変数名 (e.g., "item")
+        iterable: Expr, // 繰り返し対象 (e.g., "state.items")
+        body: Vec<WithSpan<ViewNode>>,
+    },
+
+    // ★ 新規追加: if制御
+    If {
+        condition: Expr,                            // 条件式
+        then_body: Vec<WithSpan<ViewNode>>,         // trueの場合の内容
+        else_body: Option<Vec<WithSpan<ViewNode>>>, // falseの場合の内容（オプション）
+    },
+
     // アクション
-    NavigateTo { target: String },
-    RustCall { name: String, args: Vec<Expr> },
-    
+    NavigateTo {
+        target: String,
+    },
+    RustCall {
+        name: String,
+        args: Vec<Expr>,
+    },
+
     // 状態操作
-    Set { path: String, value: Expr, inferred_type: Option<NiloType> },
-    Toggle { path: String },
-    ListAppend { path: String, value: Expr },
-    ListInsert { path: String, index: usize, value: Expr },
-    ListRemove { path: String, value: Expr },
-    ListClear { path: String },
+    Set {
+        path: String,
+        value: Expr,
+        inferred_type: Option<NiloType>,
+    },
+    Toggle {
+        path: String,
+    },
+    ListAppend {
+        path: String,
+        value: Expr,
+    },
+    ListInsert {
+        path: String,
+        index: usize,
+        value: Expr,
+    },
+    ListRemove {
+        path: String,
+        value: Expr,
+    },
+    ListClear {
+        path: String,
+    },
 
     // ★ 新規追加: ローカル変数宣言
-    LetDecl { 
-        name: String, 
-        value: Expr, 
+    LetDecl {
+        name: String,
+        value: Expr,
         mutable: bool,
-        declared_type: Option<NiloType>,  // 明示的な型注釈
+        declared_type: Option<NiloType>, // 明示的な型注釈
     },
-    
+
     // イベントハンドラー
-    When { event: EventExpr, actions: Vec<WithSpan<ViewNode>> },
+    When {
+        event: EventExpr,
+        actions: Vec<WithSpan<ViewNode>>,
+    },
 
     Stencil(crate::stencil::stencil::Stencil),
 }
@@ -273,9 +327,20 @@ pub enum Expr {
     Object(Vec<(String, Expr)>),
     Dimension(DimensionValue),
     CalcExpr(Box<Expr>), // 計算式（括弧付き）
-    Match { expr: Box<Expr>, arms: Vec<MatchArm>, default: Option<Box<Expr>> },
-    FunctionCall { name: String, args: Vec<Expr> },
-    BinaryOp { left: Box<Expr>, op: BinaryOperator, right: Box<Expr> },
+    Match {
+        expr: Box<Expr>,
+        arms: Vec<MatchArm>,
+        default: Option<Box<Expr>>,
+    },
+    FunctionCall {
+        name: String,
+        args: Vec<Expr>,
+    },
+    BinaryOp {
+        left: Box<Expr>,
+        op: BinaryOperator,
+        right: Box<Expr>,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -285,12 +350,12 @@ pub enum BinaryOperator {
     Mul,
     Div,
     // 比較演算子
-    Eq,   // ==
-    Ne,   // !=
-    Lt,   // <
-    Le,   // <=
-    Gt,   // >
-    Ge,   // >=
+    Eq, // ==
+    Ne, // !=
+    Lt, // <
+    Le, // <=
+    Gt, // >
+    Ge, // >=
 }
 
 #[derive(Debug, Clone)]
@@ -311,49 +376,72 @@ pub struct DimensionValue {
 
 impl DimensionValue {
     pub fn px(value: f32) -> Self {
-        Self { value, unit: Unit::Px }
+        Self {
+            value,
+            unit: Unit::Px,
+        }
     }
-    
+
     /// ビューポートサイズを考慮して実際のピクセル値を計算
     pub fn to_pixels(&self, viewport_w: f32, viewport_h: f32) -> f32 {
         match self.unit {
             Unit::Px => self.value,
             Unit::Vw => {
                 let calculated = self.value * viewport_w / 100.0;
-                debug!("🔍 VW DEBUG: {}vw with viewport_w:{} = {}px", self.value, viewport_w, calculated);
+                debug!(
+                    "🔍 VW DEBUG: {}vw with viewport_w:{} = {}px",
+                    self.value, viewport_w, calculated
+                );
                 calculated
             }
             Unit::Vh => {
                 let calculated = self.value * viewport_h / 100.0;
-                debug!("🔍 VH DEBUG: {}vh with viewport_h:{} = {}px", self.value, viewport_h, calculated);
+                debug!(
+                    "🔍 VH DEBUG: {}vh with viewport_h:{} = {}px",
+                    self.value, viewport_h, calculated
+                );
                 calculated
             }
             Unit::Ww => {
                 let calculated = self.value * viewport_w / 100.0;
-                debug!("🔍 WW DEBUG: {}ww with viewport_w:{} = {}px", self.value, viewport_w, calculated);
+                debug!(
+                    "🔍 WW DEBUG: {}ww with viewport_w:{} = {}px",
+                    self.value, viewport_w, calculated
+                );
                 calculated
             }
             Unit::Wh => {
                 let calculated = self.value * viewport_h / 100.0;
-                debug!("🔍 WH DEBUG: {}wh with viewport_h:{} = {}px", self.value, viewport_h, calculated);
+                debug!(
+                    "🔍 WH DEBUG: {}wh with viewport_h:{} = {}px",
+                    self.value, viewport_h, calculated
+                );
                 calculated
             }
             Unit::Percent => self.value / 100.0, // 通常は親要素のサイズに対する割合
             Unit::PercentHeight => self.value / 100.0, // PercentHeightケースを追加
-            Unit::Rem => self.value * 16.0, // 仮のroot font-size
-            Unit::Em => self.value * 16.0,  // 仮のcurrent font-size
-            Unit::Auto => viewport_w, // Autoの場合はビューポート幅をデフォルトとする
+            Unit::Rem => self.value * 16.0,      // 仮のroot font-size
+            Unit::Em => self.value * 16.0,       // 仮のcurrent font-size
+            Unit::Auto => viewport_w,            // Autoの場合はビューポート幅をデフォルトとする
         }
     }
 
     /// より詳細なピクセル変換（親要素サイズやフォントサイズを考慮）
-    pub fn to_px(&self, viewport_w: f32, viewport_h: f32, parent_w: f32, parent_h: f32, font_size: f32, root_font_size: f32) -> f32 {
+    pub fn to_px(
+        &self,
+        viewport_w: f32,
+        viewport_h: f32,
+        parent_w: f32,
+        parent_h: f32,
+        font_size: f32,
+        root_font_size: f32,
+    ) -> f32 {
         match self.unit {
             Unit::Px => self.value,
             Unit::Vw => self.value * viewport_w / 100.0,
             Unit::Vh => self.value * viewport_h / 100.0,
-            Unit::Ww => self.value * viewport_w / 100.0,  // 画面幅基準
-            Unit::Wh => self.value * viewport_h / 100.0,  // 画面高さ基準
+            Unit::Ww => self.value * viewport_w / 100.0, // 画面幅基準
+            Unit::Wh => self.value * viewport_h / 100.0, // 画面高さ基準
             Unit::Percent => self.value * parent_w / 100.0,
             Unit::PercentHeight => self.value * parent_h / 100.0,
             Unit::Rem => self.value * root_font_size,
@@ -368,13 +456,13 @@ pub enum Unit {
     Px,
     Vw,
     Vh,
-    Ww,    // 画面幅基準の単位
-    Wh,    // 画面高さ基準の単位  
+    Ww, // 画面幅基準の単位
+    Wh, // 画面高さ基準の単位
     Percent,
     PercentHeight,
     Rem,
     Em,
-    Auto,  // 親要素のサイズを自動取得
+    Auto, // 親要素のサイズを自動取得
 }
 
 // ========================================
@@ -399,11 +487,11 @@ pub struct Style {
     pub height: Option<f32>,
     pub relative_width: Option<DimensionValue>,
     pub relative_height: Option<DimensionValue>,
-    
+
     // ★ 新規追加: 計算式を保持するフィールド
     pub width_expr: Option<Expr>,
     pub height_expr: Option<Expr>,
-    
+
     pub align: Option<Align>,
     pub rounded: Option<Rounded>,
     pub shadow: Option<Shadow>,
@@ -436,10 +524,10 @@ pub struct Style {
     pub font_family: Option<String>,
     pub backdrop_filter: Option<String>,
     pub border: Option<String>,
-    
+
     // ★ テキスト折り返し制御
     pub wrap: Option<WrapMode>,
-    
+
     // ★ レスポンシブ対応: 条件付きスタイル
     pub responsive_rules: Vec<ResponsiveRule>,
 }
@@ -447,72 +535,170 @@ pub struct Style {
 /// テキスト折り返しモード
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum WrapMode {
-    Auto,  // 自動折り返し（デフォルト）
-    None,  // 折り返ししない
+    Auto, // 自動折り返し（デフォルト）
+    None, // 折り返ししない
 }
 
 /// レスポンシブデザイン用の条件付きスタイル
 #[derive(Debug, Clone)]
 pub struct ResponsiveRule {
-    pub condition: Expr,  // 例: window.width <= 1000
+    pub condition: Expr, // 例: window.width <= 1000
     pub style: Box<Style>,
 }
 
 impl Style {
     pub fn merged(&self, other: &Style) -> Style {
         let mut result = self.clone();
-        if other.color.is_some() { result.color = other.color.clone(); }
-        if other.background.is_some() { result.background = other.background.clone(); }
-        if other.border_color.is_some() { result.border_color = other.border_color.clone(); }
-        if other.font_size.is_some() { result.font_size = other.font_size; }
-        if other.relative_font_size.is_some() { result.relative_font_size = other.relative_font_size; }
-        if other.font.is_some() { result.font = other.font.clone(); }
-        if other.padding.is_some() { result.padding = other.padding; }
-        if other.relative_padding.is_some() { result.relative_padding = other.relative_padding.clone(); }
-        if other.margin.is_some() { result.margin = other.margin; }
-        if other.relative_margin.is_some() { result.relative_margin = other.relative_margin.clone(); }
-        if other.size.is_some() { result.size = other.size; }
-        if other.relative_size.is_some() { result.relative_size = other.relative_size; }
-        if other.width.is_some() { result.width = other.width; }
-        if other.height.is_some() { result.height = other.height; }
-        if other.relative_width.is_some() { result.relative_width = other.relative_width; }
-        if other.relative_height.is_some() { result.relative_height = other.relative_height; }
-        if other.width_expr.is_some() { result.width_expr = other.width_expr.clone(); }
-        if other.height_expr.is_some() { result.height_expr = other.height_expr.clone(); }
-        if other.align.is_some() { result.align = other.align; }
-        if other.rounded.is_some() { result.rounded = other.rounded; }
-        if other.shadow.is_some() { result.shadow = other.shadow.clone(); }
-        if other.card.is_some() { result.card = other.card; }
-        if other.spacing.is_some() { result.spacing = other.spacing; }
-        if other.relative_spacing.is_some() { result.relative_spacing = other.relative_spacing; }
-        if other.hover.is_some() { result.hover = other.hover.clone(); }
+        if other.color.is_some() {
+            result.color = other.color.clone();
+        }
+        if other.background.is_some() {
+            result.background = other.background.clone();
+        }
+        if other.border_color.is_some() {
+            result.border_color = other.border_color.clone();
+        }
+        if other.font_size.is_some() {
+            result.font_size = other.font_size;
+        }
+        if other.relative_font_size.is_some() {
+            result.relative_font_size = other.relative_font_size;
+        }
+        if other.font.is_some() {
+            result.font = other.font.clone();
+        }
+        if other.padding.is_some() {
+            result.padding = other.padding;
+        }
+        if other.relative_padding.is_some() {
+            result.relative_padding = other.relative_padding.clone();
+        }
+        if other.margin.is_some() {
+            result.margin = other.margin;
+        }
+        if other.relative_margin.is_some() {
+            result.relative_margin = other.relative_margin.clone();
+        }
+        if other.size.is_some() {
+            result.size = other.size;
+        }
+        if other.relative_size.is_some() {
+            result.relative_size = other.relative_size;
+        }
+        if other.width.is_some() {
+            result.width = other.width;
+        }
+        if other.height.is_some() {
+            result.height = other.height;
+        }
+        if other.relative_width.is_some() {
+            result.relative_width = other.relative_width;
+        }
+        if other.relative_height.is_some() {
+            result.relative_height = other.relative_height;
+        }
+        if other.width_expr.is_some() {
+            result.width_expr = other.width_expr.clone();
+        }
+        if other.height_expr.is_some() {
+            result.height_expr = other.height_expr.clone();
+        }
+        if other.align.is_some() {
+            result.align = other.align;
+        }
+        if other.rounded.is_some() {
+            result.rounded = other.rounded;
+        }
+        if other.shadow.is_some() {
+            result.shadow = other.shadow.clone();
+        }
+        if other.card.is_some() {
+            result.card = other.card;
+        }
+        if other.spacing.is_some() {
+            result.spacing = other.spacing;
+        }
+        if other.relative_spacing.is_some() {
+            result.relative_spacing = other.relative_spacing;
+        }
+        if other.hover.is_some() {
+            result.hover = other.hover.clone();
+        }
 
         // ★ 新規追加: 新しいプロパティのマージ
-        if other.justify_content.is_some() { result.justify_content = other.justify_content.clone(); }
-        if other.align_items.is_some() { result.align_items = other.align_items.clone(); }
-        if other.position.is_some() { result.position = other.position.clone(); }
-        if other.top.is_some() { result.top = other.top.clone(); }
-        if other.left.is_some() { result.left = other.left.clone(); }
-        if other.right.is_some() { result.right = other.right.clone(); }
-        if other.bottom.is_some() { result.bottom = other.bottom.clone(); }
-        if other.z_index.is_some() { result.z_index = other.z_index; }
-        if other.flex_wrap.is_some() { result.flex_wrap = other.flex_wrap.clone(); }
-        if other.gap.is_some() { result.gap = other.gap.clone(); }
-        if other.max_width.is_some() { result.max_width = other.max_width.clone(); }
-        if other.min_width.is_some() { result.min_width = other.min_width.clone(); }
-        if other.min_height.is_some() { result.min_height = other.min_height.clone(); }
-        if other.margin_top.is_some() { result.margin_top = other.margin_top.clone(); }
-        if other.margin_bottom.is_some() { result.margin_bottom = other.margin_bottom.clone(); }
-        if other.margin_left.is_some() { result.margin_left = other.margin_left.clone(); }
-        if other.margin_right.is_some() { result.margin_right = other.margin_right.clone(); }
-        if other.line_height.is_some() { result.line_height = other.line_height; }
-        if other.text_align.is_some() { result.text_align = other.text_align.clone(); }
-        if other.font_weight.is_some() { result.font_weight = other.font_weight.clone(); }
-        if other.font_family.is_some() { result.font_family = other.font_family.clone(); }
-        if other.backdrop_filter.is_some() { result.backdrop_filter = other.backdrop_filter.clone(); }
-        if other.border.is_some() { result.border = other.border.clone(); }
-        if other.wrap.is_some() { result.wrap = other.wrap; }
-        
+        if other.justify_content.is_some() {
+            result.justify_content = other.justify_content.clone();
+        }
+        if other.align_items.is_some() {
+            result.align_items = other.align_items.clone();
+        }
+        if other.position.is_some() {
+            result.position = other.position.clone();
+        }
+        if other.top.is_some() {
+            result.top = other.top.clone();
+        }
+        if other.left.is_some() {
+            result.left = other.left.clone();
+        }
+        if other.right.is_some() {
+            result.right = other.right.clone();
+        }
+        if other.bottom.is_some() {
+            result.bottom = other.bottom.clone();
+        }
+        if other.z_index.is_some() {
+            result.z_index = other.z_index;
+        }
+        if other.flex_wrap.is_some() {
+            result.flex_wrap = other.flex_wrap.clone();
+        }
+        if other.gap.is_some() {
+            result.gap = other.gap.clone();
+        }
+        if other.max_width.is_some() {
+            result.max_width = other.max_width.clone();
+        }
+        if other.min_width.is_some() {
+            result.min_width = other.min_width.clone();
+        }
+        if other.min_height.is_some() {
+            result.min_height = other.min_height.clone();
+        }
+        if other.margin_top.is_some() {
+            result.margin_top = other.margin_top.clone();
+        }
+        if other.margin_bottom.is_some() {
+            result.margin_bottom = other.margin_bottom.clone();
+        }
+        if other.margin_left.is_some() {
+            result.margin_left = other.margin_left.clone();
+        }
+        if other.margin_right.is_some() {
+            result.margin_right = other.margin_right.clone();
+        }
+        if other.line_height.is_some() {
+            result.line_height = other.line_height;
+        }
+        if other.text_align.is_some() {
+            result.text_align = other.text_align.clone();
+        }
+        if other.font_weight.is_some() {
+            result.font_weight = other.font_weight.clone();
+        }
+        if other.font_family.is_some() {
+            result.font_family = other.font_family.clone();
+        }
+        if other.backdrop_filter.is_some() {
+            result.backdrop_filter = other.backdrop_filter.clone();
+        }
+        if other.border.is_some() {
+            result.border = other.border.clone();
+        }
+        if other.wrap.is_some() {
+            result.wrap = other.wrap;
+        }
+
         // ★ レスポンシブルール: 他のルールを優先的にマージ
         if !other.responsive_rules.is_empty() {
             result.responsive_rules = other.responsive_rules.clone();
@@ -546,7 +732,11 @@ pub enum Rounded {
 #[derive(Debug, Clone)]
 pub enum Shadow {
     On,
-    Spec { blur: f32, offset: [f32; 2], color: Option<ColorValue> },
+    Spec {
+        blur: f32,
+        offset: [f32; 2],
+        color: Option<ColorValue>,
+    },
 }
 
 #[derive(Debug, Clone, Copy, Default)]
@@ -559,11 +749,21 @@ pub struct Edges {
 
 impl Edges {
     pub fn all(value: f32) -> Self {
-        Self { top: value, right: value, bottom: value, left: value }
+        Self {
+            top: value,
+            right: value,
+            bottom: value,
+            left: value,
+        }
     }
-    
+
     pub fn vh(vertical: f32, horizontal: f32) -> Self {
-        Self { top: vertical, right: horizontal, bottom: vertical, left: horizontal }
+        Self {
+            top: vertical,
+            right: horizontal,
+            bottom: vertical,
+            left: horizontal,
+        }
     }
 }
 
@@ -584,7 +784,7 @@ impl RelativeEdges {
             left: Some(value),
         }
     }
-    
+
     pub fn vh(vertical: DimensionValue, horizontal: DimensionValue) -> Self {
         Self {
             top: Some(vertical),
@@ -593,7 +793,7 @@ impl RelativeEdges {
             left: Some(horizontal),
         }
     }
-    
+
     pub fn to_edges(
         &self,
         viewport_w: f32,
@@ -604,10 +804,58 @@ impl RelativeEdges {
         root_font_size: f32,
     ) -> Edges {
         Edges {
-            top: self.top.map(|d| d.to_px(viewport_w, viewport_h, parent_w, parent_h, font_size, root_font_size)).unwrap_or(0.0),
-            right: self.right.map(|d| d.to_px(viewport_w, viewport_h, parent_w, parent_h, font_size, root_font_size)).unwrap_or(0.0),
-            bottom: self.bottom.map(|d| d.to_px(viewport_w, viewport_h, parent_w, parent_h, font_size, root_font_size)).unwrap_or(0.0),
-            left: self.left.map(|d| d.to_px(viewport_w, viewport_h, parent_w, parent_h, font_size, root_font_size)).unwrap_or(0.0),
+            top: self
+                .top
+                .map(|d| {
+                    d.to_px(
+                        viewport_w,
+                        viewport_h,
+                        parent_w,
+                        parent_h,
+                        font_size,
+                        root_font_size,
+                    )
+                })
+                .unwrap_or(0.0),
+            right: self
+                .right
+                .map(|d| {
+                    d.to_px(
+                        viewport_w,
+                        viewport_h,
+                        parent_w,
+                        parent_h,
+                        font_size,
+                        root_font_size,
+                    )
+                })
+                .unwrap_or(0.0),
+            bottom: self
+                .bottom
+                .map(|d| {
+                    d.to_px(
+                        viewport_w,
+                        viewport_h,
+                        parent_w,
+                        parent_h,
+                        font_size,
+                        root_font_size,
+                    )
+                })
+                .unwrap_or(0.0),
+            left: self
+                .left
+                .map(|d| {
+                    d.to_px(
+                        viewport_w,
+                        viewport_h,
+                        parent_w,
+                        parent_h,
+                        font_size,
+                        root_font_size,
+                    )
+                })
+                .unwrap_or(0.0),
         }
     }
 }
@@ -637,13 +885,13 @@ pub enum NiloType {
     Number,
     String,
     Bool,
-    
+
     // コレクション型
     Array(Box<NiloType>),
-    
+
     // 特殊型
-    Any,        // 任意の型（型チェックをスキップ）
-    Unknown,    // 未解決の型（推論できない）
+    Any,     // 任意の型（型チェックをスキップ）
+    Unknown, // 未解決の型（推論できない）
 }
 
 impl NiloType {
@@ -658,19 +906,19 @@ impl NiloType {
             NiloType::Unknown => "unknown".to_string(),
         }
     }
-    
+
     /// 型の互換性チェック（弱い型付けの特徴）
     pub fn is_compatible_with(&self, other: &NiloType) -> bool {
         match (self, other) {
             // Any型はすべてと互換
             (NiloType::Any, _) | (_, NiloType::Any) => true,
-            
+
             // Unknown型は解決待ち
             (NiloType::Unknown, _) | (_, NiloType::Unknown) => true,
-            
+
             // 配列の型チェック
             (NiloType::Array(a), NiloType::Array(b)) => a.is_compatible_with(b),
-            
+
             // 同じ型
             (a, b) => a == b,
         }
@@ -686,9 +934,12 @@ pub struct TypedExpr {
 
 impl TypedExpr {
     pub fn new(expr: Expr, inferred_type: NiloType) -> Self {
-        Self { expr, inferred_type }
+        Self {
+            expr,
+            inferred_type,
+        }
     }
-    
+
     /// 型なし式として扱う
     pub fn into_expr(self) -> Expr {
         self.expr

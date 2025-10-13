@@ -16,18 +16,20 @@
 // - namespace: 名前空間の展開
 // - types: 型推論とチェック
 
+use log;
 use pest::Parser;
 use pest_derive::Parser;
-use log;
 
 use crate::parser::ast::*;
 
 // モジュール化された関数をインポート
+pub use super::component::parse_component_def;
 pub use super::flow::parse_flow_def;
 pub use super::timeline::parse_timeline_def;
-pub use super::component::parse_component_def;
 
-use super::namespace::{parse_namespace_def, parse_namespaced_flow_def, expand_namespaced_structures};
+use super::namespace::{
+    expand_namespaced_structures, parse_namespace_def, parse_namespaced_flow_def,
+};
 
 // ========================================
 // Pestパーサー定義
@@ -62,12 +64,15 @@ pub type ParseRule = Rule;
 /// 3. 名前空間定義を展開
 /// 4. App ASTを構築して返す
 pub fn parse_nilo(source: &str) -> Result<App, String> {
-    log::debug!("🔍 PARSE DEBUG: Starting to parse nilo file, length: {} chars", source.len());
+    log::debug!(
+        "🔍 PARSE DEBUG: Starting to parse nilo file, length: {} chars",
+        source.len()
+    );
 
     // Pestパーサーでファイル全体を解析
-    let mut pairs = NiloParser::parse(Rule::file, source)
-        .map_err(|e| format!("構文解析エラー: {}", e))?;
-    
+    let mut pairs =
+        NiloParser::parse(Rule::file, source).map_err(|e| format!("構文解析エラー: {}", e))?;
+
     let file_pair = pairs.next().expect("ファイルペアが見つかりません");
     assert_eq!(file_pair.as_rule(), Rule::file);
 
@@ -108,25 +113,25 @@ pub fn parse_nilo(source: &str) -> Result<App, String> {
 
     // 名前空間とNamespacedFlowを展開して平坦化
     if !namespaces.is_empty() || !namespaced_flows.is_empty() {
-        let (expanded_flow, expanded_timelines) = expand_namespaced_structures(
-            namespaced_flows, 
-            namespaces, 
-            timelines,
-            flow
-        )?;
+        let (expanded_flow, expanded_timelines) =
+            expand_namespaced_structures(namespaced_flows, namespaces, timelines, flow)?;
         flow = Some(expanded_flow);
         timelines = expanded_timelines;
     }
 
     // フロー定義は必須
     let flow = flow.ok_or_else(|| "フロー定義が見つかりません".to_string())?;
-    
+
     log::debug!("✅ PARSE DEBUG: Successfully parsed nilo file");
     log::debug!("   - Flow start: {}", flow.start);
     log::debug!("   - Timelines: {}", timelines.len());
     log::debug!("   - Components: {}", components.len());
-    
-    Ok(App { flow, timelines, components })
+
+    Ok(App {
+        flow,
+        timelines,
+        components,
+    })
 }
 
 // ========================================
@@ -136,65 +141,34 @@ pub fn parse_nilo(source: &str) -> Result<App, String> {
 
 // ユーティリティ関数
 pub use super::utils::{
-    unquote,
-    process_escape_sequences,
-    color_from_expr,
-    edges_from_expr,
-    size_from_expr,
+    color_from_expr, edges_from_expr, process_escape_sequences, size_from_expr, unquote,
 };
 
 // 式解析関数
-pub use super::expr::{
-    parse_expr,
-    parse_calc_expr,
-    parse_comparison_expr,
-    parse_condition_string,
-};
+pub use super::expr::{parse_calc_expr, parse_comparison_expr, parse_condition_string, parse_expr};
 
 // フロー関連の解析関数
-pub use super::flow::{
-    parse_flow_target,
-    parse_transition_def,
-};
+pub use super::flow::{parse_flow_target, parse_transition_def};
 
 // タイムライン関連の解析関数
-pub use super::timeline::{
-    parse_when_block,
-};
+pub use super::timeline::parse_when_block;
 
 // コンポーネント関連の解析関数
 pub use super::component::{
-    parse_typed_param,
-    parse_optional_param,
-    parse_enum_param,
-    parse_param_type,
+    parse_enum_param, parse_optional_param, parse_param_type, parse_typed_param,
 };
 
 // ビューノード解析関数
 pub use super::view_node::{
-    parse_view_node,
-    parse_slot_node,
-    parse_text,
-    parse_button,
-    parse_vstack_node,
-    parse_hstack_node,
-    parse_component_call,
-    parse_dynamic_section,
-    parse_match_block,
+    parse_button, parse_component_call, parse_dynamic_section, parse_hstack_node,
+    parse_match_block, parse_slot_node, parse_text, parse_view_node, parse_vstack_node,
 };
 
 // スタイル関連の解析関数
-pub use super::style::{
-    style_from_expr,
-    eval_calc_expr,
-};
+pub use super::style::{eval_calc_expr, style_from_expr};
 
 // 型関連の解析関数
-pub use super::types::{
-    infer_expr_type,
-    make_typed_expr,
-    check_type_compatibility,
-};
+pub use super::types::{check_type_compatibility, infer_expr_type, make_typed_expr};
 
 // 名前空間関連の解析関数（内部使用のためpubで再エクスポートしない）
 // expand_namespaced_structures, parse_namespace_defはparse_nilo内でのみ使用
@@ -224,7 +198,7 @@ mod tests {
 
         let result = parse_nilo(source);
         assert!(result.is_ok(), "Failed to parse: {:?}", result.err());
-        
+
         let app = result.unwrap();
         assert_eq!(app.flow.start, "TopTimeline");
         assert_eq!(app.flow.transitions.len(), 1);
@@ -248,7 +222,7 @@ mod tests {
 
         let result = parse_nilo(source);
         assert!(result.is_ok(), "Failed to parse: {:?}", result.err());
-        
+
         let app = result.unwrap();
         assert_eq!(app.components.len(), 1);
         assert_eq!(app.components[0].name, "CustomButton");
@@ -270,7 +244,7 @@ mod tests {
 
         let result = parse_nilo(source);
         assert!(result.is_ok(), "Failed to parse: {:?}", result.err());
-        
+
         let app = result.unwrap();
         assert_eq!(app.timelines.len(), 1);
         assert_eq!(app.timelines[0].name, "TopTimeline");

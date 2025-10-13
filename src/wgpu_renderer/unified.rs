@@ -1,10 +1,10 @@
 // 統合レンダラ - 一つのパイプラインですべての図形を描画
 
-use wgpu::{
-    Device, Queue, RenderPass, RenderPipeline, Buffer, BufferUsages,
-    VertexBufferLayout, VertexAttribute, VertexFormat, VertexStepMode,
-};
 use crate::renderer_abstract::command::{DrawCommand, DrawList};
+use wgpu::{
+    Buffer, BufferUsages, Device, Queue, RenderPass, RenderPipeline, VertexAttribute,
+    VertexBufferLayout, VertexFormat, VertexStepMode,
+};
 use winit::dpi::PhysicalSize;
 
 // 統合頂点構造体
@@ -12,15 +12,15 @@ use winit::dpi::PhysicalSize;
 #[repr(C)]
 #[derive(Copy, Clone, bytemuck::Pod, bytemuck::Zeroable, Debug)]
 pub struct UnifiedVertex {
-    position: [f32; 3],      // offset: 0, size: 12
-    shape_type: u32,         // offset: 12, size: 4
-    color: u32,              // offset: 16, size: 4
-    _padding: f32,           // offset: 20, size: 4 (パディング)
-    center: [f32; 2],        // offset: 24, size: 8
-    radius: f32,             // offset: 32, size: 4
-    _padding2: f32,          // offset: 36, size: 4 (パディング)
-    color_vec: [f32; 4],     // offset: 40, size: 16
-    // 合計: 56 bytes
+    position: [f32; 3], // offset: 0, size: 12
+    shape_type: u32,    // offset: 12, size: 4
+    color: u32,         // offset: 16, size: 4
+    _padding: f32,      // offset: 20, size: 4 (パディング)
+    center: [f32; 2],   // offset: 24, size: 8
+    radius: f32,        // offset: 32, size: 4
+    _padding2: f32,     // offset: 36, size: 4 (パディング)
+    color_vec: [f32; 4], // offset: 40, size: 16
+                        // 合計: 56 bytes
 }
 
 impl UnifiedVertex {
@@ -87,7 +87,6 @@ pub struct UnifiedRenderer {
 
 impl UnifiedRenderer {
     pub fn new(device: &Device, format: wgpu::TextureFormat) -> Self {
-        
         let shader = device.create_shader_module(wgpu::include_wgsl!("../shaders/unified.wgsl"));
 
         // Uniform Buffer の設定
@@ -195,14 +194,74 @@ impl UnifiedRenderer {
 
         for cmd in &draw_list.0 {
             match cmd {
-                DrawCommand::Rect { position, width, height, color, depth, scroll, .. } => {
-                    self.add_rect_vertices(&mut vertices, position[0], position[1], *width, *height, *color, *depth, *scroll, scroll_offset, size, scale_factor);
+                DrawCommand::Rect {
+                    position,
+                    width,
+                    height,
+                    color,
+                    depth,
+                    scroll,
+                    ..
+                } => {
+                    self.add_rect_vertices(
+                        &mut vertices,
+                        position[0],
+                        position[1],
+                        *width,
+                        *height,
+                        *color,
+                        *depth,
+                        *scroll,
+                        scroll_offset,
+                        size,
+                        scale_factor,
+                    );
                 }
-                DrawCommand::Triangle { p1, p2, p3, color, depth, scroll, .. } => {
-                    self.add_triangle_vertices(&mut vertices, p1[0], p1[1], p2[0], p2[1], p3[0], p3[1], *color, *depth, *scroll, scroll_offset, size, scale_factor);
+                DrawCommand::Triangle {
+                    p1,
+                    p2,
+                    p3,
+                    color,
+                    depth,
+                    scroll,
+                    ..
+                } => {
+                    self.add_triangle_vertices(
+                        &mut vertices,
+                        p1[0],
+                        p1[1],
+                        p2[0],
+                        p2[1],
+                        p3[0],
+                        p3[1],
+                        *color,
+                        *depth,
+                        *scroll,
+                        scroll_offset,
+                        size,
+                        scale_factor,
+                    );
                 }
-                DrawCommand::Circle { center, radius, color, depth, scroll, .. } => {
-                    self.add_circle_vertices(&mut vertices, center[0], center[1], *radius, *color, *depth, *scroll, scroll_offset, size, scale_factor);
+                DrawCommand::Circle {
+                    center,
+                    radius,
+                    color,
+                    depth,
+                    scroll,
+                    ..
+                } => {
+                    self.add_circle_vertices(
+                        &mut vertices,
+                        center[0],
+                        center[1],
+                        *radius,
+                        *color,
+                        *depth,
+                        *scroll,
+                        scroll_offset,
+                        size,
+                        scale_factor,
+                    );
                 }
                 _ => {} // Text/Imageは別レンダラで処理
             }
@@ -237,13 +296,16 @@ impl UnifiedRenderer {
         scale_factor: f32,
     ) {
         let packed_color = pack_rgba8(color);
-        
+
         let scaled_scroll = if scroll {
-            [scroll_offset[0] * scale_factor, scroll_offset[1] * scale_factor]
+            [
+                scroll_offset[0] * scale_factor,
+                scroll_offset[1] * scale_factor,
+            ]
         } else {
             [0.0, 0.0]
         };
-        
+
         let x = (x * scale_factor) + scaled_scroll[0];
         let y = (y * scale_factor) + scaled_scroll[1];
         let w = width * scale_factor;
@@ -295,7 +357,10 @@ impl UnifiedRenderer {
         let packed_color = pack_rgba8(color);
 
         let scaled_scroll = if scroll {
-            [scroll_offset[0] * scale_factor, scroll_offset[1] * scale_factor]
+            [
+                scroll_offset[0] * scale_factor,
+                scroll_offset[1] * scale_factor,
+            ]
         } else {
             [0.0, 0.0]
         };
@@ -341,7 +406,10 @@ impl UnifiedRenderer {
         scale_factor: f32,
     ) {
         let scaled_scroll = if scroll {
-            [scroll_offset[0] * scale_factor, scroll_offset[1] * scale_factor]
+            [
+                scroll_offset[0] * scale_factor,
+                scroll_offset[1] * scale_factor,
+            ]
         } else {
             [0.0, 0.0]
         };
@@ -378,14 +446,14 @@ impl UnifiedRenderer {
             let v = UnifiedVertex {
                 position: pos,
                 shape_type: 2, // Circle
-                color: 0, // 使用しない
+                color: 0,      // 使用しない
                 _padding: 0.0,
                 center: center_px,
                 radius: r,
                 _padding2: 0.0,
                 color_vec: color,
             };
-            
+
             vertices.push(v);
         }
     }

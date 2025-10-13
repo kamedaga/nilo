@@ -45,7 +45,8 @@ factor_op = { "*" | "/" }
 
 primary = { 
     match_expr 
-    | function_call  // ★ 追加: 通常の関数呼び出し（onclick用）
+    | rust_call_expr    // ★ 追加: rust_call を式として使用可能に
+    | function_call     // ★ 通常の関数呼び出し（onclick用）
     | string 
     | dimension_value 
     | number 
@@ -97,7 +98,7 @@ namespaced_transition_targets = { "[" ~ (qualified_ident | ident) ~ ("," ~ (qual
 timeline_def = { "timeline" ~ qualified_ident ~ timeline_url? ~ timeline_config? ~ "{" ~ font_def? ~ view_nodes? ~ "}" }
 timeline_url = { "(" ~ string ~ ")" }
 timeline_config = { "(" ~ timeline_param ~ ("," ~ timeline_param)* ~ ")" }
-timeline_param = { "style" ~ ":" ~ expr }
+timeline_param = { ("style" ~ ":" ~ expr) | ("background" ~ ":" ~ string) }
 
 font_def = { "font" ~ ":" ~ string }
 
@@ -174,7 +175,8 @@ slot_node = { "slot" ~ ident }
 vstack_node = { "VStack" ~ "(" ~ style_arg? ~ ")" ~ "{" ~ view_nodes? ~ "}" }
 hstack_node = { "HStack" ~ "(" ~ style_arg? ~ ")" ~ "{" ~ view_nodes? ~ "}" }
 
-arg_item = { style_arg | expr }
+arg_item = { style_arg | named_arg | expr }
+named_arg = { ident ~ ":" ~ expr }
 
 text = { "Text" ~ "(" ~ expr ~ ("," ~ arg_item)* ~ ")" }
 
@@ -186,7 +188,7 @@ button = { "Button" ~ "("
     ~ ")"
 }
 
-image = { "Image" ~ "(" ~ string ~ ("," ~ arg_item)* ~ ")" }
+image = { "Image" ~ "(" ~ ("src" ~ ":" ~ WHITESPACE*)? ~ string ~ ("," ~ arg_item)* ~ ")" }
 
 text_input = { "TextInput" ~ "(" ~ expr ~ ("," ~ arg_item)* ~ ")" }
 
@@ -215,6 +217,10 @@ spacing_node = { "Spacing" ~ "(" ~ (dimension_value | number)? ~ ")" | "SpacingA
 // ★ 通常の関数呼び出し（onclick用など）
 function_call = { ident ~ "(" ~ (expr ~ ("," ~ expr)*)? ~ ")" }
 
+// ★ rust_call を式として使用可能にする
+rust_call_expr = { ident ~ "!" ~ "(" ~ (expr ~ ("," ~ expr)*)? ~ ")" }
+
+// ★ rust_call をビューノードとして使用する（後方互換性のため保持）
 rust_call = { ident ~ "!" ~ "(" ~ (arg_item ~ ("," ~ arg_item)*)? ~ ")" }
 
 component_call = { ident ~ "(" ~ (arg_item ~ ("," ~ arg_item)*)? ~ ")" }

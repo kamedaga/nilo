@@ -4,18 +4,25 @@
 //
 // このモジュールは各種式（算術式、比較式、関数呼び出しなど）の解析を担当します。
 
-use pest::iterators::Pair;
 use crate::parser::ast::*;
+use crate::parser::parse::{NiloParser, Rule};
 use crate::parser::utils::unquote;
-use crate::parser::parse::{Rule, NiloParser};
+use pest::iterators::Pair;
 
 /// イベント式を解析する関数
 pub fn parse_event_expr(pair: Pair<Rule>) -> EventExpr {
     let mut inner = pair.into_inner();
     let user_event = inner.next().expect("event_exprにuser_eventがありません");
     let mut ev_inner = user_event.into_inner();
-    let kind = ev_inner.next().expect("user_eventにevent_kindがありません").as_str();
-    let target = ev_inner.next().expect("user_eventにidentがありません").as_str().to_string();
+    let kind = ev_inner
+        .next()
+        .expect("user_eventにevent_kindがありません")
+        .as_str();
+    let target = ev_inner
+        .next()
+        .expect("user_eventにidentがありません")
+        .as_str()
+        .to_string();
     match kind {
         "click" => EventExpr::ButtonPressed(target),
         _ => panic!("不明なevent_kind: {:?}", kind),
@@ -27,11 +34,11 @@ pub fn parse_event_expr(pair: Pair<Rule>) -> EventExpr {
 pub fn parse_calc_expr(pair: Pair<Rule>) -> Expr {
     let mut inner = pair.into_inner();
     let mut left = parse_calc_term(inner.next().unwrap());
-    
+
     while let Some(op_pair) = inner.next() {
         let op = op_pair.as_str();
         let right = parse_calc_term(inner.next().unwrap());
-        
+
         left = match op {
             "+" => Expr::BinaryOp {
                 left: Box::new(left),
@@ -56,7 +63,7 @@ pub fn parse_calc_expr(pair: Pair<Rule>) -> Expr {
             _ => panic!("不明な計算演算子: {}", op),
         };
     }
-    
+
     // 計算式全体をCalcExprでラップして返す
     Expr::CalcExpr(Box::new(left))
 }
@@ -66,7 +73,7 @@ pub fn parse_calc_term(pair: Pair<Rule>) -> Expr {
     let mut inner = pair.into_inner();
     let number_pair = inner.next().unwrap();
     let value: f32 = number_pair.as_str().parse().unwrap();
-    
+
     // 単位があるかチェック
     if let Some(unit_pair) = inner.next() {
         let unit_str = unit_pair.as_str();
@@ -108,11 +115,14 @@ pub fn parse_expr(pair: Pair<Rule>) -> Expr {
         Rule::dimension_value => {
             let mut inner = pair.into_inner();
             let first_token = inner.next().unwrap();
-            
+
             match first_token.as_rule() {
                 Rule::auto_keyword => {
                     // "auto"キーワードが指定された場合
-                    Expr::Dimension(DimensionValue { value: 0.0, unit: Unit::Auto })
+                    Expr::Dimension(DimensionValue {
+                        value: 0.0,
+                        unit: Unit::Auto,
+                    })
                 }
                 Rule::calc_expr => {
                     // 計算式が指定された場合
@@ -130,19 +140,19 @@ pub fn parse_expr(pair: Pair<Rule>) -> Expr {
                             "vw" => {
                                 log::debug!("🔍 PARSER DEBUG: Found {}vw in parsing", value);
                                 Unit::Vw
-                            },
+                            }
                             "vh" => {
                                 log::debug!("🔍 PARSER DEBUG: Found {}vh in parsing", value);
                                 Unit::Vh
-                            },
+                            }
                             "ww" => {
                                 log::debug!("🔍 PARSER DEBUG: Found {}ww in parsing", value);
                                 Unit::Ww
-                            },
+                            }
                             "wh" => {
                                 log::debug!("🔍 PARSER DEBUG: Found {}wh in parsing", value);
                                 Unit::Wh
-                            },
+                            }
                             "%" => Unit::Percent,
                             "rem" => Unit::Rem,
                             "em" => Unit::Em,
@@ -157,7 +167,10 @@ pub fn parse_expr(pair: Pair<Rule>) -> Expr {
                     }
                 }
                 _ => {
-                    panic!("Unexpected token in dimension_value: {:?}", first_token.as_rule());
+                    panic!(
+                        "Unexpected token in dimension_value: {:?}",
+                        first_token.as_rule()
+                    );
                 }
             }
         }
@@ -173,14 +186,14 @@ pub fn parse_expr(pair: Pair<Rule>) -> Expr {
             for kv in pair.into_inner() {
                 let mut it = kv.into_inner();
                 let k_pair = it.next().unwrap();
-                
+
                 // キーは識別子または文字列
                 let k = match k_pair.as_rule() {
                     Rule::ident => k_pair.as_str().to_string(),
                     Rule::string => unquote(k_pair.as_str()),
                     _ => k_pair.as_str().to_string(),
                 };
-                
+
                 let v = parse_expr(it.next().unwrap());
                 kvs.push((k, v));
             }
@@ -210,7 +223,11 @@ pub fn parse_expr(pair: Pair<Rule>) -> Expr {
                 }
             }
 
-            Expr::Match { expr, arms, default }
+            Expr::Match {
+                expr,
+                arms,
+                default,
+            }
         }
         _ => {
             // 比較式として解析を試行
@@ -352,17 +369,24 @@ pub fn parse_primary(pair: Pair<Rule>) -> Expr {
                 }
             }
 
-            Expr::Match { expr, arms, default }
+            Expr::Match {
+                expr,
+                arms,
+                default,
+            }
         }
         Rule::string => Expr::String(unquote(pair.as_str())),
         Rule::dimension_value => {
             let mut inner = pair.into_inner();
             let first_token = inner.next().unwrap();
-            
+
             match first_token.as_rule() {
                 Rule::auto_keyword => {
                     // "auto"キーワードが指定された場合
-                    Expr::Dimension(DimensionValue { value: 0.0, unit: Unit::Auto })
+                    Expr::Dimension(DimensionValue {
+                        value: 0.0,
+                        unit: Unit::Auto,
+                    })
                 }
                 Rule::calc_expr => {
                     // 計算式が指定された場合
@@ -390,7 +414,10 @@ pub fn parse_primary(pair: Pair<Rule>) -> Expr {
                     }
                 }
                 _ => {
-                    panic!("Unexpected token in dimension_value: {:?}", first_token.as_rule());
+                    panic!(
+                        "Unexpected token in dimension_value: {:?}",
+                        first_token.as_rule()
+                    );
                 }
             }
         }
@@ -403,6 +430,13 @@ pub fn parse_primary(pair: Pair<Rule>) -> Expr {
         Rule::ident => Expr::Ident(pair.as_str().to_string()),
         // ★ 通常の関数呼び出し（onclick用）
         Rule::function_call => {
+            let mut inner = pair.into_inner();
+            let name = inner.next().unwrap().as_str().to_string();
+            let args = inner.map(parse_expr).collect();
+            Expr::FunctionCall { name, args }
+        }
+        // ★ rust_call を式として使用可能に
+        Rule::rust_call_expr => {
             let mut inner = pair.into_inner();
             let name = inner.next().unwrap().as_str().to_string();
             let args = inner.map(parse_expr).collect();
@@ -449,14 +483,14 @@ pub fn parse_primary(pair: Pair<Rule>) -> Expr {
 /// 条件文字列をパースする
 pub fn parse_condition_string(condition: &str) -> Option<Expr> {
     use pest::Parser;
-    
+
     // まずpest parserで解析を試みる
     if let Ok(mut pairs) = NiloParser::parse(Rule::expr, condition) {
         if let Some(pair) = pairs.next() {
             return Some(parse_expr(pair));
         }
     }
-    
+
     // 失敗した場合、単純な文字列として解釈する
     Some(Expr::String(condition.to_string()))
 }

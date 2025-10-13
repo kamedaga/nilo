@@ -1,8 +1,8 @@
 // foreach文の修正版処理
-use crate::parser::ast::{ViewNode, WithSpan, Expr};
-use crate::ui::layout::{LayoutedNode, LayoutParams};
-use crate::ui::text_measurement::measure_text_size;
 use crate::engine::state::format_text;
+use crate::parser::ast::{Expr, ViewNode, WithSpan};
+use crate::ui::layout::{LayoutParams, LayoutedNode};
+use crate::ui::text_measurement::measure_text_size;
 use log::debug;
 
 /// foreach文専用のレイアウト処理関数
@@ -21,19 +21,25 @@ pub fn layout_foreach_impl<'a, F, G>(
 {
     // 繰り返し対象を評価
     let iterable_value = eval(iterable);
-    debug!("🔄 Layout: foreach var={}, iterable_value={}", var, iterable_value); // println!をdebug!に変更
+    debug!(
+        "🔄 Layout: foreach var={}, iterable_value={}",
+        var, iterable_value
+    ); // println!をdebug!に変更
 
     let items: Vec<String> = if iterable_value.starts_with('[') && iterable_value.ends_with(']') {
         // JSON配列として解析を試行
         match serde_json::from_str::<Vec<serde_json::Value>>(&iterable_value) {
             Ok(parsed) => {
                 debug!("✅ Layout: Successfully parsed {} items", parsed.len()); // println!をdebug!に変更
-                parsed.into_iter().map(|v| match v {
-                    serde_json::Value::String(s) => s,
-                    serde_json::Value::Number(n) => n.to_string(),
-                    serde_json::Value::Bool(b) => b.to_string(),
-                    _ => v.to_string().trim_matches('"').to_string(),
-                }).collect()
+                parsed
+                    .into_iter()
+                    .map(|v| match v {
+                        serde_json::Value::String(s) => s,
+                        serde_json::Value::Number(n) => n.to_string(),
+                        serde_json::Value::Bool(b) => b.to_string(),
+                        _ => v.to_string().trim_matches('"').to_string(),
+                    })
+                    .collect()
             }
             Err(e) => {
                 debug!("❌ Layout: JSON parse error: {}", e); // println!をdebug!に変更
@@ -58,16 +64,16 @@ pub fn layout_foreach_impl<'a, F, G>(
                     _ => eval(expr),
                 }
             };
-            
+
             // 置換された評価関数でノードサイズを計算
             let size = calculate_node_size_foreach(child, &params, &foreach_eval, get_image_size);
-            result.push(LayoutedNode { 
-                node: child, 
-                position: *cursor, 
-                size 
+            result.push(LayoutedNode {
+                node: child,
+                position: *cursor,
+                size,
             });
             cursor[1] += size[1];
-            
+
             // スペーシングを追加
             if index < items.len() - 1 {
                 cursor[1] += params.spacing / 2.0;

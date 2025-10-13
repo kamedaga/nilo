@@ -8,7 +8,12 @@ pub fn filter_visible_stencils(
     let mut result = Vec::new();
     for s in all {
         let (y, h) = match s {
-            Stencil::Rect { position, height, scroll, .. } => {
+            Stencil::Rect {
+                position,
+                height,
+                scroll,
+                ..
+            } => {
                 let y = if *scroll {
                     position[1] + scroll_offset[1]
                 } else {
@@ -16,7 +21,12 @@ pub fn filter_visible_stencils(
                 };
                 (y, *height)
             }
-            Stencil::Text { position, size, scroll, .. } => {
+            Stencil::Text {
+                position,
+                size,
+                scroll,
+                ..
+            } => {
                 let y = if *scroll {
                     position[1] + scroll_offset[1]
                 } else {
@@ -24,7 +34,12 @@ pub fn filter_visible_stencils(
                 };
                 (y, *size)
             }
-            Stencil::Circle { center, radius, scroll, .. } => {
+            Stencil::Circle {
+                center,
+                radius,
+                scroll,
+                ..
+            } => {
                 let y = if *scroll {
                     center[1] - *radius + scroll_offset[1]
                 } else {
@@ -32,17 +47,20 @@ pub fn filter_visible_stencils(
                 };
                 (y, *radius * 2.0)
             }
-            Stencil::Triangle { p1, p2, p3, scroll, .. } => {
+            Stencil::Triangle {
+                p1, p2, p3, scroll, ..
+            } => {
                 let top = p1[1].min(p2[1]).min(p3[1]);
                 let bottom = p1[1].max(p2[1]).max(p3[1]);
-                let y = if *scroll {
-                    top + scroll_offset[1]
-                } else {
-                    top
-                };
+                let y = if *scroll { top + scroll_offset[1] } else { top };
                 (y, bottom - top)
             }
-            Stencil::Image { position, height, scroll, .. } => {
+            Stencil::Image {
+                position,
+                height,
+                scroll,
+                ..
+            } => {
                 let y = if *scroll {
                     position[1] + scroll_offset[1]
                 } else {
@@ -50,7 +68,12 @@ pub fn filter_visible_stencils(
                 };
                 (y, *height)
             }
-            Stencil::RoundedRect { position, height, scroll, .. } => {
+            Stencil::RoundedRect {
+                position,
+                height,
+                scroll,
+                ..
+            } => {
                 let y = if *scroll {
                     position[1] + scroll_offset[1]
                 } else {

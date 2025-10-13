@@ -4,9 +4,9 @@
 //
 // このモジュールはNilo言語の型推論と型チェックを担当します。
 
-use pest::iterators::Pair;
 use crate::parser::ast::*;
 use crate::parser::parse::Rule;
+use pest::iterators::Pair;
 
 /// 式から基本的な型を推論する（パーサーレベル）
 pub fn infer_expr_type(expr: &Expr) -> NiloType {
@@ -15,7 +15,7 @@ pub fn infer_expr_type(expr: &Expr) -> NiloType {
         Expr::Number(_) => NiloType::Number,
         Expr::String(_) => NiloType::String,
         Expr::Bool(_) => NiloType::Bool,
-        
+
         // 配列の型推論
         Expr::Array(items) => {
             if items.is_empty() {
@@ -27,15 +27,17 @@ pub fn infer_expr_type(expr: &Expr) -> NiloType {
                 NiloType::Array(Box::new(first_type))
             }
         }
-        
+
         // 二項演算の型推論
         Expr::BinaryOp { left, op, right } => {
             let left_ty = infer_expr_type(left);
             let right_ty = infer_expr_type(right);
-            
+
             match op {
-                BinaryOperator::Add | BinaryOperator::Sub |
-                BinaryOperator::Mul | BinaryOperator::Div => {
+                BinaryOperator::Add
+                | BinaryOperator::Sub
+                | BinaryOperator::Mul
+                | BinaryOperator::Div => {
                     // 算術演算: 両方がNumberならNumber、それ以外はString（暗黙変換）
                     if left_ty == NiloType::Number && right_ty == NiloType::Number {
                         NiloType::Number
@@ -43,22 +45,25 @@ pub fn infer_expr_type(expr: &Expr) -> NiloType {
                         NiloType::String
                     }
                 }
-                BinaryOperator::Eq | BinaryOperator::Ne |
-                BinaryOperator::Lt | BinaryOperator::Le |
-                BinaryOperator::Gt | BinaryOperator::Ge => {
+                BinaryOperator::Eq
+                | BinaryOperator::Ne
+                | BinaryOperator::Lt
+                | BinaryOperator::Le
+                | BinaryOperator::Gt
+                | BinaryOperator::Ge => {
                     // 比較演算: 常にBool
                     NiloType::Bool
                 }
             }
         }
-        
+
         // その他の式は型が不明
         Expr::Path(_) | Expr::Ident(_) => NiloType::Unknown,
         Expr::Object(_) => NiloType::Unknown,
-        Expr::Dimension(_) => NiloType::Number,  // 次元値は数値として扱う
+        Expr::Dimension(_) => NiloType::Number, // 次元値は数値として扱う
         Expr::CalcExpr(inner) => infer_expr_type(inner),
-        Expr::Match { .. } => NiloType::Unknown,  // Matchは複雑なので後で実装
-        Expr::FunctionCall { .. } => NiloType::Unknown,  // 関数の戻り値は不明
+        Expr::Match { .. } => NiloType::Unknown, // Matchは複雑なので後で実装
+        Expr::FunctionCall { .. } => NiloType::Unknown, // 関数の戻り値は不明
     }
 }
 
@@ -86,7 +91,7 @@ pub fn parse_type_expr(pair: Pair<Rule>) -> NiloType {
     let type_str = pair.as_str();
     let mut inner = pair.into_inner();
     let primitive_pair = inner.next().unwrap();
-    
+
     // プリミティブ型を取得（大文字小文字両対応）
     let mut base_type = match primitive_pair.as_str() {
         "Number" | "number" => NiloType::Number,
@@ -98,14 +103,14 @@ pub fn parse_type_expr(pair: Pair<Rule>) -> NiloType {
             NiloType::Unknown
         }
     };
-    
+
     // "[]" の数だけ配列でラップ
     let remaining_text = type_str[primitive_pair.as_str().len()..].trim();
     let array_depth = remaining_text.matches("[]").count();
-    
+
     for _ in 0..array_depth {
         base_type = NiloType::Array(Box::new(base_type));
     }
-    
+
     base_type
 }

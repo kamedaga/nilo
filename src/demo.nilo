@@ -1,0 +1,44 @@
+flow {
+    start: Main
+}
+
+timeline Main {
+    VStack(style: { gap: 16, padding: 24, background: "#f7f7f7" }) {
+        Text("State Demo", style: { font_size: 28, color: "#222" })
+
+        // Current state values
+        Text("counter: {}", state.counter)
+        Text("name: {}", state.name)
+        Text("ok: {}", state.ok)
+        Text("items: {}", state.items)
+
+        // Watcher/Validator demo notes
+        Text("[watcher] counter/name changes are logged to console.")
+        Text("[validator] name must be non-empty and <= 32 chars (logs error)")
+
+        HStack(style: { gap: 8 }) {
+            Button(id: "inc", label: "+1", onclick: increment_counter())
+            Button(id: "reset", label: "Reset", onclick: reset_counter())
+        }
+
+        HStack(style: { gap: 8 }) {
+            Button(id: "name_alice", label: "Set Name: Alice", onclick: set_name("Alice"))
+            Button(id: "name_empty", label: "Set Name: (empty)", onclick: set_name(""))
+            Button(
+                id: "name_long",
+                label: "Set Name: Very Long (invalid)",
+                onclick: set_name("ThisIsAVeryVeryVeryLongUserNameBeyondLimit")
+            )
+        }
+
+        Button(id: "toggle_ok", label: "Toggle ok", onclick: toggle_ok())
+
+        HStack(style: { gap: 8 }) {
+            Button(id: "add_5", label: "Add 5", onclick: add_item(5))
+            Button(id: "add_10", label: "Add 10", onclick: add_item(10))
+        }
+
+        // Example: open a URL with registered Rust function
+        Button(id: "open", label: "Open GitHub", onclick: open_url("https://github.com"))
+    }
+}

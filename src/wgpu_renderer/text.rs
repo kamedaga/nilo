@@ -1,12 +1,10 @@
 use glyphon::{
-    Attrs, Buffer, Cache, Color, Family, FontSystem, Metrics, Resolution, Shaping, SwashCache, TextArea,
-    TextAtlas, TextBounds, TextRenderer as GlyphonTextRenderer, Viewport, Weight,
+    Attrs, Buffer, Cache, Color, Family, FontSystem, Metrics, Resolution, Shaping, SwashCache,
+    TextArea, TextAtlas, TextBounds, TextRenderer as GlyphonTextRenderer, Viewport, Weight,
 };
-use wgpu::{
-    Device, Queue, RenderPass, TextureFormat, MultisampleState, DepthStencilState,
-};
+use log::error;
 use std::collections::HashMap;
-use log::{error}; // ログマクロを追加
+use wgpu::{DepthStencilState, Device, MultisampleState, Queue, RenderPass, TextureFormat}; // ログマクロを追加
 
 pub struct TextRenderer {
     renderer: GlyphonTextRenderer,
@@ -17,7 +15,7 @@ pub struct TextRenderer {
     #[allow(dead_code)]
     cache: Cache,
     font_name_map: HashMap<String, String>, // ユーザー指定名 -> 実際のファミリー名
-    embedded_font_family: Option<String>, // 単一フォント用（後方互換性）
+    embedded_font_family: Option<String>,   // 単一フォント用（後方互換性）
 }
 
 impl TextRenderer {
@@ -36,10 +34,10 @@ impl TextRenderer {
     }
 
     /// カスタム埋め込みフォントでTextRendererを作成
-    /// 
+    ///
     /// # Arguments
     /// * `embedded_font_data` - 埋め込むフォントデータ（Noneの場合は埋め込みフォントなし）
-    /// 
+    ///
     /// # Example
     /// ```rust
     /// const MY_FONT: &[u8] = include_bytes!("path/to/font.ttf");
@@ -57,23 +55,18 @@ impl TextRenderer {
         embedded_font_data: Option<&'static [u8]>,
     ) -> Self {
         let mut font_system = FontSystem::new();
-        
+
         // 埋め込みフォントを登録（指定がある場合のみ）
         let embedded_font_family = if let Some(data) = embedded_font_data {
             Self::load_embedded_font(&mut font_system, data)
         } else {
             None
         };
-        
+
         let swash_cache = SwashCache::new();
         let cache = Cache::new(device);
         let mut atlas = TextAtlas::new(device, queue, &cache, format);
-        let renderer = GlyphonTextRenderer::new(
-            &mut atlas,
-            device,
-            multisample,
-            depth_stencil,
-        );
+        let renderer = GlyphonTextRenderer::new(&mut atlas, device, multisample, depth_stencil);
         let viewport = Viewport::new(device, &cache);
 
         Self {
@@ -89,10 +82,10 @@ impl TextRenderer {
     }
 
     /// 複数の名前付きフォントでTextRendererを作成
-    /// 
+    ///
     /// # Arguments
     /// * `fonts` - (ユーザー指定名, フォントデータ)のベクター
-    /// 
+    ///
     /// # Example
     /// ```rust
     /// let fonts = vec![
@@ -113,23 +106,18 @@ impl TextRenderer {
     ) -> Self {
         let mut font_system = FontSystem::new();
         let mut font_name_map = HashMap::new();
-        
+
         // 各フォントをロードして名前をマッピング
         for (user_name, data) in fonts {
             if let Some(family_name) = Self::load_embedded_font(&mut font_system, data) {
                 font_name_map.insert(user_name, family_name);
             }
         }
-        
+
         let swash_cache = SwashCache::new();
         let cache = Cache::new(device);
         let mut atlas = TextAtlas::new(device, queue, &cache, format);
-        let renderer = GlyphonTextRenderer::new(
-            &mut atlas,
-            device,
-            multisample,
-            depth_stencil,
-        );
+        let renderer = GlyphonTextRenderer::new(&mut atlas, device, multisample, depth_stencil);
         let viewport = Viewport::new(device, &cache);
 
         Self {
@@ -145,15 +133,20 @@ impl TextRenderer {
     }
 
     /// 埋め込みフォントをロードする
-    /// 
+    ///
     /// # Arguments
     /// * `font_data` - フォントデータ
-    fn load_embedded_font(font_system: &mut FontSystem, font_data: &'static [u8]) -> Option<String> {
+    fn load_embedded_font(
+        font_system: &mut FontSystem,
+        font_data: &'static [u8],
+    ) -> Option<String> {
         // 埋め込みフォントデータを登録
-        let ids = font_system.db_mut().load_font_source(
-            glyphon::fontdb::Source::Binary(std::sync::Arc::new(font_data.to_vec()))
-        );
-        
+        let ids = font_system
+            .db_mut()
+            .load_font_source(glyphon::fontdb::Source::Binary(std::sync::Arc::new(
+                font_data.to_vec(),
+            )));
+
         // 最初のフォントフェイスから実際のファミリー名を取得
         if let Some(first_id) = ids.first() {
             if let Some(face_info) = font_system.db().face(*first_id) {
@@ -163,7 +156,7 @@ impl TextRenderer {
                 }
             }
         }
-        
+
         error!("[TextRenderer] 埋め込みフォントからファミリー名を取得できませんでした");
         None
     }
@@ -171,15 +164,15 @@ impl TextRenderer {
     /// フォントファイルを読み込んで登録（外部ファイル用、オプション）
     #[allow(dead_code)]
     fn load_and_register_font(font_system: &mut FontSystem, font_path: &str) -> Option<String> {
-        
         match std::fs::read(font_path) {
             Ok(font_data) => {
-                
                 // フォントデータをfontdb::Sourceとして登録してIDを取得
-                let ids = font_system.db_mut().load_font_source(
-                    glyphon::fontdb::Source::Binary(std::sync::Arc::new(font_data))
-                );
-                
+                let ids = font_system
+                    .db_mut()
+                    .load_font_source(glyphon::fontdb::Source::Binary(std::sync::Arc::new(
+                        font_data,
+                    )));
+
                 // 最初のフォントフェイスから実際のファミリー名を取得
                 if let Some(first_id) = ids.first() {
                     if let Some(face_info) = font_system.db().face(*first_id) {
@@ -189,25 +182,25 @@ impl TextRenderer {
                         }
                     }
                 }
-                
-                error!("[TextRenderer] フォント '{}' からファミリー名を取得できませんでした", font_path);
+
+                error!(
+                    "[TextRenderer] フォント '{}' からファミリー名を取得できませんでした",
+                    font_path
+                );
                 None
             }
             Err(e) => {
-                error!("[TextRenderer] フォント読み込みエラー '{}': {}", font_path, e);
+                error!(
+                    "[TextRenderer] フォント読み込みエラー '{}': {}",
+                    font_path, e
+                );
                 None
             }
         }
     }
 
     pub fn resize(&mut self, _device: &Device, queue: &Queue, width: u32, height: u32) {
-        self.viewport.update(
-            queue,
-            Resolution {
-                width,
-                height,
-            },
-        );
+        self.viewport.update(queue, Resolution { width, height });
     }
 
     pub fn render_multiple_texts(
@@ -283,7 +276,7 @@ impl TextRenderer {
                 (position[0] + scroll_offset[0]) * scale_factor,
                 (position[1] + scroll_offset[1]) * scale_factor,
             ];
-            
+
             // ★ 修正: テキストを垂直中央に配置するため、ベースラインを調整
             let adjusted_top = scaled_pos[1] - (metrics.line_height - metrics.font_size) * 0.5;
 
@@ -306,7 +299,6 @@ impl TextRenderer {
                 custom_glyphs: &[],
             };
 
-
             text_areas.push(text_area);
         }
 
@@ -328,7 +320,6 @@ impl TextRenderer {
                 .expect("Failed to render text");
         }
     }
-
 
     #[allow(dead_code)]
     pub fn render_text(
@@ -371,7 +362,8 @@ impl TextRenderer {
         buffer.shape_until_scroll(&mut self.font_system, false);
 
         // ★ 修正: テキストを垂直中央に配置するため、ベースラインを調整
-        let adjusted_top = position[1] + scroll_offset[1] - (metrics.line_height - metrics.font_size) * 0.5;
+        let adjusted_top =
+            position[1] + scroll_offset[1] - (metrics.line_height - metrics.font_size) * 0.5;
 
         let text_area = TextArea {
             buffer: &buffer,
@@ -384,11 +376,7 @@ impl TextRenderer {
                 right: screen_width as i32,
                 bottom: screen_height as i32,
             },
-            default_color: Color::rgb(
-                color[0] as u8,
-                color[1] as u8,
-                color[2] as u8,
-            ),
+            default_color: Color::rgb(color[0] as u8, color[1] as u8, color[2] as u8),
             custom_glyphs: &[],
         };
 
@@ -442,7 +430,9 @@ impl TextRenderer {
         buffer.set_text(
             &mut self.font_system,
             text,
-            &Attrs::new().family(Family::SansSerif).weight(Weight::NORMAL),
+            &Attrs::new()
+                .family(Family::SansSerif)
+                .weight(Weight::NORMAL),
             Shaping::Advanced,
         );
         buffer
@@ -517,5 +507,4 @@ impl TextRenderer {
             screen_height,
         );
     }
-
 }

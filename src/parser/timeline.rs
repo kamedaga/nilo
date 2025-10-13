@@ -4,11 +4,11 @@
 //
 // このモジュールはタイムライン定義とwhenブロックの解析を担当します。
 
-use pest::iterators::Pair;
 use crate::parser::ast::*;
-use crate::parser::utils::unquote;
 use crate::parser::expr::parse_event_expr;
 use crate::parser::parse::Rule;
+use crate::parser::utils::unquote;
+use pest::iterators::Pair;
 
 // view_nodeのパース関数は循環参照を避けるため、後で定義される
 // この関数は view_node モジュールで定義される
@@ -20,6 +20,7 @@ pub fn parse_timeline_def(pair: Pair<Rule>) -> Timeline {
     let name = inner.next().unwrap().as_str().to_string();
     let mut url_pattern: Option<String> = None;
     let mut font: Option<String> = None;
+    let mut background: Option<String> = None;
     let mut body: Vec<WithSpan<ViewNode>> = Vec::new();
     let mut whens = Vec::new(); // whenイベントを正しく解析するように修正
 
@@ -31,7 +32,21 @@ pub fn parse_timeline_def(pair: Pair<Rule>) -> Timeline {
                 url_pattern = Some(unquote(url_str));
             }
             Rule::timeline_config => {
-                // timeline_config: 今は無視（将来の拡張用）
+                // timeline_config: backgroundやその他の設定を解析
+                for param in node_pair.into_inner() {
+                    // timeline_param のルールを処理
+                    let param_str = param.as_str();
+
+                    // background で始まるかチェック
+                    if param_str.starts_with("background") {
+                        // "background: "の後の文字列値を取得
+                        let mut param_inner = param.into_inner();
+                        if let Some(value) = param_inner.next() {
+                            background = Some(unquote(value.as_str()));
+                        }
+                    }
+                    // style や他のパラメータは今は無視
+                }
             }
             Rule::font_def => {
                 // font: "fonts/font" の形式を解析
@@ -58,12 +73,18 @@ pub fn parse_timeline_def(pair: Pair<Rule>) -> Timeline {
             }
             _ => {
                 body.push(parse_view_node(node_pair));
-            },
+            }
         }
     }
-    log::info!("Creating timeline '{}' with {} when blocks, url_pattern: {:?}", name, whens.len(), url_pattern);
 
-    Timeline { name, url_pattern, font, body, whens }
+    Timeline {
+        name,
+        url_pattern,
+        font,
+        background,
+        body,
+        whens,
+    }
 }
 
 /// Whenブロック（イベントハンドラー）の解析

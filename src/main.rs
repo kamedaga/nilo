@@ -1,107 +1,167 @@
 // リリースビルド時(not debug_assertions)にWindowsでコンソールウィンドウを非表示
+
 //#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 const MY_FONT: &[u8] = include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/fonts/NotoSansJP-Regular.ttf"));
 
-use nilo;
-use nilo::engine::rust_call::{register_rust_call, register_state_accessible_call};
-use nilo::engine::state::AppState;
+use log::info;
+use nilo::nilo_function;
+use nilo::{nilo_state_watcher, nilo_state_validator};
+use nilo::register_safe_state_call;
+// register_state_accessible_call は自動登録マクロに置き換え
+use nilo::{AppState, StateAccess, nilo_safe_accessible};
 use nilo::parser::ast::Expr;
-use log::info; // ログマクロを追加
 
 nilo::nilo_state! {
     struct State {
+        counter: i32,
         name: String,
-        counter: u32,
+        ok: bool,
         items: Vec<i32>,
-        ifbool: bool,
-        frame_count: u32,
-        elapsed_time: f32,
-        show_section: bool,
-        items_count: i32,
-        filter_enabled: bool,
-        next_item_value: i32,
-        user_name: String,
     }
 }
 
-// onclick用の基本的な関数
-fn hello_from_rust(_args: &[Expr]) {
-    info!("🎉 hello_from_rust called!");
-    println!("Hello from Rust!");
-}
-
-fn hello_world(args: &[Expr]) {
-    info!("Hello from Rust! Args: {:?}", args);
-}
-
-fn greet_user(args: &[Expr]) {
-    info!("👋 greet_user called with {} arguments", args.len());
-    println!("Greeting user!");
-}
-
-fn log_message(args: &[Expr]) {
-    if let Some(Expr::String(msg)) = args.first() {
-        info!("📝 Log: {}", msg);
-        println!("Log: {}", msg);
+impl Default for State {
+    fn default() -> Self {
+        Self { counter: 0, name: String::new(), ok: false, items: vec![] }
     }
 }
 
-// State変更可能な関数
-fn increment_counter<S>(state: &mut AppState<S>, _args: &[Expr])
-where
-    S: nilo::engine::state::StateAccess,
-{
-    // カウンター値を取得
-    let current = state.custom_state.get_field("counter")
-        .and_then(|v| v.parse::<u32>().ok())
-        .unwrap_or(0);
+// ===== Demo: #[nilo_state_watcher] =====
+
+// counter / name が更新されるたびにログに出す
+#[nilo_state_watcher(state = State, fields("counter", "name"))]
+fn log_state_changes(state: &mut State) {
+    // 単純に読み出してログ
+    let c = state.get_field("counter").unwrap_or_else(|| "?".into());
+    let n = state.get_field("name").unwrap_or_else(|| "".into());
+    log::info!("[watcher] counter={}, name='{}'", c, n);
+}
+
+// ===== Demo: #[nilo_state_validator] =====
+// name は 0 文字でない、かつ 32 文字以内
+#[nilo_state_validator(state = State, field = "name")]
+fn validate_name(v: String) -> Result<(), String> {
+    if v.trim().is_empty() {
+        return Err("name must not be empty".into());
+    }
+    if v.chars().count() > 32 {
+        return Err("name must be <= 32 chars".into());
+    }
+    Ok(())
+}
+
+// #[nilo_state_assign] の直接デモは現在コメントアウト
+// #[nilo_state_assign(state = State, field = "counter")]
+// fn assign_counter(state: &mut State, value: i32) -> Result<(), String> { unreachable!() }
+
+// ========================================
+// Nilo関数の定義（マクロで自動登録）
+// ========================================
+
+// URLを開く関数（自動登録される）
+#[nilo_function]
+fn open_url(url: String) {
+    info!("🔗 Opening URL: {}", url);
     
-    let new_value = current + 1;
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        if let Err(e) = open::that(&url) {
+            log::error!("Failed to open URL: {}", e);
+        }
+    }
     
-    // stateを更新
-    let _ = state.custom_state.set("counter", new_value.to_string());
-    
-    info!("✅ Counter incremented: {} -> {}", current, new_value);
-    println!("Counter: {} -> {}", current, new_value);
+    #[cfg(target_arch = "wasm32")]
+    {
+        if let Some(window) = web_sys::window() {
+            if let Err(e) = window.open_with_url_and_target(&url, "_blank") {
+                log::error!("Failed to open URL: {:?}", e);
+            }
+        }
+    }
+}
+
+// #[nilo_state_assign(state = State, field = "counter")]
+// fn set_counter_value(_state: &mut State, _value: i32) -> Result<(), String> { unreachable!() }
+
+// ========================================
+// onclick用の関数定義（自動登録される）
+// ========================================
+
+#[nilo_safe_accessible(state = State, name = "increment_counter")]
+fn inc_fn(ctx: &mut nilo::CustomStateContext<State>, _args: &[Expr]) {
+    if let Some(current) = ctx.get_as::<i32>("counter") {
+        let _ = ctx.set("counter", (current + 1).to_string());
+    }
+}
+
+#[nilo_safe_accessible(state = State, name = "reset_counter")]
+fn reset_fn(ctx: &mut nilo::CustomStateContext<State>, _args: &[Expr]) {
+    let _ = ctx.set("counter", "0".to_string());
+}
+
+#[nilo_safe_accessible(state = State, name = "set_name")]
+fn set_name_fn(ctx: &mut nilo::CustomStateContext<State>, args: &[Expr]) {
+    if let Some(Expr::String(name)) = args.first() {
+        let _ = ctx.set("name", name.clone());
+    }
+}
+
+#[nilo_safe_accessible(state = State, name = "toggle_ok")]
+fn toggle_ok_fn(ctx: &mut nilo::CustomStateContext<State>, _args: &[Expr]) {
+    let current = ctx.get_as::<bool>("ok").unwrap_or(false);
+    let _ = ctx.set("ok", (!current).to_string());
+}
+
+#[nilo_safe_accessible(state = State, name = "add_item")]
+fn add_item_fn(ctx: &mut nilo::CustomStateContext<State>, args: &[Expr]) {
+    if let Some(Expr::Number(n)) = args.first() {
+        let _ = ctx.list_append("items", n.to_string());
+    }
 }
 
 fn main() {
     #[cfg(not(target_arch = "wasm32"))]
     {
-    // カスタムフォントを名前付きで登録（プロジェクトルートからの相対パス）
-    // Niloファイル内で font: "japanese" として使用可能
-    nilo::set_custom_font("japanese", MY_FONT);
-    
-    let cli_args = nilo::parse_args();
+        // Nilo関数を自動登録（関数・ウォッチャ・バリデータ含む）
+        nilo::init_nilo_functions();
 
-    // onclick用の関数を登録
-    register_rust_call("hello_from_rust", hello_from_rust);
-    register_rust_call("hello_rust", |_args: &[Expr]| {
-        info!("Hello from Rust!"); // println!をinfo!に変更
-    });
-    register_rust_call("hello_world", hello_world);
-    register_rust_call("greet_user", greet_user);
-    register_rust_call("log_message", log_message);
-    
-    // State変更可能な関数を登録
-    register_state_accessible_call("increment_counter", increment_counter::<State>);
+        // onclick 等で使用する安全な Rust 関数群を登録（SAFEレジストリ）
+        register_safe_state_call("increment_counter", |ctx: &mut nilo::CustomStateContext<State>, _args| {
+            if let Some(current) = ctx.get_as::<i32>("counter") {
+                let _ = ctx.set("counter", (current + 1).to_string());
+            }
+        });
+        register_safe_state_call("reset_counter", |ctx: &mut nilo::CustomStateContext<State>, _args| {
+            let _ = ctx.set("counter", "0".to_string());
+        });
 
-    let state = State {
-        name: "Nilo".to_string(),
-        counter: 1,
-        items: vec![1, 2, 3],
-        ifbool: true,
-        frame_count: 0,
-        elapsed_time: 0.0,
-        show_section: true,
-        items_count: 3,
-        filter_enabled: false,
-        next_item_value: 4,
-        user_name: "Test User".to_string(),
-    };
+        // ↑ 上記の関数は main 関数外で定義されているため自動登録される
+        register_safe_state_call("set_name", |ctx: &mut nilo::CustomStateContext<State>, args| {
+            if let Some(nilo::parser::ast::Expr::String(name)) = args.get(0) {
+                let _ = ctx.set("name", name.clone());
+            }
+        });
+        register_safe_state_call("toggle_ok", |ctx: &mut nilo::CustomStateContext<State>, _args| {
+            let current = ctx.get_as::<bool>("ok").unwrap_or(false);
+            let _ = ctx.set("ok", (!current).to_string());
+        });
+        register_safe_state_call("add_item", |ctx: &mut nilo::CustomStateContext<State>, args| {
+            if let Some(nilo::parser::ast::Expr::Number(n)) = args.get(0) {
+                let _ = ctx.list_append("items", n.to_string());
+            }
+        });
 
-    // 自動で埋め込みファイルを使用するマクロを呼び出し
-    nilo::run_nilo_app!("onclick_test.nilo", state, &cli_args, Some("Nilo Phase 2: Components"));
+        // onclick互換レジストリへの assign ラッパー登録は未使用
+
+        // カスタムフォントを名前付きで登録
+        nilo::set_custom_font("japanese", MY_FONT);
+        
+        let cli_args = nilo::parse_args();
+
+        let state = State::default();
+        
+        // デモアプリを起動（マクロ側で "src/" を付与するため、ファイル名のみ指定）
+        nilo::run_nilo_app!("demo.nilo", state, &cli_args, Some("Nilo State Demo"));
     }
 }
 
@@ -123,38 +183,15 @@ pub fn wasm_main() {
     // WebAssembly用のロガーを初期化
     console_log::init_with_level(log::Level::Debug).expect("error initializing log");
 
-    log::info!("Nilo WASM main entry point starting...");
+    // Nilo関数を自動登録
+    nilo::init_nilo_functions();
 
     // カスタムフォントを登録
     nilo::set_custom_font("japanese", MY_FONT);
 
-    // Rust関数を登録
-    register_rust_call("hello_from_rust", hello_from_rust);
-    register_rust_call("hello_rust", |_args: &[Expr]| {
-        log::info!("Hello from Rust!");
-    });
-    register_rust_call("hello_world", hello_world);
-    register_rust_call("greet_user", greet_user);
-    register_rust_call("log_message", log_message);
-    
-    // State変更可能な関数を登録
-    register_state_accessible_call("increment_counter", increment_counter::<State>);
-
     // 初期状態を作成
-    let state = State {
-        name: "Nilo".to_string(),
-        counter: 1,
-        items: vec![1, 2, 3],
-        ifbool: true,
-        frame_count: 0,
-        elapsed_time: 0.0,
-        show_section: true,
-        items_count: 3,
-        filter_enabled: false,
-        next_item_value: 4,
-        user_name: "Test User".to_string(),
-    };
+    let state = State::default();
 
-    // run_nilo_appマクロを使用（WASM版でも統一）
-    nilo::run_nilo_app!("local_vars_test.nilo", state);
+    // デモアプリを起動（マクロ側で "src/" を付与）
+    nilo::run_nilo_app!("demo.nilo", state);
 }

@@ -1,8 +1,8 @@
 // レイアウト差分計算システム
 // ノードツリーの変更を検出し、変更があった部分のみを再計算する
 
-use crate::parser::ast::{ViewNode, WithSpan, Expr, App, Style};
-use crate::ui::{LayoutedNode, LayoutParams};
+use crate::parser::ast::{App, ComponentArg, Expr, Style, ViewNode, WithSpan};
+use crate::ui::{LayoutParams, LayoutedNode};
 use std::collections::HashMap;
 
 /// ノードの識別子を生成
@@ -45,7 +45,7 @@ impl NodeHash {
         use std::hash::{Hash, Hasher};
 
         let mut s = String::new();
-        
+
         // ノードの型と主要な属性を文字列化
         match &node.node {
             ViewNode::Text { format, args } => {
@@ -64,7 +64,9 @@ impl NodeHash {
                 s.push_str("Image:");
                 s.push_str(path);
             }
-            ViewNode::TextInput { id, placeholder, .. } => {
+            ViewNode::TextInput {
+                id, placeholder, ..
+            } => {
                 s.push_str("TextInput:");
                 s.push_str(id);
                 if let Some(ph) = placeholder {
@@ -83,23 +85,44 @@ impl NodeHash {
             ViewNode::SpacingAuto => {
                 s.push_str("SpacingAuto");
             }
-            ViewNode::ForEach { var, iterable, body } => {
+            ViewNode::ForEach {
+                var,
+                iterable,
+                body,
+            } => {
                 s.push_str("ForEach:");
                 s.push_str(var);
                 s.push_str(&eval(iterable));
                 s.push_str(&format!("{}", body.len()));
             }
-            ViewNode::If { condition, then_body, else_body } => {
+            ViewNode::If {
+                condition,
+                then_body,
+                else_body,
+            } => {
                 s.push_str("If:");
                 s.push_str(&eval(condition));
                 let else_len = else_body.as_ref().map(|b| b.len()).unwrap_or(0);
                 s.push_str(&format!("{}:{}", then_body.len(), else_len));
             }
-            ViewNode::ComponentCall { name, args, slots: _ } => {
+            ViewNode::ComponentCall {
+                name,
+                args,
+                slots: _,
+            } => {
                 s.push_str("Component:");
                 s.push_str(name);
                 for arg in args {
-                    s.push_str(&eval(arg));
+                    match arg {
+                        crate::parser::ast::ComponentArg::Positional(expr) => {
+                            s.push_str(&eval(expr))
+                        }
+                        crate::parser::ast::ComponentArg::Named(name, expr) => {
+                            s.push_str(name);
+                            s.push_str(":");
+                            s.push_str(&eval(expr));
+                        }
+                    }
                 }
             }
             ViewNode::Stencil(_) => {
@@ -117,10 +140,18 @@ impl NodeHash {
                 s.push_str(name);
                 s.push_str(&format!("{}", body.len()));
             }
-            ViewNode::Match { expr, arms, default } => {
+            ViewNode::Match {
+                expr,
+                arms,
+                default,
+            } => {
                 s.push_str("Match:");
                 s.push_str(&eval(expr));
-                s.push_str(&format!("arms:{}:default:{}", arms.len(), default.is_some()));
+                s.push_str(&format!(
+                    "arms:{}:default:{}",
+                    arms.len(),
+                    default.is_some()
+                ));
             }
             ViewNode::NavigateTo { target } => {
                 s.push_str("NavigateTo:");
@@ -155,7 +186,12 @@ impl NodeHash {
                 s.push_str("ListClear:");
                 s.push_str(path);
             }
-            ViewNode::LetDecl { name, value, mutable, declared_type: _ } => {
+            ViewNode::LetDecl {
+                name,
+                value,
+                mutable,
+                declared_type: _,
+            } => {
                 s.push_str(if *mutable { "Let:" } else { "Const:" });
                 s.push_str(name);
                 s.push_str(&eval(value));
@@ -188,7 +224,7 @@ impl NodeHash {
 
     fn style_hash(style: &Style) -> String {
         let mut s = String::new();
-        
+
         if let Some(c) = &style.color {
             s.push_str(&format!("c:{:?}", c));
         }
@@ -210,7 +246,7 @@ impl NodeHash {
         if let Some(m) = &style.margin {
             s.push_str(&format!("m:{:?}", m));
         }
-        
+
         s
     }
 }
@@ -257,21 +293,14 @@ impl<'a> LayoutDiffEngine<'a> {
         G: Fn(&str) -> (u32, u32),
     {
         self.dirty_nodes.clear();
-        
+
         // ルートから差分チェック
         let root_id = NodeId::new();
-        let results = self.compute_node_diff(
-            nodes,
-            &root_id,
-            params,
-            app,
-            eval,
-            get_image_size,
-        );
+        let results = self.compute_node_diff(nodes, &root_id, params, app, eval, get_image_size);
 
         // 現在のキャッシュを前回のキャッシュとして保存
         self.prev_cache = self.current_cache.clone();
-        
+
         results
     }
 
@@ -294,10 +323,10 @@ impl<'a> LayoutDiffEngine<'a> {
         for (idx, node) in nodes.iter().enumerate() {
             let node_id = parent_id.child(idx, &Self::node_type_name(&node.node));
             let node_key = node_id.key();
-            
+
             // ハッシュを計算
             let current_hash = NodeHash::from_node(node, eval);
-            
+
             // 前回のキャッシュと比較
             let needs_recompute = if let Some(prev_entry) = self.prev_cache.get(&node_key) {
                 // ハッシュが異なる場合は再計算が必要
@@ -309,25 +338,22 @@ impl<'a> LayoutDiffEngine<'a> {
 
             if needs_recompute {
                 self.dirty_nodes.push(node_key.clone());
-                
+
                 // レイアウトを再計算
-                let layouted = self.compute_layout_for_node(
-                    node,
-                    &node_id,
-                    params,
-                    app,
-                    eval,
-                    get_image_size,
-                );
-                
+                let layouted =
+                    self.compute_layout_for_node(node, &node_id, params, app, eval, get_image_size);
+
                 results.push(layouted.clone());
-                
+
                 // キャッシュに保存
-                self.current_cache.insert(node_key, LayoutCacheEntry {
-                    hash: current_hash,
-                    layouted,
-                    children_hashes: Vec::new(),
-                });
+                self.current_cache.insert(
+                    node_key,
+                    LayoutCacheEntry {
+                        hash: current_hash,
+                        layouted,
+                        children_hashes: Vec::new(),
+                    },
+                );
             } else {
                 // キャッシュから取得
                 if let Some(prev_entry) = self.prev_cache.get(&node_key) {
@@ -356,10 +382,10 @@ impl<'a> LayoutDiffEngine<'a> {
     {
         // 既存のレイアウトシステムを使用
         use crate::ui::layout_vstack;
-        
+
         let nodes = std::slice::from_ref(node);
         let layouted_nodes = layout_vstack(nodes, params.clone(), app, eval, get_image_size);
-        
+
         layouted_nodes.into_iter().next().unwrap_or_else(|| {
             // フォールバック
             LayoutedNode {
@@ -385,8 +411,8 @@ impl<'a> LayoutDiffEngine<'a> {
             ViewNode::If { .. } => "If",
             ViewNode::Match { .. } => "Match",
             ViewNode::ComponentCall { .. } => "Component",
-            ViewNode::Slot { .. } => "Slot",  // ★ Phase 2
-            ViewNode::SlotCheck { .. } => "SlotCheck",  // ★ Phase 2
+            ViewNode::Slot { .. } => "Slot",           // ★ Phase 2
+            ViewNode::SlotCheck { .. } => "SlotCheck", // ★ Phase 2
             ViewNode::Stencil(_) => "Stencil",
             ViewNode::RustCall { .. } => "RustCall",
             ViewNode::DynamicSection { .. } => "Dynamic",
@@ -397,7 +423,13 @@ impl<'a> LayoutDiffEngine<'a> {
             ViewNode::ListInsert { .. } => "ListInsert",
             ViewNode::ListRemove { .. } => "ListRemove",
             ViewNode::ListClear { .. } => "ListClear",
-            ViewNode::LetDecl { mutable, .. } => if *mutable { "Let" } else { "Const" },
+            ViewNode::LetDecl { mutable, .. } => {
+                if *mutable {
+                    "Let"
+                } else {
+                    "Const"
+                }
+            }
             ViewNode::When { .. } => "When",
         }
     }
@@ -432,7 +464,7 @@ impl DiffStats {
         } else {
             0.0
         };
-        
+
         Self {
             total_nodes: total,
             recomputed_nodes: recomputed,
@@ -451,10 +483,10 @@ mod tests {
         let root = NodeId::new();
         let child1 = root.child(0, "VStack");
         let child2 = root.child(1, "HStack");
-        
+
         assert_eq!(child1.key(), "VStack_0");
         assert_eq!(child2.key(), "HStack_1");
-        
+
         let grandchild = child1.child(0, "Text");
         assert_eq!(grandchild.key(), "VStack_0/Text_0");
     }
@@ -463,7 +495,7 @@ mod tests {
     fn test_node_hash() {
         // テスト用のダミー評価関数
         let eval = |_: &Expr| String::from("test");
-        
+
         let node1 = WithSpan {
             node: ViewNode::Text {
                 format: "Hello".to_string(),
@@ -473,7 +505,7 @@ mod tests {
             column: 1,
             style: None,
         };
-        
+
         let node2 = WithSpan {
             node: ViewNode::Text {
                 format: "Hello".to_string(),
@@ -483,7 +515,7 @@ mod tests {
             column: 1,
             style: None,
         };
-        
+
         let node3 = WithSpan {
             node: ViewNode::Text {
                 format: "World".to_string(),
@@ -493,11 +525,11 @@ mod tests {
             column: 1,
             style: None,
         };
-        
+
         let hash1 = NodeHash::from_node(&node1, &eval);
         let hash2 = NodeHash::from_node(&node2, &eval);
         let hash3 = NodeHash::from_node(&node3, &eval);
-        
+
         assert_eq!(hash1, hash2);
         assert_ne!(hash1, hash3);
     }

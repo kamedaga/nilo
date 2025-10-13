@@ -4,10 +4,10 @@
 //
 // このモジュールはフロー定義と遷移の解析を担当します。
 
-use pest::iterators::Pair;
 use crate::parser::ast::*;
-use crate::parser::utils::unquote;
 use crate::parser::parse::Rule;
+use crate::parser::utils::unquote;
+use pest::iterators::Pair;
 
 /// フロー定義を解析してFlowASTを生成
 pub fn parse_flow_def(pair: Pair<Rule>) -> Result<Flow, String> {
@@ -46,21 +46,32 @@ pub fn parse_flow_def(pair: Pair<Rule>) -> Result<Flow, String> {
 
     // バリデーション
     let start = start.ok_or_else(|| "フロー定義にはstart:が必要です".to_string())?;
-    
+
     // 配列形式の遷移元を展開して正規化
-    let flow = Flow { start, start_url, transitions };
+    let flow = Flow {
+        start,
+        start_url,
+        transitions,
+    };
     Ok(flow.normalize())
 }
 
 /// タイムライン with URL の解析
 pub fn parse_timeline_with_url(pair: Pair<Rule>) -> Result<(String, String), String> {
     assert_eq!(pair.as_rule(), Rule::timeline_with_url);
-    
+
     let mut inner = pair.into_inner();
-    let timeline = inner.next().ok_or("timeline_with_urlにタイムライン名がありません")?.as_str().to_string();
-    let url_str = inner.next().ok_or("timeline_with_urlにURL文字列がありません")?.as_str();
+    let timeline = inner
+        .next()
+        .ok_or("timeline_with_urlにタイムライン名がありません")?
+        .as_str()
+        .to_string();
+    let url_str = inner
+        .next()
+        .ok_or("timeline_with_urlにURL文字列がありません")?
+        .as_str();
     let url = unquote(url_str);
-    
+
     Ok((timeline, url))
 }
 
@@ -79,14 +90,15 @@ pub fn parse_flow_target(pair: Pair<Rule>) -> Result<FlowTarget, String> {
                         params: std::collections::HashMap::new(),
                     })
                 }
-                Rule::qualified_ident => {
-                    Ok(FlowTarget {
-                        timeline: inner.as_str().to_string(),
-                        url: None,
-                        params: std::collections::HashMap::new(),
-                    })
-                }
-                _ => Err(format!("Unknown flow target inner rule: {:?}", inner.as_rule())),
+                Rule::qualified_ident => Ok(FlowTarget {
+                    timeline: inner.as_str().to_string(),
+                    url: None,
+                    params: std::collections::HashMap::new(),
+                }),
+                _ => Err(format!(
+                    "Unknown flow target inner rule: {:?}",
+                    inner.as_rule()
+                )),
             }
         }
         Rule::timeline_with_url => {
@@ -97,13 +109,11 @@ pub fn parse_flow_target(pair: Pair<Rule>) -> Result<FlowTarget, String> {
                 params: std::collections::HashMap::new(),
             })
         }
-        Rule::qualified_ident => {
-            Ok(FlowTarget {
-                timeline: pair.as_str().to_string(),
-                url: None,
-                params: std::collections::HashMap::new(),
-            })
-        }
+        Rule::qualified_ident => Ok(FlowTarget {
+            timeline: pair.as_str().to_string(),
+            url: None,
+            params: std::collections::HashMap::new(),
+        }),
         _ => Err(format!("Unknown flow target rule: {:?}", pair.as_rule())),
     }
 }
@@ -131,36 +141,36 @@ fn parse_transition_source(pair: Pair<Rule>) -> Result<Vec<String>, String> {
 
     let inner = pair.into_inner();
     let mut sources = Vec::new();
-    
+
     for ident_pair in inner {
         if ident_pair.as_rule() == Rule::qualified_ident {
             sources.push(ident_pair.as_str().to_string());
         }
     }
-    
+
     // 単一要素の場合と配列の場合の両方に対応
     if sources.is_empty() {
         return Err("transition_sourceに識別子がありません".to_string());
     }
-    
+
     Ok(sources)
 }
 
 /// 遷移先の解析（新しいFlowTarget対応）
 fn parse_transition_targets_new(pair: Pair<Rule>) -> Result<Vec<FlowTarget>, String> {
     assert_eq!(pair.as_rule(), Rule::transition_targets);
-    
+
     let mut targets = Vec::new();
     for target_pair in pair.into_inner() {
         if target_pair.as_rule() == Rule::flow_target {
             targets.push(parse_flow_target(target_pair)?);
         }
     }
-    
+
     if targets.is_empty() {
         return Err("transition_targetsにターゲットがありません".to_string());
     }
-    
+
     Ok(targets)
 }
 

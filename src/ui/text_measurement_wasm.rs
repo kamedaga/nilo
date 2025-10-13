@@ -50,7 +50,13 @@ impl TextMeasurementSystem {
         max_width: Option<f32>,
         line_height_multiplier: Option<f32>,
     ) -> TextMeasurement {
-        self.measure(text, font_size, font_family, max_width, line_height_multiplier)
+        self.measure(
+            text,
+            font_size,
+            font_family,
+            max_width,
+            line_height_multiplier,
+        )
     }
 
     /// テキストを測定（キャッシュあり）
@@ -62,13 +68,22 @@ impl TextMeasurementSystem {
         max_width: Option<f32>,
         line_height_multiplier: Option<f32>,
     ) -> TextMeasurement {
-        let cache_key = format!("{}:{}:{}:{:?}:{:?}", text, font_size, font_family, max_width, line_height_multiplier);
-        
+        let cache_key = format!(
+            "{}:{}:{}:{:?}:{:?}",
+            text, font_size, font_family, max_width, line_height_multiplier
+        );
+
         if let Some(cached) = self.cache.get(&cache_key) {
             return cached.clone();
         }
 
-        let measurement = Self::measure_text_dom(text, font_size, font_family, max_width, line_height_multiplier);
+        let measurement = Self::measure_text_dom(
+            text,
+            font_size,
+            font_family,
+            max_width,
+            line_height_multiplier,
+        );
         self.cache.insert(cache_key, measurement.clone());
         measurement
     }
@@ -84,7 +99,7 @@ impl TextMeasurementSystem {
         #[cfg(target_arch = "wasm32")]
         {
             use wasm_bindgen::JsCast;
-            use web_sys::{window, HtmlElement};
+            use web_sys::{HtmlElement, window};
 
             // 測定用の一時的なDOM要素を作成
             if let Some(window) = window() {
@@ -97,29 +112,29 @@ impl TextMeasurementSystem {
                             let _ = style.set_property("white-space", "pre-wrap");
                             let _ = style.set_property("font-size", &format!("{}px", font_size));
                             let _ = style.set_property("font-family", font_family);
-                            
+
                             if let Some(width) = max_width {
                                 let _ = style.set_property("max-width", &format!("{}px", width));
                                 let _ = style.set_property("overflow-wrap", "break-word");
                             } else {
                                 let _ = style.set_property("white-space", "nowrap");
                             }
-                            
+
                             html_element.set_inner_text(text);
-                            
+
                             if let Some(body) = document.body() {
                                 let _ = body.append_child(&element);
-                                
+
                                 let width = html_element.offset_width() as f32;
                                 let height = html_element.offset_height() as f32;
-                                
+
                                 let _ = body.remove_child(&element);
-                                
+
                                 // line_height_multiplierを使用（デフォルト1.2）
                                 let multiplier = line_height_multiplier.unwrap_or(1.2);
                                 let line_height = font_size * multiplier;
                                 let line_count = (height / line_height).ceil().max(1.0) as usize;
-                                
+
                                 return TextMeasurement {
                                     width,
                                     height,
@@ -144,16 +159,18 @@ impl TextMeasurementSystem {
         } else {
             char_count as f32 * font_size * 0.6
         };
-        
+
         let multiplier = line_height_multiplier.unwrap_or(1.2);
         let line_height = font_size * multiplier;
-        
+
         let line_count = if let Some(max_w) = max_width {
-            ((char_count as f32 * font_size * 0.6) / max_w).ceil().max(1.0) as usize
+            ((char_count as f32 * font_size * 0.6) / max_w)
+                .ceil()
+                .max(1.0) as usize
         } else {
             1
         };
-        
+
         TextMeasurement {
             width: estimated_width,
             height: line_height * line_count as f32,

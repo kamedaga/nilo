@@ -1,12 +1,12 @@
-pub mod lint;
+pub mod component_validator;
 pub mod error;
-pub mod state_type_checker;
-pub mod component_validator;  // ★ Phase 2: コンポーネント型バリデーション
+pub mod lint;
+pub mod state_type_checker; // ★ Phase 2: コンポーネント型バリデーション
 
-use crate::parser::ast::{App};
+use crate::parser::ast::App;
 
-use lint::{run_lints, LintWarning};
 use error::Diagnostic;
+use lint::{LintWarning, run_lints};
 
 pub struct AnalysisResult {
     pub diagnostics: Vec<Diagnostic>,
@@ -23,7 +23,10 @@ pub fn analyze_app(app: &App) -> AnalysisResult {
     // 2. 追加の警告や注意事項も集約可
     // warnings.push(...)
 
-    AnalysisResult { diagnostics, warnings }
+    AnalysisResult {
+        diagnostics,
+        warnings,
+    }
 }
 
 /// Rustソースコードを含めた型チェック付きの解析
@@ -43,12 +46,15 @@ pub fn analyze_app_with_rust_state(app: &App, rust_source: Option<&str>) -> Anal
             }
         }
     }
-    
+
     // ★ Phase 2: コンポーネント型バリデーション
     let component_warnings = component_validator::validate_component_calls(app);
     for warning in component_warnings {
         log::warn!("[Component Warning] {}", warning);
     }
 
-    AnalysisResult { diagnostics, warnings }
+    AnalysisResult {
+        diagnostics,
+        warnings,
+    }
 }

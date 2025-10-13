@@ -8,7 +8,7 @@ fn main() {
 
     // DOMレンダラーを作成
     let mut renderer = DomRenderer::new();
-    
+
     // テスト用のStencilを作成
     let test_stencils = vec![
         // Rect
@@ -20,8 +20,7 @@ fn main() {
             scroll: false,
             depth: 0.0,
         },
-        
-        // Circle  
+        // Circle
         Stencil::Circle {
             center: [250.0, 250.0],
             radius: 50.0,
@@ -29,7 +28,6 @@ fn main() {
             scroll: false,
             depth: 0.0,
         },
-        
         // Text
         Stencil::Text {
             content: "Hello, DOM Renderer!".to_string(),
@@ -41,7 +39,6 @@ fn main() {
             scroll: false,
             depth: 0.0,
         },
-        
         // Triangle
         Stencil::Triangle {
             p1: [400.0, 100.0],
@@ -55,7 +52,7 @@ fn main() {
 
     // Stencilをレンダリング
     renderer.render_stencils(&test_stencils, [0.0, 0.0], 1.0);
-    
+
     // HTMLファイルに保存
     if let Err(e) = renderer.save_to_file("dom_output.html") {
         eprintln!("HTMLファイルの保存に失敗しました: {}", e);

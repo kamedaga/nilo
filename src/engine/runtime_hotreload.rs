@@ -1,13 +1,11 @@
+use super::runtime::AppHandler;
+use super::state::{AppState, StateAccess};
 use crate::parser::ast::App;
 use std::sync::{Arc, Mutex};
 use winit::{
-    event::{WindowEvent},
-    event_loop::{ActiveEventLoop},
-    window::{WindowId},
-    application::ApplicationHandler,
+    application::ApplicationHandler, event::WindowEvent, event_loop::ActiveEventLoop,
+    window::WindowId,
 };
-use super::state::{AppState, StateAccess};
-use super::runtime::AppHandler;
 
 /// 再起動フラグ付きのAppHandler
 pub struct AppHandlerWithRestart<S>
@@ -24,7 +22,7 @@ where
 {
     pub fn new(app: Arc<App>, state: AppState<S>, restart_flag: Arc<Mutex<bool>>) -> Self {
         Self {
-            inner: AppHandler::new(app, state),
+            inner: AppHandler::new(app, state, "Nilo Application".to_string()),
             restart_flag,
         }
     }
@@ -38,7 +36,12 @@ where
         self.inner.resumed(event_loop);
     }
 
-    fn window_event(&mut self, event_loop: &ActiveEventLoop, window_id: WindowId, event: WindowEvent) {
+    fn window_event(
+        &mut self,
+        event_loop: &ActiveEventLoop,
+        window_id: WindowId,
+        event: WindowEvent,
+    ) {
         // 再起動フラグをチェック
         if let Ok(flag) = self.restart_flag.try_lock() {
             if *flag {
@@ -68,7 +71,7 @@ where
 {
     pub fn new(app: Arc<App>, state: AppState<S>, restart_flag: Arc<Mutex<bool>>) -> Self {
         Self {
-            inner: AppHandler::new(app, state),
+            inner: AppHandler::new(app, state, "Nilo Application".to_string()),
             restart_flag,
         }
     }
@@ -82,7 +85,12 @@ where
         self.inner.resumed(event_loop);
     }
 
-    fn window_event(&mut self, event_loop: &ActiveEventLoop, window_id: WindowId, event: WindowEvent) {
+    fn window_event(
+        &mut self,
+        event_loop: &ActiveEventLoop,
+        window_id: WindowId,
+        event: WindowEvent,
+    ) {
         // 再起動フラグをチェック（ノンブロッキング）
         if let Ok(flag) = self.restart_flag.try_lock() {
             if *flag {

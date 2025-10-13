@@ -45,7 +45,7 @@ impl RendererFactory {
     #[cfg(not(target_arch = "wasm32"))]
     pub async fn create_renderer(
         renderer_type: RendererType,
-        window: Option<std::sync::Arc<winit::window::Window>>
+        window: Option<std::sync::Arc<winit::window::Window>>,
     ) -> Result<Box<dyn AbstractRenderer>, String> {
         match renderer_type {
             RendererType::Wgpu => {
@@ -57,15 +57,11 @@ impl RendererFactory {
                 }
             }
             RendererType::Dom => {
-                let dom_renderer = crate::dom_renderer::DomRenderer::new();
+                let dom_renderer = crate::dom_renderer::DomRenderer::with_container("container");
                 Ok(Box::new(DomRendererAdapter::new(dom_renderer)))
             }
-            RendererType::TinySkia => {
-                Ok(Box::new(TinySkiaRenderer::new()))
-            }
-            RendererType::Pdf => {
-                Ok(Box::new(PdfRenderer::new()))
-            }
+            RendererType::TinySkia => Ok(Box::new(TinySkiaRenderer::new())),
+            RendererType::Pdf => Ok(Box::new(PdfRenderer::new())),
         }
     }
 
@@ -76,12 +72,13 @@ impl RendererFactory {
     ) -> Result<Box<dyn AbstractRenderer>, String> {
         match renderer_type {
             RendererType::Dom => {
-                let dom_renderer = crate::dom_renderer::DomRenderer::new();
+                let dom_renderer = crate::dom_renderer::DomRenderer::with_container("container");
                 Ok(Box::new(DomRendererAdapter::new(dom_renderer)))
             }
-            _ => {
-                Err(format!("{:?} renderer is not supported in WASM environment", renderer_type))
-            }
+            _ => Err(format!(
+                "{:?} renderer is not supported in WASM environment",
+                renderer_type
+            )),
         }
     }
 }
@@ -105,7 +102,12 @@ impl AbstractRenderer for WgpuRendererAdapter {
         RendererType::Wgpu
     }
 
-    fn render_stencils(&mut self, stencils: &[Stencil], scroll_offset: [f32; 2], scale_factor: f32) {
+    fn render_stencils(
+        &mut self,
+        stencils: &[Stencil],
+        scroll_offset: [f32; 2],
+        scale_factor: f32,
+    ) {
         let draw_list = crate::stencil::stencil::stencil_to_wgpu_draw_list(stencils);
         self.inner.render(&draw_list, scroll_offset, scale_factor);
     }
@@ -118,7 +120,8 @@ impl AbstractRenderer for WgpuRendererAdapter {
     fn resize(&mut self, new_size: (u32, u32)) {
         #[cfg(not(target_arch = "wasm32"))]
         {
-            self.inner.resize(winit::dpi::PhysicalSize::new(new_size.0, new_size.1));
+            self.inner
+                .resize(winit::dpi::PhysicalSize::new(new_size.0, new_size.1));
         }
         #[cfg(target_arch = "wasm32")]
         {
@@ -158,8 +161,14 @@ impl AbstractRenderer for DomRendererAdapter {
         RendererType::Dom
     }
 
-    fn render_stencils(&mut self, stencils: &[Stencil], scroll_offset: [f32; 2], scale_factor: f32) {
-        self.inner.render_stencils(stencils, scroll_offset, scale_factor);
+    fn render_stencils(
+        &mut self,
+        stencils: &[Stencil],
+        scroll_offset: [f32; 2],
+        scale_factor: f32,
+    ) {
+        self.inner
+            .render_stencils(stencils, scroll_offset, scale_factor);
     }
 
     fn size(&self) -> (u32, u32) {
@@ -195,7 +204,12 @@ impl AbstractRenderer for DomRenderer {
         RendererType::Dom
     }
 
-    fn render_stencils(&mut self, _stencils: &[Stencil], _scroll_offset: [f32; 2], _scale_factor: f32) {
+    fn render_stencils(
+        &mut self,
+        _stencils: &[Stencil],
+        _scroll_offset: [f32; 2],
+        _scale_factor: f32,
+    ) {
         // TODO: DOM要素の生成と更新
         log::debug!("DOM rendering not yet implemented");
     }
@@ -233,7 +247,12 @@ impl AbstractRenderer for TinySkiaRenderer {
         RendererType::TinySkia
     }
 
-    fn render_stencils(&mut self, _stencils: &[Stencil], _scroll_offset: [f32; 2], _scale_factor: f32) {
+    fn render_stencils(
+        &mut self,
+        _stencils: &[Stencil],
+        _scroll_offset: [f32; 2],
+        _scale_factor: f32,
+    ) {
         // TODO: tiny-skiaでの描画実装
         log::debug!("tiny-skia rendering not yet implemented");
     }
@@ -271,7 +290,12 @@ impl AbstractRenderer for PdfRenderer {
         RendererType::Pdf
     }
 
-    fn render_stencils(&mut self, _stencils: &[Stencil], _scroll_offset: [f32; 2], _scale_factor: f32) {
+    fn render_stencils(
+        &mut self,
+        _stencils: &[Stencil],
+        _scroll_offset: [f32; 2],
+        _scale_factor: f32,
+    ) {
         // TODO: PDF書き出し実装
         log::debug!("PDF rendering not yet implemented");
     }

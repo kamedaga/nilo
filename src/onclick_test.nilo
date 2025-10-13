@@ -1,79 +1,14 @@
-// onclick属性でRust関数を呼び出すテスト
-
-timeline Main {
-    let counter = 0
-    VStack(style: { 
-        gap: 20, 
-        padding: 40,
-        background: "#f5f5f5"
-    }) {
-        Text("onclick Test: Rust関数を直接呼び出す", style: {
-            font_size: 28,
-            color: "#333",
-            padding: 10
-        })
-
-        // 基本的なRust関数呼び出し
-        Button(
-            id: "simple_btn",
-            label: "Simple Click",
-            onclick: hello_from_rust(),
-            style: {
-                background: "#4CAF50",
-                color: "#fff",
-                padding: 15,
-                rounded: on
-            }
-        )
-
-        // 引数ありの関数呼び出し
-        Button(
-            id: "args_btn",
-            label: "Click with Args",
-            onclick: greet_user("Taro", 25),
-            style: {
-                background: "#2196F3",
-                color: "#fff",
-                padding: 15,
-                rounded: on
-            }
-        )
-
-        // 複数の関数を連続呼び出し（将来的な機能として）
-        Button(
-            id: "increment_btn",
-            label: "Increment Counter",
-            onclick: increment_counter(),
-            style: {
-                background: "#FF9800",
-                color: "#fff",
-                padding: 15,
-                rounded: on
-            }
-        )
-
-        // state変数を表示（カウンター値）
-        Text("Counter: {}", counter, style: {
-            font_size: 20,
-            color: "#333",
-            padding: 10
-        })
-
-        // ログ出力テスト
-        Button(
-            id: "log_btn",
-            label: "Log Message",
-            onclick: log_message("Button clicked from nilo!"),
-            style: {
-                background: "#9C27B0",
-                color: "#fff",
-                padding: 15,
-                rounded: on
-            }
-        )
-    }
-}
 
 flow {
-    start: Main
+    start: Clicker
+}
+
+timeline Clicker {
+    let count: Number = 0
+    
+    Text("counter: {}", count)
+    Button(id: increment_btn, label: "increment")
+    when user.click(increment_btn) {
+        set count = count + 1
+    }
 }

@@ -4,12 +4,12 @@
 //
 // このモジュールはコンポーネント定義とパラメータの解析を担当します。
 
-use pest::iterators::Pair;
 use crate::parser::ast::*;
-use crate::parser::utils::unquote;
 use crate::parser::expr::parse_expr;
-use crate::parser::style::style_from_expr;
 use crate::parser::parse::Rule;
+use crate::parser::style::style_from_expr;
+use crate::parser::utils::unquote;
+use pest::iterators::Pair;
 
 // view_nodeのパース関数は循環参照を避けるため、後で定義される
 use crate::parser::view_node::parse_view_node;
@@ -87,13 +87,15 @@ pub fn parse_component_def(pair: Pair<Rule>) -> Component {
             _ => body.push(parse_view_node(node_pair)),
         }
     }
-    // ★ Phase 2: 既存のString形式のparamsをComponentParamに変換は不要（既にComponentParam）
-    log::info!("🔍 Parsed component '{}' with {} parameters", name, params.len());
-    for (i, param) in params.iter().enumerate() {
-        log::info!("  Param {}: name='{}', type={:?}, default={:?}, optional={}", 
-                   i, param.name, param.param_type, param.default_value, param.optional);
+
+    Component {
+        name,
+        params,
+        font,
+        default_style,
+        body,
+        whens,
     }
-    Component { name, params, font, default_style, body, whens }
 }
 
 /// ★ Phase 2: 型付きパラメータをパース (name: Type = default)
@@ -102,7 +104,7 @@ pub fn parse_typed_param(pair: Pair<Rule>) -> ComponentParam {
     let name = inner.next().unwrap().as_str().to_string();
     let param_type = parse_param_type(inner.next().unwrap());
     let default_value = inner.next().map(parse_expr);
-    
+
     ComponentParam {
         name,
         param_type,
@@ -116,7 +118,7 @@ pub fn parse_optional_param(pair: Pair<Rule>) -> ComponentParam {
     let mut inner = pair.into_inner();
     let name = inner.next().unwrap().as_str().to_string();
     let param_type = parse_param_type(inner.next().unwrap());
-    
+
     ComponentParam {
         name,
         param_type,
@@ -129,10 +131,10 @@ pub fn parse_optional_param(pair: Pair<Rule>) -> ComponentParam {
 pub fn parse_enum_param(pair: Pair<Rule>) -> ComponentParam {
     let mut inner = pair.into_inner();
     let name = inner.next().unwrap().as_str().to_string();
-    
+
     let mut enum_values = Vec::new();
     let mut default_value = None;
-    
+
     for p in inner {
         match p.as_rule() {
             Rule::string => {
@@ -147,13 +149,13 @@ pub fn parse_enum_param(pair: Pair<Rule>) -> ComponentParam {
             _ => {}
         }
     }
-    
+
     // 最後の要素をデフォルト値として取り出す
     if default_value.is_none() && !enum_values.is_empty() {
         let last = enum_values.pop().unwrap();
         default_value = Some(Expr::String(last));
     }
-    
+
     ComponentParam {
         name,
         param_type: ComponentParamType::Enum(enum_values),

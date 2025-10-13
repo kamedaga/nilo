@@ -211,5 +211,23 @@ component StencilCard() {
         Text("Stencil - 抽象化レイヤー", style: {font_size: 36px, color: "#ffffff", shadow: {blur: 4, offset: [0, 1], color: "#00000030"}})
         Text("Niloでは、Stencilという低レベルな層を挟むことによって、\n複数のレンダラで描画することや、モダンなUIをシンプルに構築できます。", style: {max_width: auto, font_size: 22px, color: "#b0b0b0", align: "center"})
         Spacing(24px)
+        
+        HStack(style: {gap: 16px, align: "center"}) {
+            Button(id: "test_object1", label: "無名構造体テスト", onclick: create_user({ name: "Alice", age: 30, active: true }), style: {
+                background: "#0066cc",
+                color: "#ffffff",
+                padding: [12, 24],
+                rounded: 8px,
+                font_size: 18px
+            })
+            
+            Button(id: "test_object2", label: "rust_call構文", onclick: create_user!({ name: "Bob", age: 25, active: false }), style: {
+                background: "#cc6600",
+                color: "#ffffff",
+                padding: [12, 24],
+                rounded: 8px,
+                font_size: 18px
+            })
+        }
     }
 }

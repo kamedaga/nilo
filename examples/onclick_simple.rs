@@ -1,12 +1,11 @@
-/// Simple onclick demonstration example
-/// 
-/// This example shows how to register and use onclick handlers with Rust functions
-
-use nilo::parser::parse::parse_nilo;
-use nilo::engine::state::{AppState, StateAccess};
-use nilo::engine::rust_call::{register_rust_call, register_state_accessible_call};
-use nilo::parser::ast::Expr;
 use log::info;
+use nilo::engine::rust_call::{register_rust_call, register_state_accessible_call};
+use nilo::engine::state::{AppState, StateAccess};
+use nilo::parser::ast::Expr;
+/// Simple onclick demonstration example
+///
+/// This example shows how to register and use onclick handlers with Rust functions
+use nilo::parser::parse::parse_nilo;
 
 // Define your application state
 #[derive(Debug, Clone)]
@@ -48,7 +47,7 @@ impl StateAccess for MyAppState {
                 self.message = value;
                 Ok(())
             }
-            _ => Err(format!("Unknown field: {}", path))
+            _ => Err(format!("Unknown field: {}", path)),
         }
     }
 
@@ -95,7 +94,7 @@ fn log_message(args: &[Expr]) {
 fn greet_user(args: &[Expr]) {
     info!("👋 greet_user called with {} arguments", args.len());
     println!("Greeting user with {} arguments", args.len());
-    
+
     // In a real implementation, you would evaluate the Expr arguments
     for (i, arg) in args.iter().enumerate() {
         println!("  Arg {}: {:?}", i, arg);
@@ -111,16 +110,18 @@ where
     S: StateAccess,
 {
     // Get current counter value
-    let current = state.custom_state.get_field("counter")
+    let current = state
+        .custom_state
+        .get_field("counter")
         .and_then(|v| v.parse::<i32>().ok())
         .unwrap_or(0);
-    
+
     // Increment
     let new_value = current + 1;
-    
+
     // Update state
     let _ = state.custom_state.set("counter", new_value.to_string());
-    
+
     info!("✅ Counter incremented: {} -> {}", current, new_value);
     println!("Counter incremented: {} -> {}", current, new_value);
 }
@@ -154,12 +155,12 @@ fn register_onclick_functions() {
     register_rust_call("hello_from_rust", hello_from_rust);
     register_rust_call("log_message", log_message);
     register_rust_call("greet_user", greet_user);
-    
+
     // Register state-accessible functions
     register_state_accessible_call("increment_counter", increment_counter::<MyAppState>);
     register_state_accessible_call("reset_counter", reset_counter::<MyAppState>);
     register_state_accessible_call("update_message", update_message::<MyAppState>);
-    
+
     info!("✅ All onclick functions registered");
     println!("✅ All onclick functions registered");
 }
@@ -167,38 +168,44 @@ fn register_onclick_functions() {
 fn main() {
     // Initialize logging
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
-    
+
     println!("==============================================");
     println!("  onclick Implementation Example");
     println!("==============================================\n");
-    
+
     // Register onclick functions BEFORE loading the app
     register_onclick_functions();
-    
+
     // Create initial state
     let initial_state = MyAppState::default();
     println!("Initial state:");
     println!("  counter: {}", initial_state.counter);
     println!("  message: {}\n", initial_state.message);
-    
+
     // Create AppState
     let app_state = AppState::new(initial_state, "Main".to_string());
-    
+
     println!("Application state created.");
     println!("\nTo use onclick:");
     println!("1. Load onclick_test.nilo file");
     println!("2. Click buttons in the UI");
     println!("3. Rust functions will be called automatically\n");
-    
+
     println!("Example .nilo syntax:");
     println!("  Button(id: \"btn1\", label: \"Click\", onclick: hello_from_rust())");
     println!("  Button(id: \"btn2\", label: \"+1\", onclick: increment_counter())");
     println!("  Button(id: \"btn3\", label: \"Reset\", onclick: reset_counter())\n");
-    
+
     println!("State after initialization:");
-    println!("  counter: {:?}", app_state.custom_state.get_field("counter"));
-    println!("  message: {:?}", app_state.custom_state.get_field("message"));
-    
+    println!(
+        "  counter: {:?}",
+        app_state.custom_state.get_field("counter")
+    );
+    println!(
+        "  message: {:?}",
+        app_state.custom_state.get_field("message")
+    );
+
     println!("\n==============================================");
     println!("  Ready! Use with your nilo application");
     println!("==============================================");

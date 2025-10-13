@@ -1,21 +1,20 @@
+use log::info;
+use nilo::engine::rust_call::{register_rust_call, register_state_accessible_call};
+use nilo::engine::state::{AppState, StateAccess};
 /// onclick_example.rs
-/// 
+///
 /// onclick属性からRust関数を呼び出す実装例
-/// 
+///
 /// 使い方:
 /// 1. Rust関数を定義
 /// 2. register_rust_call または register_state_accessible_call で登録
 /// 3. .niloファイルのButton onclick属性で関数名を指定
-/// 
+///
 /// 例:
 /// ```nilo
 /// Button(id: "test_btn", label: "Click", onclick: my_function("arg1", 42))
 /// ```
-
 use nilo::parser::ast::Expr;
-use nilo::engine::state::{AppState, StateAccess};
-use nilo::engine::rust_call::{register_rust_call, register_state_accessible_call};
-use log::info;
 
 // ========================================
 // State型の定義（アプリケーション固有の状態）
@@ -50,7 +49,7 @@ impl StateAccess for MyAppState {
                 self.username = value;
                 Ok(())
             }
-            _ => Err(format!("Unknown field: {}", path))
+            _ => Err(format!("Unknown field: {}", path)),
         }
     }
 
@@ -114,15 +113,17 @@ where
     S: StateAccess,
 {
     // stateからcounter値を取得
-    let current = state.custom_state.get_field("counter")
+    let current = state
+        .custom_state
+        .get_field("counter")
         .and_then(|v| v.parse::<i32>().ok())
         .unwrap_or(0);
-    
+
     let new_value = current + 1;
-    
+
     // stateを更新
     let _ = state.custom_state.set("counter", new_value.to_string());
-    
+
     info!("✅ Counter incremented: {} -> {}", current, new_value);
 }
 
@@ -156,12 +157,12 @@ pub fn register_all_onclick_functions() {
     register_rust_call("hello_from_rust", hello_from_rust);
     register_rust_call("greet_user", greet_user);
     register_rust_call("log_message", log_message);
-    
+
     // stateにアクセスする関数
     register_state_accessible_call("increment_counter", increment_counter::<MyAppState>);
     register_state_accessible_call("reset_counter", reset_counter::<MyAppState>);
     register_state_accessible_call("set_username", set_username::<MyAppState>);
-    
+
     info!("✅ All onclick functions registered");
 }
 
@@ -172,22 +173,22 @@ pub fn register_all_onclick_functions() {
 fn main() {
     // ロギング初期化
     env_logger::init();
-    
+
     // Rust関数を登録
     register_all_onclick_functions();
-    
+
     // アプリケーションの初期化
     let my_state = MyAppState {
         counter: 0,
         username: "Guest".to_string(),
     };
-    
+
     // AppStateを作成
     let _app_state = AppState::new(my_state, "Main".to_string());
-    
+
     // この後、niloファイルをロードしてアプリケーションを実行
     // ...
-    
+
     println!("onclick example ready!");
     println!("Use onclick_test.nilo to test the functionality");
 }
@@ -202,17 +203,17 @@ where
     S: StateAccess,
 {
     info!("🔧 Complex function called with {} args", args.len());
-    
+
     // 引数を評価（実際の実装では state.eval_expr_from_ast を使用）
     for (i, arg) in args.iter().enumerate() {
         info!("  Arg {}: {:?}", i, arg);
     }
-    
+
     // stateの値を読み取り
     if let Some(counter) = state.custom_state.get_field("counter") {
         info!("  Current counter: {}", counter);
     }
-    
+
     // 何かしらの処理...
     // let _ = state.custom_state.set("result", "processed".to_string());
 }
@@ -224,10 +225,10 @@ where
     S: StateAccess,
 {
     info!("🚀 Starting async operation...");
-    
+
     // 実際の非同期処理はここに実装
     // 例: APIリクエスト、ファイル読み込み、データベースアクセスなど
-    
+
     info!("✅ Async operation completed");
 }
 
@@ -244,17 +245,17 @@ where
         info!("❌ Error: safe_division requires 2 arguments");
         return;
     }
-    
+
     // 引数から数値を取得（実際の実装では eval_expr_from_ast を使用）
     // let numerator = ...;
     // let denominator = ...;
-    
+
     // if denominator == 0.0 {
     //     info!("❌ Error: Division by zero");
     //     let _ = state.custom_state.set("error", "Division by zero".to_string());
     //     return;
     // }
-    
+
     // let result = numerator / denominator;
     // let _ = state.custom_state.set("result", result.to_string());
     // info!("✅ Division result: {}", result);

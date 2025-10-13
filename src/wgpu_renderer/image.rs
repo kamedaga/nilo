@@ -1,10 +1,10 @@
-use std::collections::HashMap;
-use wgpu::*;
-use wgpu::util::DeviceExt;
-use winit::dpi::PhysicalSize;
 use crate::renderer_abstract::command::{DrawCommand, DrawList};
+use log::error;
+use std::collections::HashMap;
 use std::path::Path;
-use log::error; // ログマクロを追加
+use wgpu::util::DeviceExt;
+use wgpu::*;
+use winit::dpi::PhysicalSize; // ログマクロを追加
 
 #[repr(C)]
 #[derive(Copy, Clone, bytemuck::Pod, bytemuck::Zeroable, Debug)]
@@ -20,8 +20,16 @@ impl ImageVertex {
             array_stride: mem::size_of::<ImageVertex>() as wgpu::BufferAddress,
             step_mode: wgpu::VertexStepMode::Vertex,
             attributes: &[
-                wgpu::VertexAttribute { offset: 0, shader_location: 0, format: wgpu::VertexFormat::Float32x3 }, // ★ Float32x3に変更
-                wgpu::VertexAttribute { offset: 12, shader_location: 1, format: wgpu::VertexFormat::Float32x2 }, // ★ オフセット調整
+                wgpu::VertexAttribute {
+                    offset: 0,
+                    shader_location: 0,
+                    format: wgpu::VertexFormat::Float32x3,
+                }, // ★ Float32x3に変更
+                wgpu::VertexAttribute {
+                    offset: 12,
+                    shader_location: 1,
+                    format: wgpu::VertexFormat::Float32x2,
+                }, // ★ オフセット調整
             ],
         }
     }
@@ -122,19 +130,19 @@ impl ImageRenderer {
 
         // ファイル拡張子をチェックしてSVGかどうか判定
         let path_obj = Path::new(path);
-        let extension = path_obj.extension()
+        let extension = path_obj
+            .extension()
             .and_then(|ext| ext.to_str())
             .unwrap_or("")
             .to_lowercase();
 
         let (width, height, raw) = if extension == "svg" {
             // SVGファイルの処理
-            self.load_svg_as_rgba(path)
-                .unwrap_or_else(|e| {
-                    error!("Failed to load SVG {}: {}", path, e); // eprintln!をerror!に変更
-                    // フォールバック: 1x1の透明画像
-                    (1, 1, vec![0, 0, 0, 0])
-                })
+            self.load_svg_as_rgba(path).unwrap_or_else(|e| {
+                error!("Failed to load SVG {}: {}", path, e); // eprintln!をerror!に変更
+                // フォールバック: 1x1の透明画像
+                (1, 1, vec![0, 0, 0, 0])
+            })
         } else {
             // 通常の画像ファイルの処理
             match image::open(path) {
@@ -153,7 +161,11 @@ impl ImageRenderer {
 
         let texture = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("Image Texture"),
-            size: wgpu::Extent3d { width, height, depth_or_array_layers: 1 },
+            size: wgpu::Extent3d {
+                width,
+                height,
+                depth_or_array_layers: 1,
+            },
             mip_level_count: 1,
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
@@ -175,7 +187,11 @@ impl ImageRenderer {
                 bytes_per_row: Some(4 * width),
                 rows_per_image: Some(height),
             },
-            wgpu::Extent3d { width, height, depth_or_array_layers: 1 },
+            wgpu::Extent3d {
+                width,
+                height,
+                depth_or_array_layers: 1,
+            },
         );
 
         let view = texture.create_view(&Default::default());
@@ -184,34 +200,57 @@ impl ImageRenderer {
             label: Some("Image BindGroup"),
             layout: &self.bind_group_layout,
             entries: &[
-                wgpu::BindGroupEntry { binding: 0, resource: wgpu::BindingResource::TextureView(&view) },
-                wgpu::BindGroupEntry { binding: 1, resource: wgpu::BindingResource::Sampler(&sampler) },
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(&view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::Sampler(&sampler),
+                },
             ],
         });
 
-        self.textures.insert(path.to_owned(), TextureResource {
-            texture,
-            view,
-            sampler,
-            bind_group,
-        });
+        self.textures.insert(
+            path.to_owned(),
+            TextureResource {
+                texture,
+                view,
+                sampler,
+                bind_group,
+            },
+        );
     }
 
     // SVGファイルをRGBAバイト配列に変換するヘルパーメソッド
-    fn load_svg_as_rgba(&self, path: &str) -> Result<(u32, u32, Vec<u8>), Box<dyn std::error::Error>> {
+    fn load_svg_as_rgba(
+        &self,
+        path: &str,
+    ) -> Result<(u32, u32, Vec<u8>), Box<dyn std::error::Error>> {
         let svg_data = std::fs::read(path)?;
 
         let rtree = resvg::usvg::Tree::from_data(&svg_data, &resvg::usvg::Options::default())?;
         let size = rtree.size();
 
         // SVGのサイズを取得、デフォルトサイズが小さすぎる場合は調整
-        let width = if size.width() > 0.0 { size.width() as u32 } else { 256 };
-        let height = if size.height() > 0.0 { size.height() as u32 } else { 256 };
+        let width = if size.width() > 0.0 {
+            size.width() as u32
+        } else {
+            256
+        };
+        let height = if size.height() > 0.0 {
+            size.height() as u32
+        } else {
+            256
+        };
 
-        let mut pixmap = tiny_skia::Pixmap::new(width, height)
-            .ok_or("Failed to create pixmap")?;
+        let mut pixmap = tiny_skia::Pixmap::new(width, height).ok_or("Failed to create pixmap")?;
 
-        resvg::render(&rtree, tiny_skia::Transform::default(), &mut pixmap.as_mut());
+        resvg::render(
+            &rtree,
+            tiny_skia::Transform::default(),
+            &mut pixmap.as_mut(),
+        );
 
         // tiny-skiaのピクセルデータ（RGBA）を取得
         let pixels = pixmap.take();
@@ -236,14 +275,19 @@ impl ImageRenderer {
         let h = screen_size.height as f32;
 
         fn to_ndc(pos: [f32; 2], w: f32, h: f32) -> [f32; 2] {
-            [
-                (pos[0] / w) * 2.0 - 1.0,
-                1.0 - (pos[1] / h) * 2.0,
-            ]
+            [(pos[0] / w) * 2.0 - 1.0, 1.0 - (pos[1] / h) * 2.0]
         }
 
         for cmd in &draw_list.0 {
-            if let DrawCommand::Image { position, width, height, path, scroll, .. } = cmd {
+            if let DrawCommand::Image {
+                position,
+                width,
+                height,
+                path,
+                scroll,
+                ..
+            } = cmd
+            {
                 let tex = match self.textures.get(path) {
                     Some(t) => t,
                     None => continue,
@@ -252,31 +296,52 @@ impl ImageRenderer {
                 let scaled_position = [position[0] * scale_factor, position[1] * scale_factor];
                 let scaled_width = width * scale_factor;
                 let scaled_height = height * scale_factor;
-                let scaled_scroll_offset = [scroll_offset[0] * scale_factor, scroll_offset[1] * scale_factor];
+                let scaled_scroll_offset = [
+                    scroll_offset[0] * scale_factor,
+                    scroll_offset[1] * scale_factor,
+                ];
 
                 let (x0, y0, x1, y1) = if *scroll {
                     (
                         scaled_position[0] + scaled_scroll_offset[0],
                         scaled_position[1] + scaled_scroll_offset[1],
                         scaled_position[0] + scaled_width + scaled_scroll_offset[0],
-                        scaled_position[1] + scaled_height + scaled_scroll_offset[1]
+                        scaled_position[1] + scaled_height + scaled_scroll_offset[1],
                     )
                 } else {
                     (
                         scaled_position[0],
                         scaled_position[1],
                         scaled_position[0] + scaled_width,
-                        scaled_position[1] + scaled_height
+                        scaled_position[1] + scaled_height,
                     )
                 };
 
                 let vertices = [
-                    ImageVertex { position: [to_ndc([x0, y0], w, h)[0], to_ndc([x0, y0], w, h)[1], depth], uv: [0.0, 0.0] },
-                    ImageVertex { position: [to_ndc([x1, y0], w, h)[0], to_ndc([x1, y0], w, h)[1], depth], uv: [1.0, 0.0] },
-                    ImageVertex { position: [to_ndc([x0, y1], w, h)[0], to_ndc([x0, y1], w, h)[1], depth], uv: [0.0, 1.0] },
-                    ImageVertex { position: [to_ndc([x0, y1], w, h)[0], to_ndc([x0, y1], w, h)[1], depth], uv: [0.0, 1.0] },
-                    ImageVertex { position: [to_ndc([x1, y0], w, h)[0], to_ndc([x1, y0], w, h)[1], depth], uv: [1.0, 0.0] },
-                    ImageVertex { position: [to_ndc([x1, y1], w, h)[0], to_ndc([x1, y1], w, h)[1], depth], uv: [1.0, 1.0] },
+                    ImageVertex {
+                        position: [to_ndc([x0, y0], w, h)[0], to_ndc([x0, y0], w, h)[1], depth],
+                        uv: [0.0, 0.0],
+                    },
+                    ImageVertex {
+                        position: [to_ndc([x1, y0], w, h)[0], to_ndc([x1, y0], w, h)[1], depth],
+                        uv: [1.0, 0.0],
+                    },
+                    ImageVertex {
+                        position: [to_ndc([x0, y1], w, h)[0], to_ndc([x0, y1], w, h)[1], depth],
+                        uv: [0.0, 1.0],
+                    },
+                    ImageVertex {
+                        position: [to_ndc([x0, y1], w, h)[0], to_ndc([x0, y1], w, h)[1], depth],
+                        uv: [0.0, 1.0],
+                    },
+                    ImageVertex {
+                        position: [to_ndc([x1, y0], w, h)[0], to_ndc([x1, y0], w, h)[1], depth],
+                        uv: [1.0, 0.0],
+                    },
+                    ImageVertex {
+                        position: [to_ndc([x1, y1], w, h)[0], to_ndc([x1, y1], w, h)[1], depth],
+                        uv: [1.0, 1.0],
+                    },
                 ];
 
                 let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
@@ -308,14 +373,19 @@ impl ImageRenderer {
         let h = screen_size.height as f32;
 
         fn to_ndc(pos: [f32; 2], w: f32, h: f32) -> [f32; 2] {
-            [
-                (pos[0] / w) * 2.0 - 1.0,
-                1.0 - (pos[1] / h) * 2.0,
-            ]
+            [(pos[0] / w) * 2.0 - 1.0, 1.0 - (pos[1] / h) * 2.0]
         }
 
         for cmd in &draw_list.0 {
-            if let DrawCommand::Image { position, width, height, path, scroll, depth } = cmd {
+            if let DrawCommand::Image {
+                position,
+                width,
+                height,
+                path,
+                scroll,
+                depth,
+            } = cmd
+            {
                 let tex = match self.textures.get(path) {
                     Some(t) => t,
                     None => continue,
@@ -324,32 +394,53 @@ impl ImageRenderer {
                 let scaled_position = [position[0] * scale_factor, position[1] * scale_factor];
                 let scaled_width = width * scale_factor;
                 let scaled_height = height * scale_factor;
-                let scaled_scroll_offset = [scroll_offset[0] * scale_factor, scroll_offset[1] * scale_factor];
+                let scaled_scroll_offset = [
+                    scroll_offset[0] * scale_factor,
+                    scroll_offset[1] * scale_factor,
+                ];
 
                 let (x0, y0, x1, y1) = if *scroll {
                     (
                         scaled_position[0] + scaled_scroll_offset[0],
                         scaled_position[1] + scaled_scroll_offset[1],
                         scaled_position[0] + scaled_width + scaled_scroll_offset[0],
-                        scaled_position[1] + scaled_height + scaled_scroll_offset[1]
+                        scaled_position[1] + scaled_height + scaled_scroll_offset[1],
                     )
                 } else {
                     (
                         scaled_position[0],
                         scaled_position[1],
                         scaled_position[0] + scaled_width,
-                        scaled_position[1] + scaled_height
+                        scaled_position[1] + scaled_height,
                     )
                 };
 
                 // ★ DrawCommandのdepth値を直接使用
                 let vertices = [
-                    ImageVertex { position: [to_ndc([x0, y0], w, h)[0], to_ndc([x0, y0], w, h)[1], *depth], uv: [0.0, 0.0] },
-                    ImageVertex { position: [to_ndc([x1, y0], w, h)[0], to_ndc([x1, y0], w, h)[1], *depth], uv: [1.0, 0.0] },
-                    ImageVertex { position: [to_ndc([x0, y1], w, h)[0], to_ndc([x0, y1], w, h)[1], *depth], uv: [0.0, 1.0] },
-                    ImageVertex { position: [to_ndc([x0, y1], w, h)[0], to_ndc([x0, y1], w, h)[1], *depth], uv: [0.0, 1.0] },
-                    ImageVertex { position: [to_ndc([x1, y0], w, h)[0], to_ndc([x1, y0], w, h)[1], *depth], uv: [1.0, 0.0] },
-                    ImageVertex { position: [to_ndc([x1, y1], w, h)[0], to_ndc([x1, y1], w, h)[1], *depth], uv: [1.0, 1.0] },
+                    ImageVertex {
+                        position: [to_ndc([x0, y0], w, h)[0], to_ndc([x0, y0], w, h)[1], *depth],
+                        uv: [0.0, 0.0],
+                    },
+                    ImageVertex {
+                        position: [to_ndc([x1, y0], w, h)[0], to_ndc([x1, y0], w, h)[1], *depth],
+                        uv: [1.0, 0.0],
+                    },
+                    ImageVertex {
+                        position: [to_ndc([x0, y1], w, h)[0], to_ndc([x0, y1], w, h)[1], *depth],
+                        uv: [0.0, 1.0],
+                    },
+                    ImageVertex {
+                        position: [to_ndc([x0, y1], w, h)[0], to_ndc([x0, y1], w, h)[1], *depth],
+                        uv: [0.0, 1.0],
+                    },
+                    ImageVertex {
+                        position: [to_ndc([x1, y0], w, h)[0], to_ndc([x1, y0], w, h)[1], *depth],
+                        uv: [1.0, 0.0],
+                    },
+                    ImageVertex {
+                        position: [to_ndc([x1, y1], w, h)[0], to_ndc([x1, y1], w, h)[1], *depth],
+                        uv: [1.0, 1.0],
+                    },
                 ];
 
                 let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {

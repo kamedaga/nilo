@@ -13,10 +13,18 @@ pub enum DiagnosticLevel {
 
 impl Diagnostic {
     pub fn error(msg: impl Into<String>) -> Self {
-        Self { level: DiagnosticLevel::Error, message: msg.into(), location: None }
+        Self {
+            level: DiagnosticLevel::Error,
+            message: msg.into(),
+            location: None,
+        }
     }
     pub fn warning(msg: impl Into<String>) -> Self {
-        Self { level: DiagnosticLevel::Warning, message: msg.into(), location: None }
+        Self {
+            level: DiagnosticLevel::Warning,
+            message: msg.into(),
+            location: None,
+        }
     }
 }
 pub type AnalysisError = Diagnostic;

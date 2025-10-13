@@ -1,12 +1,15 @@
 use crate::parser::ast::{
-    App, Timeline, ViewNode, Expr, WithSpan, Style, ColorValue, Rounded, Shadow, Edges,
+    App, ColorValue, Edges, Expr, Rounded, Shadow, Style, Timeline, ViewNode, WithSpan,
 };
 use crate::stencil::stencil::Stencil;
 use crate::ui::layout_diff::LayoutDiffEngine;
+use log;
+use std::any::{Any, TypeId};
+use std::cell::RefCell;
 use std::collections::HashMap;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
-use log;
+use std::sync::{Arc, Once, OnceLock, RwLock};
 
 /// コンポーネント専用の状態管理構造体（軽量化版）
 #[derive(Debug, Clone)]
@@ -19,11 +22,11 @@ pub struct ComponentContext {
     // ★ 新規追加: foreach変数のスタック管理
     pub foreach_vars: HashMap<String, String>,
     pub foreach_vars_stack: Vec<HashMap<String, String>>,
-    
+
     // ★ 新規追加: ローカル変数のスタック管理（timeline専用）
     pub local_vars: HashMap<String, String>,
     pub local_vars_stack: Vec<HashMap<String, String>>,
-    
+
     // ★ 新規追加: const変数の追跡（再代入禁止用）
     pub const_vars: std::collections::HashSet<String>,
 }
@@ -43,7 +46,6 @@ impl ComponentContext {
         }
     }
 
-
     pub fn enter_component(&mut self, component_name: &str, args: HashMap<String, String>) {
         self.args_stack.push(self.current_args.clone());
         self.current_args = args;
@@ -53,9 +55,7 @@ impl ComponentContext {
 
     /// コンポーネントから出る際の処理（軽量化版）
     pub fn exit_component(&mut self) {
-        if let Some(_) = self.call_stack.pop() {
- 
-        }
+        if let Some(_) = self.call_stack.pop() {}
 
         self.nest_level = self.nest_level.saturating_sub(1);
 
@@ -75,7 +75,6 @@ impl ComponentContext {
     /// ネストした上位レベルの引数も検索（軽量化版）
     #[inline]
     pub fn get_arg_from_any_level(&self, name: &str) -> Option<&String> {
-
         if let Some(value) = self.current_args.get(name) {
             return Some(value);
         }
@@ -95,7 +94,6 @@ impl ComponentContext {
     pub fn set_arg(&mut self, name: String, value: String) {
         self.current_args.insert(name, value);
     }
-
 
     pub fn get_all_args(&self) -> HashMap<String, String> {
         let mut all_args = HashMap::new();
@@ -173,42 +171,42 @@ impl ComponentContext {
             self.foreach_vars.clear();
         }
     }
-    
+
     // ★ 新規追加: ローカル変数管理メソッド
-    
+
     /// ローカル変数を設定（timeline内でのみ使用可能）
     pub fn set_local_var(&mut self, name: String, value: String) {
         self.local_vars.insert(name, value);
     }
-    
+
     /// const変数として登録（再代入禁止）
     pub fn set_const_var(&mut self, name: String, value: String) {
         self.local_vars.insert(name.clone(), value);
         self.const_vars.insert(name);
     }
-    
+
     /// 変数がconst変数かチェック
     pub fn is_const_var(&self, name: &str) -> bool {
         self.const_vars.contains(name)
     }
-    
+
     /// ローカル変数を取得
     pub fn get_local_var(&self, name: &str) -> Option<&String> {
         // 現在のレベルから検索
         if let Some(value) = self.local_vars.get(name) {
             return Some(value);
         }
-        
+
         // 上位レベルのスタックから検索（ただしtimeline内のみ）
         for vars in self.local_vars_stack.iter().rev() {
             if let Some(value) = vars.get(name) {
                 return Some(value);
             }
         }
-        
+
         None
     }
-    
+
     /// timeline開始時にローカル変数をクリア
     /// ★ 実際の変数宣言は Engine::initialize_local_variables で一度だけ行われる
     /// ★ レイアウト再計算時には再宣言されない
@@ -217,14 +215,14 @@ impl ComponentContext {
         self.local_vars_stack.clear();
         self.const_vars.clear();
     }
-    
+
     /// コンポーネント呼び出し時にローカル変数をブロック（コンポーネントからはアクセス不可）
     pub fn block_local_vars(&mut self) {
         // 既存のローカル変数をスタックに退避し、新しいスコープを開始
         self.local_vars_stack.push(self.local_vars.clone());
         self.local_vars.clear();
     }
-    
+
     /// コンポーネントから戻る時にローカル変数を復元
     pub fn unblock_local_vars(&mut self) {
         if let Some(previous_vars) = self.local_vars_stack.pop() {
@@ -232,7 +230,6 @@ impl ComponentContext {
         }
     }
 }
-
 
 #[derive(Debug, Clone)]
 pub struct AppState<S> {
@@ -243,7 +240,7 @@ pub struct AppState<S> {
     pub component_context: ComponentContext,
     pub image_size_cache: std::rc::Rc<std::cell::RefCell<HashMap<String, (u32, u32)>>>,
     pub all_buttons: Vec<(String, [f32; 2], [f32; 2])>,
-    
+
     // ★ ルーティング関連
     pub router: Option<crate::engine::routing::Router>,
     pub route_params: HashMap<String, String>,
@@ -256,16 +253,21 @@ pub struct AppState<S> {
 
     pub static_buttons: Vec<(String, [f32; 2], [f32; 2])>,
 
+    /// ★ ロジック処理済みのノードツリー（タイムライン変更時のみリセット）
     pub expanded_body: Option<Vec<WithSpan<ViewNode>>>,
 
+    /// ★ ローカル変数が初期化済みかどうか（タイムライン変更時のみリセット）
+    pub local_vars_initialized: bool,
+
     pub cached_window_size: Option<[f32; 2]>,
-    
+
     /// 前回のホバーボタンID（ホバー状態変化の検出用）
     pub last_hovered_button: Option<String>,
-    
+
     /// 動的セクションのキャッシュ（セクション名 -> (状態ハッシュ, ステンシル, ボタン)）
-    pub dynamic_section_cache: HashMap<String, (u64, Vec<Stencil>, Vec<(String, [f32; 2], [f32; 2])>)>,
-    
+    pub dynamic_section_cache:
+        HashMap<String, (u64, Vec<Stencil>, Vec<(String, [f32; 2], [f32; 2])>)>,
+
     /// レイアウトキャッシュ（状態ハッシュ -> レイアウト結果）
     pub layout_cache: HashMap<u64, Vec<crate::ui::LayoutedNode<'static>>>,
     pub last_state_hash: Option<u64>,
@@ -287,6 +289,14 @@ pub struct AppState<S> {
     pub text_cursor_positions: HashMap<String, usize>,
     /// 選択範囲（フィールドごと、開始位置と終了位置）
     pub text_selections: HashMap<String, (usize, usize)>,
+
+    // ★ 新規追加: Timeline処理コンテキスト
+    /// Timeline処理の状態（ロジック処理済みノードツリー等）
+    pub timeline_context: Option<crate::engine::timeline_processor::TimelineContext>,
+
+    // ★ 新規追加: 再描画要求フラグ
+    /// 状態変更があった場合にtrueにする（set/toggle等）
+    pub needs_redraw: bool,
 }
 
 impl<S> AppState<S> {
@@ -304,6 +314,7 @@ impl<S> AppState<S> {
             static_stencils: None,
             static_buttons: Vec::new(),
             expanded_body: None,
+            local_vars_initialized: false,
             cached_window_size: None,
             component_context: ComponentContext::new(),
             last_hovered_button: None,
@@ -317,29 +328,37 @@ impl<S> AppState<S> {
             ime_composition_text: HashMap::new(),
             text_cursor_positions: HashMap::new(),
             text_selections: HashMap::new(),
+            timeline_context: None,
+            needs_redraw: false,
         }
     }
 
     #[inline]
     pub fn current_timeline<'a>(&self, app: &'a App) -> Option<&'a Timeline> {
-        app.timelines.iter().find(|t| t.name == self.current_timeline)
+        app.timelines
+            .iter()
+            .find(|t| t.name == self.current_timeline)
     }
 
     #[inline]
     pub fn current_node<'a>(&self, app: &'a App) -> Option<&'a WithSpan<ViewNode>> {
-        self.current_timeline(app).and_then(|tl| tl.body.get(self.position))
+        self.current_timeline(app)
+            .and_then(|tl| tl.body.get(self.position))
     }
 
     /// タイムラインに遷移（ローカル変数は初期化される）
     pub fn jump_to_timeline(&mut self, timeline_name: &str) {
         self.current_timeline = timeline_name.to_string();
         self.position = 0;
-        // キャッシュクリア
+        // ★ タイムライン変更時のみリセット（ロジック層）
+        self.expanded_body = None;
+        self.local_vars_initialized = false;
+
+        // ★ レイアウトキャッシュをクリア
         self.static_stencils = None;
         self.static_buttons.clear();
-        self.expanded_body = None;
         self.cached_window_size = None;
-        
+
         // ★ ローカル変数をクリア（新しいtimelineに入るため）
         // ★ 実際のローカル変数の宣言は Engine::initialize_local_variables で行われる
         // ★ レイアウト再計算時には再宣言されない
@@ -363,7 +382,8 @@ impl<S> AppState<S> {
         self.focused_text_input = Some(field_id.clone());
         // フィールドが存在しない場合は初期化
         if !self.text_input_values.contains_key(&field_id) {
-            self.text_input_values.insert(field_id.clone(), String::new());
+            self.text_input_values
+                .insert(field_id.clone(), String::new());
         }
         if !self.text_cursor_positions.contains_key(&field_id) {
             self.text_cursor_positions.insert(field_id.clone(), 0);
@@ -385,22 +405,25 @@ impl<S> AppState<S> {
 
     /// テキスト入力フィールドの値を設定
     pub fn set_text_input_value(&mut self, field_id: String, value: String) {
-        self.text_input_values.insert(field_id.clone(), value.clone());
+        self.text_input_values
+            .insert(field_id.clone(), value.clone());
         // カーソル位置を文字列の最後に設定
         let cursor_pos = value.chars().count();
         self.text_cursor_positions.insert(field_id, cursor_pos);
     }
 
-
     pub fn get_text_input_value(&self, field_id: &str) -> String {
-        self.text_input_values.get(field_id).cloned().unwrap_or_default()
+        self.text_input_values
+            .get(field_id)
+            .cloned()
+            .unwrap_or_default()
     }
 
     /// IME変換中のテキストを設定
     pub fn set_ime_composition_text(&mut self, field_id: &str, composition_text: String) {
-        self.ime_composition_text.insert(field_id.to_string(), composition_text);
+        self.ime_composition_text
+            .insert(field_id.to_string(), composition_text);
     }
-
 
     pub fn clear_ime_composition_text(&mut self, field_id: &str) {
         self.ime_composition_text.remove(field_id);
@@ -413,22 +436,30 @@ impl<S> AppState<S> {
 
     /// テキストカーソル位置を設定
     pub fn set_text_cursor_position(&mut self, field_id: &str, position: usize) {
-        self.text_cursor_positions.insert(field_id.to_string(), position);
+        self.text_cursor_positions
+            .insert(field_id.to_string(), position);
     }
 
     /// テキストカーソル位置を取得
     pub fn get_text_cursor_position(&self, field_id: &str) -> usize {
-        self.text_cursor_positions.get(field_id).copied().unwrap_or(0)
+        self.text_cursor_positions
+            .get(field_id)
+            .copied()
+            .unwrap_or(0)
     }
 
     /// テキスト選択範囲を設定
     pub fn set_text_selection(&mut self, field_id: &str, start: usize, end: usize) {
-        self.text_selections.insert(field_id.to_string(), (start, end));
+        self.text_selections
+            .insert(field_id.to_string(), (start, end));
     }
 
     /// テキスト選択範囲を取得
     pub fn get_text_selection(&self, field_id: &str) -> (usize, usize) {
-        self.text_selections.get(field_id).copied().unwrap_or((0, 0))
+        self.text_selections
+            .get(field_id)
+            .copied()
+            .unwrap_or((0, 0))
     }
 }
 
@@ -438,15 +469,21 @@ impl<S: StateAccess + 'static> AppState<S> {
         match e {
             Expr::String(s) => s.clone(),
             Expr::Number(n) => n.to_string(),
-            Expr::Bool(b) => if *b { "true".into() } else { "false".into() },
+            Expr::Bool(b) => {
+                if *b {
+                    "true".into()
+                } else {
+                    "false".into()
+                }
+            }
             Expr::Ident(s) => {
                 // ★ 優先順位: 1. ローカル変数 → 2. foreach変数 → 3. コンポーネント引数 → 4. そのまま返す
-                
+
                 // 1. ローカル変数を最優先でチェック
                 if let Some(v) = self.component_context.get_local_var(s) {
                     return v.clone();
                 }
-                
+
                 // 2. foreach変数とコンポーネント引数をチェック
                 if let Some(v) = self.component_context.get_var(s) {
                     return v.clone();
@@ -457,7 +494,7 @@ impl<S: StateAccess + 'static> AppState<S> {
             }
             Expr::Path(s) => {
                 // ★ 修正: path専用の処理
-                
+
                 // ★ ルートパラメータアクセス: route.params.xxx, route.current
                 if s.starts_with("route.") {
                     let route_path = s.strip_prefix("route.").unwrap();
@@ -465,10 +502,14 @@ impl<S: StateAccess + 'static> AppState<S> {
                         return self.current_timeline.clone();
                     } else if route_path.starts_with("params.") {
                         let param_name = route_path.strip_prefix("params.").unwrap();
-                        return self.route_params.get(param_name).cloned().unwrap_or_default();
+                        return self
+                            .route_params
+                            .get(param_name)
+                            .cloned()
+                            .unwrap_or_default();
                     }
                 }
-                
+
                 // ★ レスポンシブ対応: window.width と window.height の評価
                 if s == "window.width" {
                     if let Some([w, _]) = self.cached_window_size {
@@ -486,11 +527,14 @@ impl<S: StateAccess + 'static> AppState<S> {
                 // ★ .len()プロパティアクセスの処理
                 if s.ends_with(".len()") {
                     let base_path = s.strip_suffix(".len()").unwrap();
-                    
+
                     // state.items.len() の場合
                     if base_path.starts_with("state.") {
                         let field_name = base_path.strip_prefix("state.").unwrap();
-                        if let Some(v) = <S as crate::engine::state::StateAccess>::get_field(&self.custom_state, field_name) {
+                        if let Some(v) = <S as crate::engine::state::StateAccess>::get_field(
+                            &self.custom_state,
+                            field_name,
+                        ) {
                             // 配列の場合は要素数を返す
                             if let Ok(arr) = serde_json::from_str::<Vec<serde_json::Value>>(&v) {
                                 return arr.len().to_string();
@@ -510,7 +554,10 @@ impl<S: StateAccess + 'static> AppState<S> {
                 // state.プレフィックスがある場合のみカスタム状態を参照
                 if s.starts_with("state.") {
                     let field_name = s.strip_prefix("state.").unwrap();
-                    if let Some(v) = <S as crate::engine::state::StateAccess>::get_field(&self.custom_state, field_name) {
+                    if let Some(v) = <S as crate::engine::state::StateAccess>::get_field(
+                        &self.custom_state,
+                        field_name,
+                    ) {
                         return v;
                     }
                     return s.clone();
@@ -529,8 +576,8 @@ impl<S: StateAccess + 'static> AppState<S> {
                 // ★ オブジェクトプロパティアクセス（例: user.name）の処理
                 if let Some(dot_pos) = s.find('.') {
                     let obj_name = &s[..dot_pos];
-                    let property_path = &s[dot_pos+1..];
-                    
+                    let property_path = &s[dot_pos + 1..];
+
                     // ローカル変数からオブジェクトを取得
                     if let Some(obj_value) = self.component_context.get_local_var(obj_name) {
                         if let Ok(obj) = serde_json::from_str::<serde_json::Value>(&obj_value) {
@@ -551,7 +598,7 @@ impl<S: StateAccess + 'static> AppState<S> {
                             };
                         }
                     }
-                    
+
                     // コンポーネント引数からオブジェクトを取得
                     if let Some(obj_value) = self.component_context.get_var(obj_name) {
                         if let Ok(obj) = serde_json::from_str::<serde_json::Value>(&obj_value) {
@@ -578,46 +625,57 @@ impl<S: StateAccess + 'static> AppState<S> {
                 s.clone()
             }
             Expr::Array(xs) => {
-                let vs: Vec<String> = xs.iter().map(|x| {
-                    let val = self.eval_expr_from_ast(x);
-                    // 文字列の場合はクォートで囲む（JSON形式にする）
-                    // 数値やDimensionの場合は、純粋な数値として扱う
-                    match x {
-                        Expr::String(_) => format!("\"{}\"", val),
-                        Expr::Number(_) => val, // 数値はそのまま
-                        Expr::Dimension(d) => d.value.to_string(), // Dimensionは数値部分のみ
-                        _ => {
-                            // その他の場合も数値かどうか判定してクォートを制御
-                            if val.parse::<f64>().is_ok() {
-                                val // 数値の場合はそのまま
-                            } else {
-                                format!("\"{}\"", val) // 文字列の場合はクォート
+                let vs: Vec<String> = xs
+                    .iter()
+                    .map(|x| {
+                        let val = self.eval_expr_from_ast(x);
+                        // 文字列の場合はクォートで囲む（JSON形式にする）
+                        // 数値やDimensionの場合は、純粋な数値として扱う
+                        match x {
+                            Expr::String(_) => format!("\"{}\"", val),
+                            Expr::Number(_) => val, // 数値はそのまま
+                            Expr::Dimension(d) => d.value.to_string(), // Dimensionは数値部分のみ
+                            _ => {
+                                // その他の場合も数値かどうか判定してクォートを制御
+                                if val.parse::<f64>().is_ok() {
+                                    val // 数値の場合はそのまま
+                                } else {
+                                    format!("\"{}\"", val) // 文字列の場合はクォート
+                                }
                             }
                         }
-                    }
-                }).collect();
+                    })
+                    .collect();
                 format!("[{}]", vs.join(","))
             }
             Expr::Object(_) => "<object>".into(),
             Expr::Dimension(d) => {
-                format!("{}{}", d.value, match d.unit {
-                    crate::parser::ast::Unit::Px => "px",
-                    crate::parser::ast::Unit::Vw => "vw",
-                    crate::parser::ast::Unit::Vh => "vh",
-                    crate::parser::ast::Unit::Ww => "ww",
-                    crate::parser::ast::Unit::Wh => "wh",
-                    crate::parser::ast::Unit::Percent => "%",
-                    crate::parser::ast::Unit::PercentHeight => "%h",
-                    crate::parser::ast::Unit::Rem => "rem",
-                    crate::parser::ast::Unit::Em => "em",
-                    crate::parser::ast::Unit::Auto => "auto",
-                })
+                format!(
+                    "{}{}",
+                    d.value,
+                    match d.unit {
+                        crate::parser::ast::Unit::Px => "px",
+                        crate::parser::ast::Unit::Vw => "vw",
+                        crate::parser::ast::Unit::Vh => "vh",
+                        crate::parser::ast::Unit::Ww => "ww",
+                        crate::parser::ast::Unit::Wh => "wh",
+                        crate::parser::ast::Unit::Percent => "%",
+                        crate::parser::ast::Unit::PercentHeight => "%h",
+                        crate::parser::ast::Unit::Rem => "rem",
+                        crate::parser::ast::Unit::Em => "em",
+                        crate::parser::ast::Unit::Auto => "auto",
+                    }
+                )
             }
             Expr::CalcExpr(inner) => {
                 // CalcExprは内部の式を評価する
                 self.eval_expr_from_ast(inner)
             }
-            Expr::Match { expr, arms, default } => {
+            Expr::Match {
+                expr,
+                arms,
+                default,
+            } => {
                 let match_value = self.eval_expr_from_ast(expr);
 
                 for arm in arms {
@@ -643,10 +701,10 @@ impl<S: StateAccess + 'static> AppState<S> {
 
                 match op {
                     // 算術演算
-                    crate::parser::ast::BinaryOperator::Add |
-                    crate::parser::ast::BinaryOperator::Sub |
-                    crate::parser::ast::BinaryOperator::Mul |
-                    crate::parser::ast::BinaryOperator::Div => {
+                    crate::parser::ast::BinaryOperator::Add
+                    | crate::parser::ast::BinaryOperator::Sub
+                    | crate::parser::ast::BinaryOperator::Mul
+                    | crate::parser::ast::BinaryOperator::Div => {
                         // 数値に変換して計算
                         let left_num = left_val.parse::<f32>().unwrap_or(0.0);
                         let right_num = right_val.parse::<f32>().unwrap_or(0.0);
@@ -661,22 +719,24 @@ impl<S: StateAccess + 'static> AppState<S> {
                                 } else {
                                     0.0 // ゼロ除算回避
                                 }
-                            },
-                            _ => unreachable!()
+                            }
+                            _ => unreachable!(),
                         };
 
                         result.to_string()
                     }
-                    
+
                     // 比較演算
-                    crate::parser::ast::BinaryOperator::Eq |
-                    crate::parser::ast::BinaryOperator::Ne |
-                    crate::parser::ast::BinaryOperator::Lt |
-                    crate::parser::ast::BinaryOperator::Le |
-                    crate::parser::ast::BinaryOperator::Gt |
-                    crate::parser::ast::BinaryOperator::Ge => {
+                    crate::parser::ast::BinaryOperator::Eq
+                    | crate::parser::ast::BinaryOperator::Ne
+                    | crate::parser::ast::BinaryOperator::Lt
+                    | crate::parser::ast::BinaryOperator::Le
+                    | crate::parser::ast::BinaryOperator::Gt
+                    | crate::parser::ast::BinaryOperator::Ge => {
                         // 数値として比較を試行し、失敗したら文字列として比較
-                        let result = if let (Ok(left_num), Ok(right_num)) = (left_val.parse::<f32>(), right_val.parse::<f32>()) {
+                        let result = if let (Ok(left_num), Ok(right_num)) =
+                            (left_val.parse::<f32>(), right_val.parse::<f32>())
+                        {
                             // 数値比較
                             match op {
                                 crate::parser::ast::BinaryOperator::Eq => left_num == right_num,
@@ -685,7 +745,7 @@ impl<S: StateAccess + 'static> AppState<S> {
                                 crate::parser::ast::BinaryOperator::Le => left_num <= right_num,
                                 crate::parser::ast::BinaryOperator::Gt => left_num > right_num,
                                 crate::parser::ast::BinaryOperator::Ge => left_num >= right_num,
-                                _ => unreachable!()
+                                _ => unreachable!(),
                             }
                         } else {
                             // 文字列比較
@@ -696,11 +756,15 @@ impl<S: StateAccess + 'static> AppState<S> {
                                 crate::parser::ast::BinaryOperator::Le => left_val <= right_val,
                                 crate::parser::ast::BinaryOperator::Gt => left_val > right_val,
                                 crate::parser::ast::BinaryOperator::Ge => left_val >= right_val,
-                                _ => unreachable!()
+                                _ => unreachable!(),
                             }
                         };
 
-                        if result { "true".to_string() } else { "false".to_string() }
+                        if result {
+                            "true".to_string()
+                        } else {
+                            "false".to_string()
+                        }
                     }
                 }
             }
@@ -709,7 +773,10 @@ impl<S: StateAccess + 'static> AppState<S> {
 
     fn execute_function_call(&self, name: &str, args: &[Expr]) -> String {
         // 引数を評価
-        let _arg_values: Vec<String> = args.iter().map(|arg| self.eval_expr_from_ast(arg)).collect();
+        let _arg_values: Vec<String> = args
+            .iter()
+            .map(|arg| self.eval_expr_from_ast(arg))
+            .collect();
 
         use crate::engine::rust_call::{execute_rust_call, has_rust_call};
 
@@ -734,25 +801,31 @@ impl<S: StateAccess + 'static> AppState<S> {
             }
         }
     }
-    
+
     /// onclick属性で使用される関数呼び出しを実行（stateアクセス可能）
     pub fn execute_onclick_function_call(&mut self, name: &str, args: &[Expr]) -> bool {
         log::info!("🖱️ onclick: Executing function '{}'", name);
-        
+
         // stateにアクセス可能な関数を優先的に実行
         if crate::engine::rust_call::execute_state_accessible_call(name, self, args) {
-            log::info!("✅ onclick: State-accessible function '{}' executed successfully", name);
+            log::info!(
+                "✅ onclick: State-accessible function '{}' executed successfully",
+                name
+            );
             return true;
         }
-        
+
         // 従来の引数のみの関数を実行
         use crate::engine::rust_call::{execute_rust_call, has_rust_call};
         if has_rust_call(name) {
             execute_rust_call(name, args);
-            log::info!("✅ onclick: Basic function '{}' executed successfully", name);
+            log::info!(
+                "✅ onclick: Basic function '{}' executed successfully",
+                name
+            );
             return true;
         }
-        
+
         log::warn!("⚠️ onclick: Function '{}' is not registered", name);
         false
     }
@@ -761,25 +834,24 @@ impl<S: StateAccess + 'static> AppState<S> {
     /// 条件に一致するresponsive_rulesを適用して最終的なスタイルを返す
     pub fn resolve_responsive_style(&self, base_style: &Style) -> Style {
         let mut result = base_style.clone();
-        
-        if !base_style.responsive_rules.is_empty() {
-        }
-        
+
+        if !base_style.responsive_rules.is_empty() {}
+
         // responsive_rulesを評価
         for (idx, rule) in base_style.responsive_rules.iter().enumerate() {
             // 条件式を評価
             let condition_result = self.eval_expr_from_ast(&rule.condition);
-            
+
             if let Some([w, h]) = self.cached_window_size {
             } else {
             }
-            
+
             // 条件が真の場合、そのスタイルをマージ
             if condition_result == "true" {
                 result = result.merged(&rule.style);
             }
         }
-        
+
         result
     }
 
@@ -796,7 +868,6 @@ impl<S: StateAccess + 'static> AppState<S> {
         self.viewnode_layouted_to_stencil_lightweight(lnode, out, mouse_pos, &mut depth_counter);
     }
 
-
     fn viewnode_layouted_to_stencil_lightweight(
         &mut self,
         lnode: &crate::ui::LayoutedNode<'_>,
@@ -805,12 +876,11 @@ impl<S: StateAccess + 'static> AppState<S> {
         depth_counter: &mut f32,
     ) {
         let base_style = lnode.node.style.clone().unwrap_or_default();
-        
+
         // ★ レスポンシブスタイルを解決
         let style = self.resolve_responsive_style(&base_style);
-        
-        let is_hover = point_in_rect(mouse_pos, lnode.position, lnode.size);
 
+        let is_hover = point_in_rect(mouse_pos, lnode.position, lnode.size);
 
         let final_style = if is_hover {
             if let Some(ref hover_style) = style.hover {
@@ -825,18 +895,29 @@ impl<S: StateAccess + 'static> AppState<S> {
         // Card スタイルの適用
         let final_style = if final_style.card.unwrap_or(false) {
             let mut card_style = final_style;
-            if card_style.background.is_none() { card_style.background = Some(ColorValue::Hex("#ffffff".into())); }
-            if card_style.rounded.is_none()    { card_style.rounded    = Some(Rounded::Px(16.0)); }
-            if card_style.padding.is_none()    { card_style.padding    = Some(Edges::all(20.0)); }
-            if card_style.shadow.is_none()     { card_style.shadow     = Some(Shadow::On); }
+            if card_style.background.is_none() {
+                card_style.background = Some(ColorValue::Hex("#ffffff".into()));
+            }
+            if card_style.rounded.is_none() {
+                card_style.rounded = Some(Rounded::Px(16.0));
+            }
+            if card_style.padding.is_none() {
+                card_style.padding = Some(Edges::all(20.0));
+            }
+            if card_style.shadow.is_none() {
+                card_style.shadow = Some(Shadow::On);
+            }
             card_style
         } else {
             final_style
         };
 
         match &lnode.node.node {
-            ViewNode::VStack(_) | ViewNode::HStack(_) | ViewNode::DynamicSection { .. } |
-            ViewNode::Match { .. } | ViewNode::When { .. } => {
+            ViewNode::VStack(_)
+            | ViewNode::HStack(_)
+            | ViewNode::DynamicSection { .. }
+            | ViewNode::Match { .. }
+            | ViewNode::When { .. } => {
                 self.render_container_background(lnode, &final_style, out, depth_counter);
             }
 
@@ -844,8 +925,20 @@ impl<S: StateAccess + 'static> AppState<S> {
                 self.render_text_optimized(lnode, format, args, &final_style, out, depth_counter);
             }
 
-            ViewNode::Button { label, id, onclick: _ } => {
-                self.render_button_optimized(lnode, label, id, &final_style, is_hover, out, depth_counter);
+            ViewNode::Button {
+                label,
+                id,
+                onclick: _,
+            } => {
+                self.render_button_optimized(
+                    lnode,
+                    label,
+                    id,
+                    &final_style,
+                    is_hover,
+                    out,
+                    depth_counter,
+                );
             }
 
             ViewNode::Image { path } => {
@@ -879,7 +972,8 @@ impl<S: StateAccess + 'static> AppState<S> {
                 return;
             }
 
-            let radius = style.rounded
+            let radius = style
+                .rounded
                 .map(|r| match r {
                     Rounded::On => 8.0,
                     Rounded::Px(v) => v,
@@ -909,10 +1003,10 @@ impl<S: StateAccess + 'static> AppState<S> {
             }
 
             *depth_counter += 0.001;
-            
+
             // 背景描画（デバッグ出力削除）
             let final_depth = (1.0 - *depth_counter).max(0.0);
-            
+
             out.push(Stencil::RoundedRect {
                 position: lnode.position,
                 width: lnode.size[0],
@@ -940,14 +1034,17 @@ impl<S: StateAccess + 'static> AppState<S> {
 
         // デバッグ出力: テキスト描画情報
 
-
         if content.is_empty() && !args.is_empty() {
             return; // 空のテキストは描画しない
         }
 
         let font_size = style.font_size.unwrap_or(16.0);
         let font = style.font.clone().unwrap_or_else(|| "default".to_string());
-        let text_color = style.color.as_ref().map(to_rgba).unwrap_or([0.0, 0.0, 0.0, 1.0]);
+        let text_color = style
+            .color
+            .as_ref()
+            .map(to_rgba)
+            .unwrap_or([0.0, 0.0, 0.0, 1.0]);
         let p = style.padding.unwrap_or(Edges::default());
 
         // ★ 修正: 背景色と角丸の描画を追加
@@ -956,7 +1053,8 @@ impl<S: StateAccess + 'static> AppState<S> {
 
             // 透明でない場合のみ背景を描画
             if bg_color[3] > 0.0 {
-                let radius = style.rounded
+                let radius = style
+                    .rounded
                     .map(|r| match r {
                         Rounded::On => 8.0,
                         Rounded::Px(v) => v,
@@ -1069,15 +1167,29 @@ impl<S: StateAccess + 'static> AppState<S> {
         out: &mut Vec<Stencil>,
         depth_counter: &mut f32,
     ) {
-        let radius = style.rounded
-            .map(|r| match r { Rounded::On => 8.0, Rounded::Px(v) => v })
+        let radius = style
+            .rounded
+            .map(|r| match r {
+                Rounded::On => 8.0,
+                Rounded::Px(v) => v,
+            })
             .unwrap_or(6.0);
 
-        let bg = style.background.as_ref().map(to_rgba).unwrap_or(
-            if is_hover { [0.09, 0.46, 0.82, 1.0] } else { [0.13, 0.59, 0.95, 1.0] }
-        );
+        let bg = style
+            .background
+            .as_ref()
+            .map(to_rgba)
+            .unwrap_or(if is_hover {
+                [0.09, 0.46, 0.82, 1.0]
+            } else {
+                [0.13, 0.59, 0.95, 1.0]
+            });
 
-        let text_color = style.color.as_ref().map(to_rgba).unwrap_or([1.0, 1.0, 1.0, 1.0]);
+        let text_color = style
+            .color
+            .as_ref()
+            .map(to_rgba)
+            .unwrap_or([1.0, 1.0, 1.0, 1.0]);
         let font_size = style.font_size.unwrap_or(16.0);
         let font = style.font.clone().unwrap_or_else(|| "default".to_string());
 
@@ -1139,7 +1251,6 @@ impl<S: StateAccess + 'static> AppState<S> {
         // self.all_buttons.push((id.to_string(), lnode.position, lnode.size));
     }
 
-
     fn render_image_optimized(
         &self,
         lnode: &crate::ui::LayoutedNode<'_>,
@@ -1149,8 +1260,12 @@ impl<S: StateAccess + 'static> AppState<S> {
         depth_counter: &mut f32,
     ) {
         if let Some(bg) = &style.background {
-            let radius = style.rounded
-                .map(|r| match r { Rounded::On => 8.0, Rounded::Px(v) => v })
+            let radius = style
+                .rounded
+                .map(|r| match r {
+                    Rounded::On => 8.0,
+                    Rounded::Px(v) => v,
+                })
                 .unwrap_or(0.0);
 
             *depth_counter += 0.001;
@@ -1167,13 +1282,14 @@ impl<S: StateAccess + 'static> AppState<S> {
 
         // 画像自体
         *depth_counter += 0.001;
+        let depth = (1.0 - *depth_counter).max(0.0);
         out.push(Stencil::Image {
             position: lnode.position,
             width: lnode.size[0],
             height: lnode.size[1],
             path: path.to_string(),
             scroll: true,
-            depth: (1.0 - *depth_counter).max(0.0),
+            depth,
         });
     }
 
@@ -1208,17 +1324,14 @@ impl<S: StateAccess + 'static> AppState<S> {
 
     /// Rustコール実行メソッド
     pub fn execute_rust_call(&mut self, name: &str, args: &[Expr]) -> bool {
-
         let result = crate::engine::rust_call::execute_state_accessible_call(name, self, args);
         if result {
             return true;
         }
 
-
         crate::engine::rust_call::execute_rust_call(name, args);
         true
     }
-
 
     pub fn handle_rust_call_viewnode(&mut self, name: &str, args: &[Expr]) {
         if !self.execute_rust_call(name, args) {
@@ -1262,7 +1375,7 @@ fn point_in_rect(m: [f32; 2], p: [f32; 2], s: [f32; 2]) -> bool {
 }
 
 #[inline]
-fn to_rgba(c: &ColorValue) -> [f32; 4] {
+pub fn to_rgba(c: &ColorValue) -> [f32; 4] {
     match c {
         ColorValue::Rgba(v) => *v,
         ColorValue::Hex(s) => hex_to_rgba(s),
@@ -1309,14 +1422,212 @@ pub trait StateAccess {
     fn list_clear(&mut self, _path: &str) -> Result<(), String>;
 }
 
+type StateWatcherFn = Arc<dyn Fn(&mut dyn Any) + Send + Sync + 'static>;
+type StateWatcherRegistry = HashMap<TypeId, HashMap<String, Vec<StateWatcherFn>>>;
+
+static STATE_WATCHERS: OnceLock<RwLock<StateWatcherRegistry>> = OnceLock::new();
+
+fn state_watcher_registry() -> &'static RwLock<StateWatcherRegistry> {
+    STATE_WATCHERS.get_or_init(|| RwLock::new(HashMap::new()))
+}
+
+thread_local! {
+    static ACTIVE_STATE_NOTIFICATIONS: RefCell<Vec<(TypeId, String)>> = RefCell::new(Vec::new());
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[linkme::distributed_slice]
+pub static STATE_WATCHER_BOOTSTRAP: [fn()] = [..];
+
+#[cfg(not(target_arch = "wasm32"))]
+static STATE_WATCHERS_ONCE: Once = Once::new();
+
+/// Stateの特定フィールドが更新された際に呼ばれるウォッチャーを登録する。
+pub fn register_state_watcher<S, F>(field: &str, handler: F)
+where
+    S: StateAccess + 'static,
+    F: Fn(&mut S) + Send + Sync + 'static,
+{
+    let registry = state_watcher_registry();
+    let mut guard = registry
+        .write()
+        .expect("STATE_WATCHERS write lock poisoned");
+
+    let field_name_owned = field.to_string();
+    let field_name_for_error = field_name_owned.clone();
+
+    let entry = guard.entry(TypeId::of::<S>()).or_default();
+    let watchers = entry.entry(field_name_owned.clone()).or_default();
+
+    let callback = Arc::new(move |state: &mut dyn Any| {
+        if let Some(typed_state) = state.downcast_mut::<S>() {
+            handler(typed_state);
+        } else {
+            log::error!("State watcher type mismatch for '{}'", field_name_for_error);
+        }
+    });
+
+    watchers.push(callback);
+
+    log::debug!(
+        "Registered state watcher for {}::{}",
+        std::any::type_name::<S>(),
+        field_name_owned
+    );
+}
+
+pub fn notify_state_watchers<S>(state: &mut S, field: &str)
+where
+    S: StateAccess + 'static,
+{
+    let registry = match STATE_WATCHERS.get() {
+        Some(reg) => reg,
+        None => return,
+    };
+
+    let type_id = TypeId::of::<S>();
+    let watchers: Vec<StateWatcherFn> = {
+        let guard = registry.read().expect("STATE_WATCHERS read lock poisoned");
+        guard
+            .get(&type_id)
+            .and_then(|map| map.get(field))
+            .map(|vec| vec.iter().cloned().collect())
+            .unwrap_or_default()
+    };
+
+    if watchers.is_empty() {
+        return;
+    }
+
+    let field_owned = field.to_string();
+    let already_active = ACTIVE_STATE_NOTIFICATIONS.with(|stack| {
+        stack
+            .borrow()
+            .iter()
+            .any(|(ty, f)| *ty == type_id && f == &field_owned)
+    });
+
+    if already_active {
+        log::warn!(
+            "Skipping recursive state watcher invocation for {}::{}",
+            std::any::type_name::<S>(),
+            field_owned
+        );
+        return;
+    }
+
+    ACTIVE_STATE_NOTIFICATIONS.with(|stack| {
+        stack.borrow_mut().push((type_id, field_owned.clone()));
+    });
+
+    for watcher in watchers {
+        watcher(state as &mut dyn Any);
+    }
+
+    ACTIVE_STATE_NOTIFICATIONS.with(|stack| {
+        let mut stack = stack.borrow_mut();
+        if let Some(last) = stack.pop() {
+            debug_assert!(last.0 == type_id && last.1 == field_owned);
+        }
+    });
+}
+
+/// linkmeで収集されたウォッチャー初期化関数を実行する。
+pub fn initialize_state_watchers() {
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        STATE_WATCHERS_ONCE.call_once(|| {
+            for init_fn in STATE_WATCHER_BOOTSTRAP {
+                init_fn();
+            }
+        });
+    }
+}
+
+/// カスタムステートへの安全なアクセスを提供するラッパー
+/// エンジンの内部状態にはアクセスできず、ユーザー定義の状態だけを扱える
+pub struct CustomStateContext<'a, S: StateAccess> {
+    state: &'a mut S,
+}
+
+impl<'a, S: StateAccess> CustomStateContext<'a, S> {
+    /// 内部用: AppStateからCustomStateContextを作成
+    pub(crate) fn from_app_state(app_state: &'a mut AppState<S>) -> Self {
+        Self {
+            state: &mut app_state.custom_state,
+        }
+    }
+
+    /// フィールドの値を取得
+    pub fn get(&self, key: &str) -> Option<String> {
+        self.state.get_field(key)
+    }
+
+    /// フィールドの値を型変換して取得
+    pub fn get_as<T>(&self, key: &str) -> Option<T>
+    where
+        T: std::str::FromStr,
+    {
+        self.state.get_field(key)?.parse().ok()
+    }
+
+    /// フィールドの値を設定
+    pub fn set(&mut self, path: &str, value: String) -> Result<(), String> {
+        self.state.set(path, value)
+    }
+
+    /// 値を型変換して設定
+    pub fn set_value<T>(&mut self, path: &str, value: T) -> Result<(), String>
+    where
+        T: std::fmt::Display,
+    {
+        self.state.set(path, value.to_string())
+    }
+
+    /// ブール値をトグル
+    pub fn toggle(&mut self, path: &str) -> Result<(), String> {
+        self.state.toggle(path)
+    }
+
+    /// リストに値を追加
+    pub fn list_append(&mut self, path: &str, value: String) -> Result<(), String> {
+        self.state.list_append(path, value)
+    }
+
+    /// リストの指定位置に値を挿入
+    pub fn list_insert(&mut self, path: &str, index: usize, value: String) -> Result<(), String> {
+        self.state.list_insert(path, index, value)
+    }
+
+    /// リストから値を削除
+    pub fn list_remove(&mut self, path: &str, value: String) -> Result<(), String> {
+        self.state.list_remove(path, value)
+    }
+
+    /// リストをクリア
+    pub fn list_clear(&mut self, path: &str) -> Result<(), String> {
+        self.state.list_clear(path)
+    }
+}
+
+// 公開ヘルパー: AppState から安全に CustomStateContext を作り、コールバックに渡す
+pub fn with_custom_state<S, F>(app_state: &mut AppState<S>, mut f: F)
+where
+    S: StateAccess,
+    F: FnMut(&mut CustomStateContext<S>),
+{
+    let mut ctx = CustomStateContext::from_app_state(app_state);
+    f(&mut ctx);
+}
+
 #[inline]
 fn offset_stencil(st: &Stencil, dx: f32, dy: f32) -> Stencil {
     let mut result = st.clone();
     match &mut result {
-        Stencil::Rect { position, .. } |
-        Stencil::RoundedRect { position, .. } |
-        Stencil::Text { position, .. } |
-        Stencil::Image { position, .. } => {
+        Stencil::Rect { position, .. }
+        | Stencil::RoundedRect { position, .. }
+        | Stencil::Text { position, .. }
+        | Stencil::Image { position, .. } => {
             position[0] += dx;
             position[1] += dy;
         }
@@ -1325,9 +1636,12 @@ fn offset_stencil(st: &Stencil, dx: f32, dy: f32) -> Stencil {
             center[1] += dy;
         }
         Stencil::Triangle { p1, p2, p3, .. } => {
-            p1[0] += dx; p1[1] += dy;
-            p2[0] += dx; p2[1] += dy;
-            p3[0] += dx; p3[1] += dy;
+            p1[0] += dx;
+            p1[1] += dy;
+            p2[0] += dx;
+            p2[1] += dy;
+            p3[0] += dx;
+            p3[1] += dy;
         }
         _ => {}
     }
@@ -1340,13 +1654,13 @@ fn adjust_stencil_depth_dynamic(stencil: &mut Stencil, depth_counter: &mut f32) 
     let new_depth = (1.0 - *depth_counter).max(0.0);
 
     match stencil {
-        Stencil::Rect { depth, .. } |
-        Stencil::RoundedRect { depth, .. } |
-        Stencil::Circle { depth, .. } |
-        Stencil::Triangle { depth, .. } |
-        Stencil::Text { depth, .. } |
-        Stencil::Image { depth, .. } |
-        Stencil::ScrollBar { depth, .. } => {
+        Stencil::Rect { depth, .. }
+        | Stencil::RoundedRect { depth, .. }
+        | Stencil::Circle { depth, .. }
+        | Stencil::Triangle { depth, .. }
+        | Stencil::Text { depth, .. }
+        | Stencil::Image { depth, .. }
+        | Stencil::ScrollBar { depth, .. } => {
             *depth = new_depth;
         }
         Stencil::Group(children) => {
@@ -1363,18 +1677,18 @@ impl<S: StateAccess + 'static> AppState<S> {
     pub fn initialize_router(&mut self, flow: &crate::parser::ast::Flow) {
         self.router = Some(crate::engine::routing::Router::new(flow));
     }
-    
+
     /// Appからルーターを初期化し、必要ならURLから初期タイムラインを設定
     pub fn initialize_router_from_app(&mut self, app: &crate::parser::ast::App) -> Option<String> {
         let router = crate::engine::routing::Router::from_app(app);
-        
+
         // 現在のURLから初期タイムラインを取得
         let initial_timeline = router.get_timeline_from_current_url();
-        
+
         self.router = Some(router);
         initial_timeline
     }
-    
+
     /// パラメータ付きでタイムラインに遷移
     pub fn navigate_with_params(&mut self, timeline: &str, params: HashMap<String, String>) {
         if let Some(router) = &mut self.router {
@@ -1382,21 +1696,22 @@ impl<S: StateAccess + 'static> AppState<S> {
                 self.route_params = params;
             }
         }
-        
+
         self.jump_to_timeline(timeline);
     }
-    
+
     /// 現在のルート情報を取得
     pub fn get_route_info(&self) -> RouteInfo {
         RouteInfo {
             current_timeline: self.current_timeline.clone(),
-            current_url: self.router.as_ref()
-                .and_then(|r| match r {
-                    #[cfg(target_arch = "wasm32")]
-                    crate::engine::routing::Router::Wasm(wr) => wr.get_current_route().map(|s| s.to_string()),
-                    #[cfg(not(target_arch = "wasm32"))]
-                    crate::engine::routing::Router::Native(_) => None,
-                }),
+            current_url: self.router.as_ref().and_then(|r| match r {
+                #[cfg(target_arch = "wasm32")]
+                crate::engine::routing::Router::Wasm(wr) => {
+                    wr.get_current_route().map(|s| s.to_string())
+                }
+                #[cfg(not(target_arch = "wasm32"))]
+                crate::engine::routing::Router::Native(_) => None,
+            }),
             params: self.route_params.clone(),
         }
     }
