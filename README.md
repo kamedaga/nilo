@@ -42,7 +42,7 @@ cargo build --release
 cargo run --bin build_wasm_with_html
 ```
 
-## spaサーバーを起動
+## wasm用spaサーバーを起動
 '''bash
 cd spa_server ; cargo run --release
 '''

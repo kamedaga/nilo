@@ -4,6 +4,7 @@
 use super::flow::*;
 use super::render::*;
 use super::utils::*;
+use log::info;
 use crate::engine::state::{AppState, StateAccess};
 use crate::parser::ast::{App, Expr, ViewNode, WithSpan};
 use crate::stencil::stencil::Stencil;
@@ -309,7 +310,21 @@ where
                     &params.default_font,
                 );
             }
-            ViewNode::TextInput { id, .. } => {
+            ViewNode::TextInput { id, value, .. } => {
+                info!(
+                    "layout TextInput id={} pos=({:.1},{:.1}) size=({:.1},{:.1})",
+                    id, lnode.position[0], lnode.position[1], lnode.size[0], lnode.size[1]
+                );
+                if let Some(Expr::Path(p)) = value {
+                    if let Some(field) = p.strip_prefix("state.") {
+                        state.set_text_input_binding(id, field);
+                        if let Some(v) = state.custom_state.get_field(field) {
+                            if state.text_input_values.get(id).is_none() {
+                                state.set_text_input_value(id.clone(), v);
+                            }
+                        }
+                    }
+                }
                 text_inputs.push((id.clone(), lnode.position, lnode.size));
                 render_text_input_lightweight(
                     lnode,
@@ -317,6 +332,7 @@ where
                     &mut stencils,
                     &mut depth_counter,
                     mouse_pos,
+                    &params.default_font,
                 );
             }
             ViewNode::Text { .. } => {

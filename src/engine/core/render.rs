@@ -2,6 +2,7 @@
 // レンダリング関連（各要素の描画）
 
 use super::utils::*;
+use log::info;
 use crate::engine::state::{AppState, StateAccess};
 use crate::parser::ast::{Expr, ViewNode};
 use crate::stencil::stencil::Stencil;
@@ -14,12 +15,11 @@ pub fn render_text_input_lightweight<S>(
     stencils: &mut Vec<Stencil>,
     depth_counter: &mut f32,
     mouse_pos: [f32; 2],
+    default_font: &str,
 ) where
     S: StateAccess + 'static,
 {
-    if let ViewNode::TextInput {
-        id, placeholder, ..
-    } = &lnode.node.node
+    if let ViewNode::TextInput { id, placeholder, .. } = &lnode.node.node
     {
         let style = lnode.node.style.clone().unwrap_or_default();
 
@@ -59,6 +59,11 @@ pub fn render_text_input_lightweight<S>(
             border_color
         };
 
+        info!(
+            "render TextInput id={} pos=({:.1},{:.1}) size=({:.1},{:.1})",
+            id, lnode.position[0], lnode.position[1], lnode.size[0], lnode.size[1]
+        );
+
         if bg_color[3] > 0.0 {
             *depth_counter += 0.001;
             stencils.push(Stencil::RoundedRect {
@@ -84,7 +89,7 @@ pub fn render_text_input_lightweight<S>(
                 width: lnode.size[0] + border_width,
                 height: lnode.size[1] + border_width,
                 radius: radius + border_width / 2.0,
-                color: border_color,
+                color: effective_border_color,
                 scroll: true,
                 depth: (1.0 - *depth_counter).max(0.0),
             });
@@ -107,39 +112,216 @@ pub fn render_text_input_lightweight<S>(
             .map(|c| convert_to_rgba(c))
             .unwrap_or([0.2, 0.2, 0.2, 1.0]);
 
+        // Current text and optional IME composition text
         let current_value = state.get_text_input_value(id);
+        let ime_text = state.get_ime_composition_text(id).cloned();
         let placeholder_text = placeholder.as_deref().unwrap_or("");
-        let display_text = if current_value.is_empty() {
-            placeholder_text.to_string()
-        } else {
-            current_value.clone()
-        };
-
-        let effective_text_color = if current_value.is_empty() {
-            [0.6, 0.6, 0.6, 1.0]
-        } else {
-            text_color
-        };
 
         let padding_x = 16.0;
         let padding_y = (lnode.size[1] - font_size * 1.2) / 2.0;
 
-        *depth_counter += 0.001;
-        stencils.push(Stencil::Text {
-            content: display_text,
-            position: [lnode.position[0] + padding_x, lnode.position[1] + padding_y],
-            size: font_size,
-            color: effective_text_color,
-            font: style.font.unwrap_or_else(|| "default".to_string()),
-            max_width: None, // TextInputでは改行しない
-            scroll: true,
-            depth: (1.0 - *depth_counter).max(0.0),
-        });
+        // Helper to measure text width accurately
+        fn text_width(text: &str, font_size: f32, font_family: &str) -> f32 {
+            #[cfg(any(feature = "glyphon", target_arch = "wasm32"))]
+            {
+                let (w, _h) = crate::ui::text_measurement::measure_text_size(
+                    text,
+                    font_size,
+                    font_family,
+                    None,
+                );
+                w
+            }
+            #[cfg(not(any(feature = "glyphon", target_arch = "wasm32")))]
+            {
+                font_size * 0.6 * text.chars().count() as f32
+            }
+        }
+
+        let font_family = style
+            .font
+            .as_ref()
+            .or(style.font_family.as_ref())
+            .map(|s| s.clone())
+            .unwrap_or_else(|| default_font.to_string());
+        let cursor_pos = state.get_text_cursor_position(id);
+
+        if current_value.is_empty() && ime_text.is_none() {
+            // Show placeholder when nothing typed and no composition
+            *depth_counter += 0.001;
+            stencils.push(Stencil::Text {
+                content: placeholder_text.to_string(),
+                position: [lnode.position[0] + padding_x, lnode.position[1] + padding_y],
+                size: font_size,
+                color: [0.6, 0.6, 0.6, 1.0],
+                font: font_family.clone(),
+                max_width: None,
+                scroll: true,
+                depth: (1.0 - *depth_counter).max(0.0),
+            });
+        } else {
+            // Draw text split into: pre | ime_comp? | post
+            let (pre, post) = {
+                let mut iter = current_value.chars();
+                let pre: String = iter.clone().take(cursor_pos).collect();
+                let post: String = iter.skip(cursor_pos).collect();
+                (pre, post)
+            };
+
+            let base_x = lnode.position[0] + padding_x;
+            let text_y = lnode.position[1] + padding_y;
+
+            // Measure widths first for scrolling
+            let pre_w = text_width(&pre, font_size, &font_family);
+            let comp_w = if let Some(comp) = ime_text.as_ref() {
+                text_width(comp, font_size, &font_family)
+            } else {
+                0.0
+            };
+
+            // Horizontal scroll to keep cursor visible with 1-char right padding
+            let inner_width = (lnode.size[0] - padding_x * 2.0).max(0.0);
+            let one_char_px = text_width("M", font_size, &font_family)
+                .max(text_width("あ", font_size, &font_family))
+                .max(1.0);
+            let effective_width = (inner_width - one_char_px).max(1.0);
+            let cursor_rel_x = pre_w + comp_w; // width before caret position
+            let mut scroll_x = if cursor_rel_x > effective_width {
+                cursor_rel_x - effective_width
+            } else {
+                0.0
+            };
+            if cursor_rel_x < scroll_x {
+                scroll_x = cursor_rel_x.max(0.0);
+            }
+            // After trimming strings by scroll_x, draw from base_x
+            let draw_x = base_x;
+
+            // Build visible substrings inside [scroll_x, scroll_x+inner_width]
+            fn trim_left_by_px(s: &str, mut cut_px: f32, fs: f32, ff: &str) -> String {
+                if cut_px <= 0.0 { return s.to_string(); }
+                let mut acc = 0.0f32;
+                for (idx, ch) in s.char_indices() {
+                    let w = text_width(&ch.to_string(), fs, ff);
+                    acc += w;
+                    if acc >= cut_px { return s[idx+ch.len_utf8()..].to_string(); }
+                }
+                String::new()
+            }
+            fn trim_right_to_fit(s: &str, max_px: f32, fs: f32, ff: &str) -> String {
+                if max_px <= 0.0 { return String::new(); }
+                let mut acc = 0.0f32;
+                let mut end_byte = 0usize;
+                for (idx, ch) in s.char_indices() {
+                    let w = text_width(&ch.to_string(), fs, ff);
+                    if acc + w > max_px { break; }
+                    acc += w;
+                    end_byte = idx + ch.len_utf8();
+                }
+                if end_byte == 0 { String::new() } else { s[..end_byte].to_string() }
+            }
+
+            let mut pre_vis = if scroll_x >= pre_w { String::new() } else { trim_left_by_px(&pre, scroll_x, font_size, &font_family) };
+            let mut comp_vis = if let Some(comp) = ime_text.as_ref() {
+                let left_after_pre = (scroll_x - pre_w).max(0.0);
+                trim_left_by_px(comp, left_after_pre, font_size, &font_family)
+            } else { String::new() };
+            let mut post_vis = {
+                let left_after_pre_comp = (scroll_x - pre_w - comp_w).max(0.0);
+                trim_left_by_px(&post, left_after_pre_comp, font_size, &font_family)
+            };
+
+            // Right trim to fit window width
+            let mut remain = inner_width;
+            let pre_vis_w = text_width(&pre_vis, font_size, &font_family).min(remain);
+            pre_vis = trim_right_to_fit(&pre_vis, remain, font_size, &font_family);
+            remain -= pre_vis_w;
+            let comp_vis_w = text_width(&comp_vis, font_size, &font_family).min(remain);
+            comp_vis = trim_right_to_fit(&comp_vis, remain, font_size, &font_family);
+            remain -= comp_vis_w;
+            post_vis = trim_right_to_fit(&post_vis, remain, font_size, &font_family);
+
+            // Draw pre
+            *depth_counter += 0.001;
+            stencils.push(Stencil::Text {
+                content: pre_vis.clone(),
+                position: [draw_x, text_y],
+                size: font_size,
+                color: text_color,
+                font: font_family.clone(),
+                max_width: None,
+                scroll: true,
+                depth: (1.0 - *depth_counter).max(0.0),
+            });
+
+            // Draw IME composition (background + text)
+            if !comp_vis.is_empty() {
+                let bg_color = [0.2, 0.6, 1.0, 0.25];
+                let pre_vis_w_now = text_width(&pre_vis, font_size, &font_family);
+                let comp_width = text_width(&comp_vis, font_size, &font_family).max(1.0);
+                *depth_counter += 0.001;
+                stencils.push(Stencil::RoundedRect {
+                    position: [draw_x + pre_vis_w_now, lnode.position[1] + padding_y - 2.0],
+                    width: comp_width,
+                    height: font_size * 1.2 + 4.0,
+                    radius: 4.0,
+                    color: bg_color,
+                    scroll: true,
+                    depth: (1.0 - *depth_counter).max(0.0),
+                });
+                *depth_counter += 0.001;
+                stencils.push(Stencil::Text {
+                    content: comp_vis.clone(),
+                    position: [draw_x + pre_vis_w_now, text_y],
+                    size: font_size,
+                    color: text_color,
+                    font: font_family.clone(),
+                    max_width: None,
+                    scroll: true,
+                    depth: (1.0 - *depth_counter).max(0.0),
+                });
+            }
+
+            // Draw post
+            if !post_vis.is_empty() {
+                let pre_vis_w_now = text_width(&pre_vis, font_size, &font_family);
+                let comp_vis_w_now = text_width(&comp_vis, font_size, &font_family);
+                *depth_counter += 0.001;
+                stencils.push(Stencil::Text {
+                    content: post_vis.clone(),
+                    position: [draw_x + pre_vis_w_now + comp_vis_w_now, text_y],
+                    size: font_size,
+                    color: text_color,
+                    font: font_family.clone(),
+                    max_width: None,
+                    scroll: true,
+                    depth: (1.0 - *depth_counter).max(0.0),
+                });
+            }
+        }
 
         if is_focused {
-            let cursor_pos = state.get_text_cursor_position(id);
-            let char_width = font_size * 0.6;
-            let cursor_x = lnode.position[0] + padding_x + (cursor_pos as f32 * char_width);
+            // Cursor x based on measured width up to cursor, plus IME comp if active
+            let pre_for_cursor: String = current_value.chars().take(cursor_pos).collect();
+            let mut cursor_rel_x = text_width(&pre_for_cursor, font_size, &font_family);
+            if let Some(comp) = ime_text.as_ref() {
+                cursor_rel_x += text_width(comp, font_size, &font_family);
+            }
+            // Recompute scroll_x same as above (with 1-char right padding)
+            let inner_width = (lnode.size[0] - padding_x * 2.0).max(0.0);
+            let one_char_px = text_width("M", font_size, &font_family)
+                .max(text_width("あ", font_size, &font_family))
+                .max(1.0);
+            let effective_width = (inner_width - one_char_px).max(1.0);
+            let mut scroll_x = if cursor_rel_x > effective_width {
+                cursor_rel_x - effective_width
+            } else {
+                0.0
+            };
+            if cursor_rel_x < scroll_x {
+                scroll_x = cursor_rel_x.max(0.0);
+            }
+            let cursor_x = lnode.position[0] + padding_x + cursor_rel_x - scroll_x;
 
             *depth_counter += 0.001;
             stencils.push(Stencil::Rect {
@@ -624,3 +806,9 @@ pub fn render_substituted_node_to_stencil_with_context<S>(
         _ => {}
     }
 }
+
+
+
+
+
+

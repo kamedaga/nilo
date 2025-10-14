@@ -3,6 +3,7 @@
 // width/height の優先度を明確化した汎用レイアウトエンジン
 
 use crate::engine::state::format_text;
+use log::info;
 use crate::parser::ast::{App, Expr, ViewNode, WithSpan};
 use crate::parser::ast::{DimensionValue, Edges, RelativeEdges, Style, Unit};
 use crate::stencil::stencil::Stencil as DrawStencil;
@@ -316,6 +317,32 @@ impl LayoutEngine {
                 self.compute_button_size(label, node.style.as_ref(), context)
             }
             ViewNode::Image { path } => self.compute_image_size(path, get_image_size),
+            // Ensure TextInput has a sensible intrinsic size so it renders visibly
+            ViewNode::TextInput { .. } => {
+                // Use a common default size similar to buttons
+                let font_size = node
+                    .style
+                    .as_ref()
+                    .and_then(|s| s.font_size)
+                    .unwrap_or(context.font_size);
+
+                // Basic padding similar to render_text_input_lightweight
+                let padding_x = 16.0f32 * 2.0; // left + right
+                let padding_y = (font_size * 1.2f32) * 0.5; // top + bottom approx
+
+                // Provide reasonable minimums so the field is clearly visible
+                let min_width = 240.0f32;
+                let min_height = (font_size * 1.2f32).max(36.0f32);
+
+                ComputedSize {
+                    width: min_width + padding_x,
+                    height: min_height + padding_y,
+                    intrinsic_width: min_width + padding_x,
+                    intrinsic_height: min_height + padding_y,
+                    has_explicit_width: false,
+                    has_explicit_height: false,
+                }
+            }
             ViewNode::VStack(children) => self.compute_vstack_size(
                 children,
                 node.style.as_ref(),

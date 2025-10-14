@@ -1,0 +1,70 @@
+flow {
+    start: Calc
+}
+
+timeline Calc {
+    font: "japanese"
+    VStack(style: {
+        width: 100ww,
+        height: 100wh,
+        background: "#fff",
+        align: "center",
+        padding: [40, 20]
+    }) {
+        VStack(style: {gap: 24px, align: "center", width: 100%, max_width: 720px}) {
+            Text("Simple Calculator", style: {
+                font_size: 40px,
+                color: "#000"
+            })
+
+            // 表示行: expr と結果
+            VStack(style: {gap: 8px, align: "center"}) {
+                Text("{}", state.expr, style: {font_size: 24px, color: "#000"})
+                Text("= {}", state.result, style: {font_size: 28px, color: "#003a47ff"})
+                HStack(style: {gap: 8px}) {
+                    Button(id: clear, label: "Clear", onclick: clear_expr(), style: {padding: [8,12]})
+                    Button(id: back,  label: "⌫", onclick: backspace(), style: {padding: [8,12]})
+                }
+            }
+
+            // 演算子・括弧ボタン
+            HStack(style: {gap: 12px, align: "center"}) {
+                Button(id: op_lp, label: "(", onclick: push_paren("("), style: {padding: [10,16]})
+                Button(id: op_rp, label: ")", onclick: push_paren(")"), style: {padding: [10,16]})
+                Button(id: op_plus,  label: "+", onclick: set_op("+"), style: {padding: [10,16]})
+                Button(id: op_minus, label: "-", onclick: set_op("-"), style: {padding: [10,16]})
+                Button(id: op_mul,   label: "*", onclick: set_op("*"), style: {padding: [10,16]})
+                Button(id: op_div,   label: "/", onclick: set_op("/"), style: {padding: [10,16]})
+            }
+
+            // 数字キー（0-9）
+            VStack(style: {gap: 8px, align: "center"}) {
+                HStack(style: {gap: 8px}) {
+                    Button(id: d7, label: "7", onclick: push_digit("7"), style: {padding: [10,16]})
+                    Button(id: d8, label: "8", onclick: push_digit("8"), style: {padding: [10,16]})
+                    Button(id: d9, label: "9", onclick: push_digit("9"), style: {padding: [10,16]})
+                }
+                HStack(style: {gap: 8px}) {
+                    Button(id: d4, label: "4", onclick: push_digit("4"), style: {padding: [10,16]})
+                    Button(id: d5, label: "5", onclick: push_digit("5"), style: {padding: [10,16]})
+                    Button(id: d6, label: "6", onclick: push_digit("6"), style: {padding: [10,16]})
+                }
+                HStack(style: {gap: 8px}) {
+                    Button(id: d1, label: "1", onclick: push_digit("1"), style: {padding: [10,16]})
+                    Button(id: d2, label: "2", onclick: push_digit("2"), style: {padding: [10,16]})
+                    Button(id: d3, label: "3", onclick: push_digit("3"), style: {padding: [10,16]})
+                }
+                HStack(style: {gap: 8px, align: "center"}) {
+                    Spacing(48px)
+                    Button(id: d0, label: "0", onclick: push_digit("0"), style: {padding: [10,16], width: 96px})
+                    Spacing(48px)
+                }
+            }
+
+            // エラー表示
+            if state.error != "" {
+                Text("{}", state.error, style: {color: "#ff6666", font_size: 16px})
+            }
+        }
+    }
+}

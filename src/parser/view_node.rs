@@ -1022,8 +1022,8 @@ fn parse_text_input(pair: Pair<Rule>) -> WithSpan<ViewNode> {
     let mut id: Option<String> = None;
     let mut placeholder: Option<String> = None;
     let mut style: Option<Style> = None;
-    let value: Option<Expr> = None;
-    let on_change: Option<Expr> = None;
+    let mut value: Option<Expr> = None;
+    let mut on_change: Option<Expr> = None;
     let multiline = false;
     let max_length: Option<usize> = None;
     let ime_enabled = true;
@@ -1038,6 +1038,15 @@ fn parse_text_input(pair: Pair<Rule>) -> WithSpan<ViewNode> {
                     }
                     Expr::Ident(i) => {
                         id = Some(i);
+                    }
+                    Expr::Path(p) => {
+                        // 許容: grammar上、bare ident が path として入ることがある
+                        // ドットを含まない場合は識別子として扱う
+                        if !p.contains('.') {
+                            id = Some(p);
+                        } else {
+                            log::warn!("TextInputのidにpathは使用できません: {}", p);
+                        }
                     }
                     _ => {
                         log::warn!("TextInputの最初の引数は文字列または識別子である必要があります");
@@ -1058,6 +1067,19 @@ fn parse_text_input(pair: Pair<Rule>) -> WithSpan<ViewNode> {
                             }
                             "style" => {
                                 style = Some(style_from_expr(parse_expr(val_pair)));
+                            }
+                            "value" => {
+                                let expr = parse_expr(val_pair);
+                                value = Some(expr);
+                            }
+                            "on_change" => {
+                                let expr = parse_expr(val_pair);
+                                on_change = Some(expr);
+                            }
+                            "bind" => {
+                                // sugar: bind: state.field => value: state.field
+                                let expr = parse_expr(val_pair);
+                                value = Some(expr);
                             }
                             _ => {}
                         }

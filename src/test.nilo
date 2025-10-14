@@ -1,0 +1,17 @@
+
+flow {
+    start: Main
+}
+
+timeline Main {
+    font: "japanese"
+    VStack(style: { width: 100ww, height: 100wh, background: "#0a0e27", align: "center" }) {
+        Spacing(40px)
+        Text("テキスト入力のテスト", style: { color: "#a4f0ffff", font_size: 24px })
+        Spacing(16px)
+        // TextInput は最初の引数に id（識別子または文字列）を位置引数で渡す必要があります
+        TextInput(input, placeholder: "名前を入力", style: { width: 300px, height: 40px, background: "#ffffff", border_color: "#cccccc", rounded: 8px, font_size: 16px })
+        Spacing(8px)
+        Text("クリックして入力できます", style: { color: "#ffffff" })
+    }
+}

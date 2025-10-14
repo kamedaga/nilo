@@ -23,6 +23,7 @@ timeline MainMenu {
             })
         }
         
+        
         if window.width > 400 {
             HStack(style: {width: 100%, gap: 20px, padding: [0, 40], align: "center"}) {
                 SimpleUICard()
@@ -36,7 +37,7 @@ timeline MainMenu {
                 minimalUICard(style: {width: 90%})
             }
         }
-    
+        
         Spacing(32px)
         
         VStack(style: {align: "center", gap: 12px}) {

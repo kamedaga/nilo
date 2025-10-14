@@ -137,7 +137,7 @@ pub(crate) fn get_all_custom_fonts() -> Vec<(String, &'static [u8])> {
         .unwrap_or_default()
 }
 
-// #[cfg(feature = "colored")]
+#[cfg(feature = "colored")]
 fn format_colored_message(msg: String, level: &analysis::error::DiagnosticLevel) -> String {
     use colored::Colorize;
     match level {
@@ -179,7 +179,7 @@ pub fn run_application_auto_embedded<S, P>(
 #[macro_export]
 macro_rules! run_nilo_app {
     ($file_path:expr, $state:expr, $cli_args:expr, $window_title:expr) => {{
-        const EMBEDDED_NILO: &str = include_str!($file_path);
+        const EMBEDDED_NILO: &str = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/", $file_path));
         $crate::run_application_auto_embedded(
             $file_path,
             $state,
@@ -189,7 +189,9 @@ macro_rules! run_nilo_app {
         )
     }};
     ($file_path:expr, $state:expr, $cli_args:expr) => {{
-        const EMBEDDED_NILO: &str = include_str!($file_path);
+        // 多分rust-analyzerのバグでエラーが表示されちゃいます。
+        // 参考: https://github.com/rust-lang/rust-analyzer/issues/10647
+        const EMBEDDED_NILO: &str = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/", $file_path));
         $crate::run_application_auto_embedded($file_path, $state, $cli_args, None, EMBEDDED_NILO)
     }};
 }
@@ -199,15 +201,15 @@ macro_rules! run_nilo_app {
 #[macro_export]
 macro_rules! run_nilo_app {
     ($file_path:expr, $state:expr, $cli_args:expr, $window_title:expr) => {{
-        const EMBEDDED_NILO: &str = include_str!($file_path);
+        const EMBEDDED_NILO: &str = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/", $file_path));
         $crate::run_nilo_wasm(EMBEDDED_NILO, $state, $window_title)
     }};
     ($file_path:expr, $state:expr, $cli_args:expr) => {{
-        const EMBEDDED_NILO: &str = include_str!($file_path);
+        const EMBEDDED_NILO: &str = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/", $file_path));
         $crate::run_nilo_wasm(EMBEDDED_NILO, $state, None)
     }};
     ($file_path:expr, $state:expr) => {{
-        const EMBEDDED_NILO: &str = include_str!($file_path);
+        const EMBEDDED_NILO: &str = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/", $file_path));
         $crate::run_nilo_wasm(EMBEDDED_NILO, $state, None)
     }};
 }
@@ -467,6 +469,7 @@ where
 }
 
 // 埋め込み版Niloアプリ実行関数
+#[cfg(not(target_arch = "wasm32"))]
 pub fn run_application_with_embedded<S, P>(
     file_path: P,
     state: S,
@@ -485,7 +488,7 @@ pub fn run_application_with_embedded<S, P>(
         if cli_args.enable_debug || cli_args.enable_hotreload {
             let file_path_ref = file_path.as_ref();
             let adjusted_path = if file_path_ref.file_name().is_some() && !file_path_ref.exists() {
-                let src_path = std::path::Path::new("src").join(file_path_ref);
+                let src_path = std::path::Path::new("").join(file_path_ref);
                 if src_path.exists() {
                     src_path
                 } else {
@@ -564,7 +567,7 @@ pub fn run_with_hotreload<S, P>(
 
     let watch_dir = file_path
         .parent()
-        .unwrap_or_else(|| std::path::Path::new("src"));
+        .unwrap_or_else(|| std::path::Path::new(""));
     let hotreloader = HotReloader::new(watch_dir).expect("Failed to setup hot reloader");
 
     let restart_flag = Arc::clone(&should_restart);
@@ -655,7 +658,7 @@ where
     let start_view = app.flow.start.clone();
     let mut state = engine::state::AppState::new(initial_state, start_view.clone());
 
-    // let initial_timeline = state.initialize_router_from_app(&app);
+    let initial_timeline = state.initialize_router_from_app(&app);
 
     // URLから初期タイムライン指定があれば適用
     if let Some(timeline) = initial_timeline {

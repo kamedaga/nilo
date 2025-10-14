@@ -31,7 +31,12 @@ fn main() {
         .or_else(|| env::args().nth(2))
         .unwrap_or_else(|| DEFAULT_ROOT_DIR.to_string());
 
-    let addr = format!("127.0.0.1:{}", port);
+    // Allow override host via HOST env or 3rd CLI arg; default 0.0.0.0 for LAN access
+    let host = env::var("HOST")
+        .ok()
+        .or_else(|| env::args().nth(3))
+        .unwrap_or_else(|| "0.0.0.0".to_string());
+    let addr = format!("{}:{}", host, port);
     let listener = TcpListener::bind(&addr)
         .unwrap_or_else(|e| panic!("Failed to bind to {}: {}", addr, e));
     
@@ -213,3 +218,5 @@ fn send_error_response(stream: &mut TcpStream, status_code: u16, status_text: &s
     );
     send_response(stream, status_code, status_text, "text/html; charset=utf-8", body.as_bytes());
 }
+
+

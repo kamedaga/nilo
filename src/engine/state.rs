@@ -7,7 +7,7 @@ use log;
 use std::any::{Any, TypeId};
 use std::cell::RefCell;
 use std::collections::HashMap;
-use std::collections::hash_map::DefaultHasher;
+// use std::collections::hash_map::DefaultHasher; // unused
 use std::hash::{Hash, Hasher};
 use std::sync::{Arc, Once, OnceLock, RwLock};
 
@@ -240,6 +240,7 @@ pub struct AppState<S> {
     pub component_context: ComponentContext,
     pub image_size_cache: std::rc::Rc<std::cell::RefCell<HashMap<String, (u32, u32)>>>,
     pub all_buttons: Vec<(String, [f32; 2], [f32; 2])>,
+    pub all_text_inputs: Vec<(String, [f32; 2], [f32; 2])>,
 
     // ★ ルーティング関連
     pub router: Option<crate::engine::routing::Router>,
@@ -289,6 +290,8 @@ pub struct AppState<S> {
     pub text_cursor_positions: HashMap<String, usize>,
     /// 選択範囲（フィールドごと、開始位置と終了位置）
     pub text_selections: HashMap<String, (usize, usize)>,
+    /// TextInput bindings: id -> state field
+    pub text_input_bindings: HashMap<String, String>,
 
     // ★ 新規追加: Timeline処理コンテキスト
     /// Timeline処理の状態（ロジック処理済みノードツリー等）
@@ -308,6 +311,7 @@ impl<S> AppState<S> {
             variables: HashMap::new(),
             image_size_cache: std::rc::Rc::new(std::cell::RefCell::new(HashMap::new())),
             all_buttons: Vec::new(),
+            all_text_inputs: Vec::new(),
             button_onclick_map: HashMap::new(),
             router: None,
             route_params: HashMap::new(),
@@ -328,9 +332,19 @@ impl<S> AppState<S> {
             ime_composition_text: HashMap::new(),
             text_cursor_positions: HashMap::new(),
             text_selections: HashMap::new(),
+            text_input_bindings: HashMap::new(),
             timeline_context: None,
             needs_redraw: false,
         }
+    }
+
+    pub fn set_text_input_binding(&mut self, id: &str, field: &str) {
+        self.text_input_bindings
+            .insert(id.to_string(), field.to_string());
+    }
+
+    pub fn get_text_input_binding(&self, id: &str) -> Option<&String> {
+        self.text_input_bindings.get(id)
     }
 
     #[inline]
@@ -404,12 +418,15 @@ impl<S> AppState<S> {
     }
 
     /// テキスト入力フィールドの値を設定
-    pub fn set_text_input_value(&mut self, field_id: String, value: String) {
+    pub fn set_text_input_value(&mut self, field_id: String, value: String) where S: StateAccess {
         self.text_input_values
             .insert(field_id.clone(), value.clone());
         // カーソル位置を文字列の最後に設定
         let cursor_pos = value.chars().count();
-        self.text_cursor_positions.insert(field_id, cursor_pos);
+        self.text_cursor_positions.insert(field_id.clone(), cursor_pos);
+        if let Some(bound_field) = self.text_input_bindings.get(&field_id).cloned() {
+            crate::engine::state::with_custom_state(self, |ctx| { let _ = ctx.set(&bound_field, value.clone()); });
+        }
     }
 
     pub fn get_text_input_value(&self, field_id: &str) -> String {
@@ -1343,28 +1360,36 @@ impl<S: StateAccess + 'static> AppState<S> {
 // 軽量化されたユーティリティ関数群
 #[inline]
 pub fn format_text(fmt: &str, args: &[String]) -> String {
+    // Supports: "${}" -> next argument, "{{" -> '{', "}}" -> '}'
     let mut out = String::with_capacity(fmt.len() + args.iter().map(|s| s.len()).sum::<usize>());
     let mut i = 0;
     let mut it = fmt.chars().peekable();
-
     while let Some(c) = it.next() {
-        if c == '{' && it.peek() == Some(&'}') {
-            it.next();
-            if let Some(v) = args.get(i) {
-                out.push_str(v);
-            } else {
-                out.push_str("{}");
+        match c {
+            '$' => {
+                if let Some('{') = it.peek().copied() {
+                    it.next();
+                    if let Some('}') = it.peek().copied() {
+                        it.next();
+                        if let Some(v) = args.get(i) { out.push_str(v); } else { out.push_str("${}"); }
+                        i += 1;
+                    } else {
+                        out.push('$');
+                        out.push('{');
+                    }
+                } else {
+                    out.push('$');
+                }
             }
-            i += 1;
-        } else {
-            out.push(c);
+            '{' => {
+                if let Some('{') = it.peek().copied() { it.next(); out.push('{'); } else { out.push('{'); }
+            }
+            '}' => {
+                if let Some('}') = it.peek().copied() { it.next(); out.push('}'); } else { out.push('}'); }
+            }
+            _ => out.push(c),
         }
     }
-
-    if out.is_empty() && !fmt.is_empty() {
-        return fmt.to_string();
-    }
-
     out
 }
 
@@ -1723,3 +1748,6 @@ pub struct RouteInfo {
     pub current_url: Option<String>,
     pub params: HashMap<String, String>,
 }
+
+
+

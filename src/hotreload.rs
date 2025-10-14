@@ -1,4 +1,4 @@
-use log::error;
+use log::{info, error};
 use notify::{Config, Event, RecommendedWatcher, RecursiveMode, Watcher};
 use std::path::Path;
 use std::sync::mpsc::{self, Receiver, Sender};
@@ -32,7 +32,7 @@ impl HotReloader {
 
         watcher.watch(watch_path.as_ref(), RecursiveMode::Recursive)?;
 
-        println!(
+        info!(
             "🔥 Hot reload enabled for: {}",
             watch_path.as_ref().display()
         );
@@ -47,7 +47,7 @@ impl HotReloader {
                 match rx.recv_timeout(Duration::from_millis(50)) {
                     Ok(Ok(event)) => {
                         if should_reload(&event) {
-                            println!("🔄 File changed, reloading...");
+                            info!("🔄 File changed, reloading...");
 
                             // 少し待ってからリロード（ファイル書き込みが完了するのを待つ）
                             thread::sleep(Duration::from_millis(100));
@@ -60,13 +60,13 @@ impl HotReloader {
                         }
                     }
                     Ok(Err(e)) => {
-                        error!("Watch error: {:?}", e); // eprintln!をerror!に変更
+                        error!("Watch error: {:?}", e);
                     }
                     Err(mpsc::RecvTimeoutError::Timeout) => {
                         // タイムアウトは正常、続行
                     }
                     Err(mpsc::RecvTimeoutError::Disconnected) => {
-                        error!("Watcher disconnected"); // eprintln!をerror!に変更
+                        error!("Watcher disconnected"); 
                         break;
                     }
                 }

@@ -176,6 +176,11 @@ impl Engine {
             prev_mouse_down,
             window_size,
         );
+        log::info!(
+            "layout_static_part: buttons={} text_inputs={}",
+            buttons.len(),
+            text_inputs.len()
+        );
 
         let (ds, db, dt) = Self::layout_dynamic_part(
             app,
@@ -190,6 +195,11 @@ impl Engine {
         stencils.extend(ds);
         buttons.extend(db);
         text_inputs.extend(dt);
+        log::info!(
+            "layout_dynamic_part merged: buttons={} text_inputs={}",
+            buttons.len(),
+            text_inputs.len()
+        );
 
         // ★ タイムラインの背景色を追加（最背面に配置）
         if let Some(bg_color) = &tl.background {

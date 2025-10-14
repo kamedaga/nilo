@@ -67,6 +67,7 @@ where
         );
 
         state_guard.all_buttons = buttons;
+        state_guard.all_text_inputs = text_inputs;
 
         // コンテンツの高さを計算
         let draw_list = crate::stencil::stencil::stencil_to_wgpu_draw_list(&stencils);
@@ -212,6 +213,7 @@ where
         );
 
         state_guard.all_buttons = buttons;
+        state_guard.all_text_inputs = text_inputs;
 
         // コンテンツの高さを計算
         let draw_list = crate::stencil::stencil::stencil_to_wgpu_draw_list(&stencils);
