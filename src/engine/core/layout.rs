@@ -4,7 +4,6 @@
 use super::flow::*;
 use super::render::*;
 use super::utils::*;
-use log::info;
 use crate::engine::state::{AppState, StateAccess};
 use crate::parser::ast::{App, Expr, ViewNode, WithSpan};
 use crate::stencil::stencil::Stencil;
@@ -311,10 +310,15 @@ where
                 );
             }
             ViewNode::TextInput { id, value, .. } => {
-                info!(
-                    "layout TextInput id={} pos=({:.1},{:.1}) size=({:.1},{:.1})",
-                    id, lnode.position[0], lnode.position[1], lnode.size[0], lnode.size[1]
-                );
+                let st = lnode.node.style.as_ref();
+                let (w,h,relw,relh) = if let Some(s) = st {
+                    (
+                        s.width,
+                        s.height,
+                        s.relative_width.map(|d| (d.value, format!("{:?}", d.unit))),
+                        s.relative_height.map(|d| (d.value, format!("{:?}", d.unit)))
+                    )
+                } else { (None, None, None, None) };
                 if let Some(Expr::Path(p)) = value {
                     if let Some(field) = p.strip_prefix("state.") {
                         state.set_text_input_binding(id, field);

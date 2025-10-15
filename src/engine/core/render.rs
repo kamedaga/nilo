@@ -59,11 +59,6 @@ pub fn render_text_input_lightweight<S>(
             border_color
         };
 
-        info!(
-            "render TextInput id={} pos=({:.1},{:.1}) size=({:.1},{:.1})",
-            id, lnode.position[0], lnode.position[1], lnode.size[0], lnode.size[1]
-        );
-
         if bg_color[3] > 0.0 {
             *depth_counter += 0.001;
             stencils.push(Stencil::RoundedRect {
@@ -591,9 +586,7 @@ pub fn render_text_lightweight<S>(
             _ => lnode.position[0] + padding.left, // "left" or default
         };
 
-        // テキストの描画（一度だけ）
-        // ★ max_width情報を取得
-        // lnode.size[0]ではなく、parent_sizeを使用する必要がある
+        // lnode.size[0]を使用する
         let effective_parent_width = lnode.size[0];
 
         // ★ wrap プロパティを優先的にチェック
@@ -806,6 +799,7 @@ pub fn render_substituted_node_to_stencil_with_context<S>(
         _ => {}
     }
 }
+
 
 
 

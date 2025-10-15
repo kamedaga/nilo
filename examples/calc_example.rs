@@ -5,12 +5,10 @@
 //#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 const MY_FONT: &[u8] = include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/fonts/NotoSansJP-Regular.ttf"));
 
-use log::info;
-use nilo::nilo_function;
 use nilo::{nilo_state_watcher, nilo_state_validator};
 use nilo::register_safe_state_call;
 // register_state_accessible_call は自動登録マクロに置き換え
-use nilo::{AppState, StateAccess, nilo_safe_accessible};
+use nilo::{StateAccess, nilo_safe_accessible};
 use nilo::parser::ast::Expr;
 
 mod calc;
@@ -47,7 +45,6 @@ impl Default for State {
 // counter / name が更新されるたびにログに出す
 #[nilo_state_watcher(state = State, fields("counter", "name"))]
 fn log_state_changes(state: &mut State) {
-    // 単純に読み出してログ
     let c = state.get_field("counter").unwrap_or_else(|| "?".into());
     let n = state.get_field("name").unwrap_or_else(|| "".into());
     log::info!("[watcher] counter={}, name='{}'", c, n);
@@ -110,6 +107,7 @@ fn recalc(state: &mut State) {
 }
 
 // expr が変わったら式を解析・評価
+
 #[nilo_state_watcher(state = State, fields("expr"))]
 fn recalc_expr(state: &mut State) {
     let expr = state.get_field("expr").unwrap_or_default();

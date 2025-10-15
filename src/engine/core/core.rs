@@ -162,26 +162,30 @@ impl Engine {
             // ★ レイアウトキャッシュのみクリア（ロジックは保持）
             state.static_stencils = None;
             state.static_buttons.clear();
+            state.static_text_inputs.clear();
             state.cached_window_size = Some(window_size);
         }
 
         let expanded = state.expanded_body.as_ref().unwrap().clone();
 
-        let (mut stencils, mut buttons, mut text_inputs) = Self::layout_static_part(
-            app,
-            state,
-            &expanded,
-            mouse_pos,
-            mouse_down,
-            prev_mouse_down,
-            window_size,
-        );
-        log::info!(
-            "layout_static_part: buttons={} text_inputs={}",
-            buttons.len(),
-            text_inputs.len()
-        );
-
+        // 静的部分はキャッシュを使用
+        let (mut stencils, mut buttons, mut text_inputs) = if let Some(cached) = &state.static_stencils {
+            (cached.clone(), state.static_buttons.clone(), state.static_text_inputs.clone())
+        } else {
+            let (s, b, t) = Self::layout_static_part(
+                app,
+                state,
+                &expanded,
+                mouse_pos,
+                mouse_down,
+                prev_mouse_down,
+                window_size,
+            );
+            state.static_stencils = Some(s.clone());
+            state.static_buttons = b.clone();
+            state.static_text_inputs = t.clone();
+            (s, b, t)
+        };
         let (ds, db, dt) = Self::layout_dynamic_part(
             app,
             state,
@@ -195,11 +199,6 @@ impl Engine {
         stencils.extend(ds);
         buttons.extend(db);
         text_inputs.extend(dt);
-        log::info!(
-            "layout_dynamic_part merged: buttons={} text_inputs={}",
-            buttons.len(),
-            text_inputs.len()
-        );
 
         // ★ タイムラインの背景色を追加（最背面に配置）
         if let Some(bg_color) = &tl.background {

@@ -1,0 +1,129 @@
+flow {
+    start: TodoApp
+}
+
+timeline TodoApp {
+    font: "japanese"
+    VStack(style: {
+        width: 100ww,
+        height: 100wh,
+        background: "#f5f5f5",
+        align: "center",
+        padding: [40, 20]
+    }) {
+        VStack(style: {gap: 24px, align: "center", width: 100%, max_width: 600px}) {
+            Text("Todo List", style: {
+                font_size: 48px,
+                color: "#333",
+                font_weight: "bold"
+            })
+
+            // 入力エリア
+            VStack(style: {
+                gap: 12px,
+                width: 100%,
+                background: "#fff",
+                padding: [20, 20],
+                rounded: 12px,
+                shadow: true
+            }) {
+                Text("新しいタスクを追加", style: {
+                    font_size: 18px,
+                    color: "#666"
+                })
+                
+                HStack(style: {gap: 12px, width: 100%}) {
+                    TextInput(todo_input, bind: state.input, placeholder: "タスクを入力してください...", style: {
+                        width: 100%,
+                        height: 48px,
+                        background: "#f9f9f9",
+                        border_color: "#ddd",
+                        rounded: 8px,
+                        font_size: 16px,
+                        padding: [12, 16]
+                    })
+                    Button(id: add_btn, label: "追加", onclick: add_todo(), style: {
+                        padding: [12, 24],
+                        background: "#4CAF50",
+                        color: "#fff",
+                        rounded: 8px,
+                        font_size: 16px,
+                        font_weight: "bold",
+                        hover: {background: "#45a049"}
+                    })
+                }
+            }
+
+            // タスク数の表示
+            VStack(style: {gap: 8px, align: "center"}) {
+                Text("タスク数: {}", state.todos.len(), style: {
+                    font_size: 20px,
+                    color: "#555"
+                })
+            }
+
+            // Todoリスト
+            VStack(style: {
+                gap: 12px,
+                width: 100%
+            }) {
+                if state.todos.len() == 0 {
+                    VStack(style: {
+                        padding: [40, 20],
+                        align: "center",
+                        background: "#fff",
+                        rounded: 12px
+                    }) {
+                        Text("まだタスクがありません", style: {
+                            font_size: 18px,
+                            color: "#999"
+                        })
+                        Text("上のフォームから追加してください", style: {
+                            font_size: 14px,
+                            color: "#bbb"
+                        })
+                    }
+                }
+                
+                foreach todo in state.todos {
+                    HStack(style: {
+                        gap: 12px,
+                        width: 100%,
+                        background: "#fff",
+                        padding: [16, 20],
+                        rounded: 10px,
+                        shadow: true,
+                        align: "center"
+                    }) {
+                        Text("• {}", todo, style: {
+                            font_size: 18px,
+                            color: "#333",
+                            width: 100%
+                        })
+                        Button(id: delete_btn, label: "削除", onclick: remove_todo(todo), style: {
+                            padding: [8, 16],
+                            background: "#f44336",
+                            color: "#fff",
+                            rounded: 6px,
+                            font_size: 14px,
+                            hover: {background: "#da190b"}
+                        })
+                    }
+                }
+            }
+
+            // クリアボタン
+            if state.todos.len() > 0 {
+                Button(id: clear_all_btn, label: "すべてクリア", onclick: clear_all_todos(), style: {
+                    padding: [12, 24],
+                    background: "#ff9800",
+                    color: "#fff",
+                    rounded: 8px,
+                    font_size: 16px,
+                    font_weight: "bold",
+                    hover: {background: "#e68900"}
+                })
+            }
+        }
+    }
+}

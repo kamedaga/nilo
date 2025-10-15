@@ -1,4 +1,4 @@
-﻿pub mod analysis;
+pub mod analysis;
 pub mod dom_renderer;
 pub mod engine;
 #[cfg(not(target_arch = "wasm32"))]
@@ -482,6 +482,13 @@ pub fn run_application_with_embedded<S, P>(
 {
     // 郢晢ｽｭ郢ｧ・ｰ郢晢ｽｬ郢晏生ﾎ晉ｹｧ雋槭・隴帶ｺｷ蝟ｧ
     init_logger(&cli_args.log_level);
+    info!(
+        "[RUNNER] run_application_with_embedded: file_path='{}' debug={} hotreload={} quiet={}",
+        file_path.as_ref().display(),
+        cli_args.enable_debug,
+        cli_args.enable_hotreload,
+        cli_args.quiet
+    );
 
     #[cfg(not(target_arch = "wasm32"))]
     {
@@ -498,6 +505,10 @@ pub fn run_application_with_embedded<S, P>(
                 file_path_ref.to_path_buf()
             };
 
+            info!(
+                "[RUNNER] hotreload/debug mode -> watching path '{}'",
+                adjusted_path.display()
+            );
             run_with_hotreload(
                 adjusted_path,
                 state,
@@ -525,6 +536,7 @@ pub fn run_application_with_embedded<S, P>(
 
     if use_embedded {
         if let Some(source) = embedded_source {
+            info!("[RUNNER] Using embedded Nilo source (debug or release fallback)" );
             let app = load_embedded_nilo_app(source, cli_args.enable_lint, cli_args.quiet)
                 .expect("Failed to parse embedded Nilo source");
             engine::runtime::run_with_window_title(app, state, window_title);
@@ -533,6 +545,7 @@ pub fn run_application_with_embedded<S, P>(
     }
 
     // 埋め込み版Niloアプリ実行関数
+    info!("[RUNNER] Using file source: '{}'", file_path.as_ref().display());
     let app = load_nilo_app(
         file_path,
         cli_args.enable_lint,
@@ -675,7 +688,7 @@ where
 // WASM版用のエントリポイント
 // app.niloの内容を解析し、デフォルト埋め込みソース
 #[cfg(target_arch = "wasm32")]
-const WASM_NILO_SOURCE: &str = include_str!("app.nilo");
+const WASM_NILO_SOURCE: &str = include_str!("inputtest.nilo");
 
 // フォントファイルの埋め込み
 #[cfg(target_arch = "wasm32")]

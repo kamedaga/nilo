@@ -12,13 +12,21 @@ pub mod types;
 pub mod utils;
 pub mod view_node;
 
+use log::info;
 use parse::parse_nilo;
 use std::fs;
 use std::path::Path;
 
 //niloをパースして返す。
 pub fn parse_nilo_file<P: AsRef<Path>>(path: P) -> Result<ast::App, String> {
-    let source = fs::read_to_string(path).map_err(|e| format!("IO error: {}", e))?;
+    let p = path.as_ref();
+    info!("[NILO] parse_nilo_file: reading '{}'", p.display());
+    let source = fs::read_to_string(p).map_err(|e| format!("IO error: {}", e))?;
+    info!(
+        "[NILO] parse_nilo_file: read {} bytes (first line: {})",
+        source.len(),
+        source.lines().next().unwrap_or("")
+    );
 
     parse_nilo(&source)
 }

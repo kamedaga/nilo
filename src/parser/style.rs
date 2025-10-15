@@ -5,7 +5,7 @@
 // このモジュールはスタイル式からStyleオブジェクトへの変換を担当します。
 
 use crate::parser::ast::*;
-use crate::parser::expr::{parse_condition_string, parse_expr};
+use crate::parser::expr::parse_condition_string;
 use crate::parser::utils::{color_from_expr, edges_from_expr, size_from_expr};
 
 /// 計算式を静的評価する

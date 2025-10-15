@@ -663,3 +663,13 @@ ArgList    := Expr ("," Expr)*
 Qualified  := Ident ("::" Ident)+
 Ident      := /[A-Za-z][A-Za-z0-9_-]*/
 ```
+
+## 付記: TextInput のバインド
+
+```
+TextInput(id, bind: state.field, placeholder: "...")
+```
+
+- `bind: state.<field>` は `value: state.<field>` の糖衣構文です。
+- 入力のたびに `state.<field>` が自動更新されます（IME確定も含む）。
+- 既存の `value: state.<field>` でも同じ動作になります。

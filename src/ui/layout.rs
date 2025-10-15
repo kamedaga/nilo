@@ -3,7 +3,6 @@
 // width/height の優先度を明確化した汎用レイアウトエンジン
 
 use crate::engine::state::format_text;
-use log::info;
 use crate::parser::ast::{App, Expr, ViewNode, WithSpan};
 use crate::parser::ast::{DimensionValue, Edges, RelativeEdges, Style, Unit};
 use crate::stencil::stencil::Stencil as DrawStencil;
@@ -319,26 +318,45 @@ impl LayoutEngine {
             ViewNode::Image { path } => self.compute_image_size(path, get_image_size),
             // Ensure TextInput has a sensible intrinsic size so it renders visibly
             ViewNode::TextInput { .. } => {
-                // Use a common default size similar to buttons
+                // デフォルトの見やすいサイズ（Button同等）
                 let font_size = node
                     .style
                     .as_ref()
                     .and_then(|s| s.font_size)
                     .unwrap_or(context.font_size);
 
-                // Basic padding similar to render_text_input_lightweight
+                // render_text_input_lightweight とおおよそ揃えるパディング
                 let padding_x = 16.0f32 * 2.0; // left + right
                 let padding_y = (font_size * 1.2f32) * 0.5; // top + bottom approx
 
-                // Provide reasonable minimums so the field is clearly visible
+                // 最低サイズ（視認性のため）
                 let min_width = 240.0f32;
                 let min_height = (font_size * 1.2f32).max(36.0f32);
 
+                // まずは既定サイズ
+                let mut width = min_width + padding_x;
+                let mut height = min_height + padding_y;
+
+                // 明示スタイルがあれば優先（保険的にここでも反映）
+                if let Some(st) = node.style.as_ref() {
+                    if let Some(w) = st.width {
+                        width = w;
+                    } else if let Some(relw) = st.relative_width.as_ref() {
+                        width = self.resolve_dimension_value(relw, context, true);
+                    }
+
+                    if let Some(h) = st.height {
+                        height = h;
+                    } else if let Some(relh) = st.relative_height.as_ref() {
+                        height = self.resolve_dimension_value(relh, context, false);
+                    }
+                }
+
                 ComputedSize {
-                    width: min_width + padding_x,
-                    height: min_height + padding_y,
-                    intrinsic_width: min_width + padding_x,
-                    intrinsic_height: min_height + padding_y,
+                    width,
+                    height,
+                    intrinsic_width: width,
+                    intrinsic_height: height,
                     has_explicit_width: false,
                     has_explicit_height: false,
                 }
@@ -520,12 +538,23 @@ impl LayoutEngine {
         // テキスト測定
         let measurement = self.measure_text(&text, font_size, font_family, max_width);
 
+        // 動的テキスト（フォーマット文字列に {} が含まれる）の場合、
+        // レイアウト計算時には実際の値が分からないため、親の幅全体を使用する
+        let is_dynamic = format.contains("{}");
+        let computed_width = if is_dynamic && context.parent_size[0] > 0.0 {
+            // 動的テキストは親の幅全体を使用
+            context.parent_size[0]
+        } else {
+            // 静的テキストは実際の測定幅を使用
+            measurement.width + padding.left + padding.right
+        };
+
         ComputedSize {
-            width: measurement.width + padding.left + padding.right,
+            width: computed_width,
             height: measurement.height + padding.top + padding.bottom,
             intrinsic_width: measurement.width + padding.left + padding.right,
             intrinsic_height: measurement.height + padding.top + padding.bottom,
-            has_explicit_width: false,
+            has_explicit_width: is_dynamic && context.parent_size[0] > 0.0,
             has_explicit_height: false,
         }
     }

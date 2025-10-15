@@ -1033,55 +1033,59 @@ fn parse_text_input(pair: Pair<Rule>) -> WithSpan<ViewNode> {
             Rule::expr if id.is_none() => {
                 let expr = parse_expr(p);
                 match expr {
-                    Expr::String(s) => {
-                        id = Some(s);
-                    }
-                    Expr::Ident(i) => {
-                        id = Some(i);
-                    }
-                    Expr::Path(p) => {
-                        // 許容: grammar上、bare ident が path として入ることがある
-                        // ドットを含まない場合は識別子として扱う
-                        if !p.contains('.') {
-                            id = Some(p);
+                    Expr::String(s) => id = Some(s),
+                    Expr::Ident(i) => id = Some(i),
+                    Expr::Path(pp) => {
+                        if !pp.contains('.') {
+                            id = Some(pp);
                         } else {
-                            log::warn!("TextInputのidにpathは使用できません: {}", p);
+                            log::warn!("TextInputのidにpathは使えません: {}", pp);
                         }
                     }
                     _ => {
-                        log::warn!("TextInputの最初の引数は文字列または識別子である必要があります");
+                        log::warn!("TextInputの最初の引数は文字列または識別子が必要です");
                     }
                 }
+            }
+            Rule::style_arg => {
+                style = Some(style_from_expr(parse_expr(p.into_inner().next().unwrap())));
             }
             Rule::arg_item => {
                 let mut inner = p.into_inner();
                 if let Some(key_pair) = inner.next() {
-                    let key = key_pair.as_str();
-                    if let Some(val_pair) = inner.next() {
-                        match key {
-                            "placeholder" => {
-                                let expr = parse_expr(val_pair);
-                                if let Expr::String(s) = expr {
-                                    placeholder = Some(s);
+                    let key_rule = key_pair.as_rule();
+                    
+                    // style_arg の場合
+                    if key_rule == Rule::style_arg {
+                        style = Some(style_from_expr(parse_expr(key_pair.into_inner().next().unwrap())));
+                    }
+                    // named_arg の場合
+                    else if key_rule == Rule::named_arg {
+                        let mut named_arg_inner = key_pair.into_inner();
+                        if let Some(actual_key) = named_arg_inner.next() {
+                            let actual_key_str = actual_key.as_str();
+                            if let Some(val_pair) = named_arg_inner.next() {
+                                match actual_key_str {
+                                    "placeholder" => {
+                                        if let Expr::String(s) = parse_expr(val_pair) {
+                                            placeholder = Some(s);
+                                        }
+                                    }
+                                    "style" => {
+                                        style = Some(style_from_expr(parse_expr(val_pair)));
+                                    }
+                                    "value" => {
+                                        value = Some(parse_expr(val_pair));
+                                    }
+                                    "on_change" => {
+                                        on_change = Some(parse_expr(val_pair));
+                                    }
+                                    "bind" => {
+                                        value = Some(parse_expr(val_pair));
+                                    }
+                                    _ => {}
                                 }
                             }
-                            "style" => {
-                                style = Some(style_from_expr(parse_expr(val_pair)));
-                            }
-                            "value" => {
-                                let expr = parse_expr(val_pair);
-                                value = Some(expr);
-                            }
-                            "on_change" => {
-                                let expr = parse_expr(val_pair);
-                                on_change = Some(expr);
-                            }
-                            "bind" => {
-                                // sugar: bind: state.field => value: state.field
-                                let expr = parse_expr(val_pair);
-                                value = Some(expr);
-                            }
-                            _ => {}
                         }
                     }
                 }
@@ -1090,7 +1094,20 @@ fn parse_text_input(pair: Pair<Rule>) -> WithSpan<ViewNode> {
         }
     }
 
-    let id = id.expect("TextInputにはidが必要です");
+    let id = id.expect("TextInputにidが必要です");
+    if let Some(ref st) = style {
+        let w = st.width;
+        let h = st.height;
+        let rw = st.relative_width.map(|d| (d.value, format!("{:?}", d.unit)));
+        let rh = st.relative_height.map(|d| (d.value, format!("{:?}", d.unit)));
+        log::info!(
+            "[PARSE] TextInput id={} style present: width={:?} rel_width={:?} height={:?} rel_height={:?}",
+            id, w, rw, h, rh
+        );
+    } else {
+        log::info!("[PARSE] TextInput id={} style: None", id);
+    }
+
     WithSpan {
         node: ViewNode::TextInput {
             id,

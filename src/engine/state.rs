@@ -254,6 +254,9 @@ pub struct AppState<S> {
 
     pub static_buttons: Vec<(String, [f32; 2], [f32; 2])>,
 
+    /// 静的パートのテキスト入力領域キャッシュ
+    pub static_text_inputs: Vec<(String, [f32; 2], [f32; 2])>,
+
     /// ★ ロジック処理済みのノードツリー（タイムライン変更時のみリセット）
     pub expanded_body: Option<Vec<WithSpan<ViewNode>>>,
 
@@ -317,6 +320,7 @@ impl<S> AppState<S> {
             route_params: HashMap::new(),
             static_stencils: None,
             static_buttons: Vec::new(),
+            static_text_inputs: Vec::new(),
             expanded_body: None,
             local_vars_initialized: false,
             cached_window_size: None,
@@ -371,6 +375,7 @@ impl<S> AppState<S> {
         // ★ レイアウトキャッシュをクリア
         self.static_stencils = None;
         self.static_buttons.clear();
+        self.static_text_inputs.clear();
         self.cached_window_size = None;
 
         // ★ ローカル変数をクリア（新しいtimelineに入るため）

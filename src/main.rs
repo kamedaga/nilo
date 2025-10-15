@@ -1,6 +1,6 @@
 // リリースビルド時(not debug_assertions)にWindowsでコンソールウィンドウを非表示
 
-//#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 const MY_FONT: &[u8] = include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/fonts/NotoSansJP-Regular.ttf"));
 
 use log::info;
@@ -14,12 +14,14 @@ use nilo::parser::ast::Expr;
 
 nilo::nilo_state! {
     struct State {
+        input: String
     }
 }
 
 impl Default for State {
     fn default() -> Self {
         Self {
+            input: String::new()
         }
     }
 }
@@ -73,7 +75,7 @@ fn main() {
         
         // デモアプリを起動（マクロ側で "src/" を付与するため、ファイル名のみ指定）
         // プロジェクトルート基準のパスを許可する実装に合わせる
-        nilo::run_nilo_app!("src/test.nilo", state, &cli_args, Some("Nilo State Demo"));
+        nilo::run_nilo_app!("src/startup.nilo", state, &cli_args, Some("Nilo Startup"));
     }
 }
 
@@ -109,5 +111,6 @@ pub fn wasm_main() {
     // 初期状態を作成
     let state = State::default();
 
-    nilo::run_nilo_app!("src/calc.nilo", state);
+    // Align WASM entry with desktop so sample tests run consistently
+    nilo::run_nilo_app!("src/startup.nilo", state);
 }
