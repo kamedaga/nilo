@@ -152,7 +152,7 @@ impl WgpuRenderer {
             usage: TextureUsages::RENDER_ATTACHMENT,
             format: self.surface_format,
             view_formats: vec![self.surface_format.add_srgb_suffix()],
-            alpha_mode: CompositeAlphaMode::Auto,
+            alpha_mode: CompositeAlphaMode::Opaque,
             width: self.size.width,
             height: self.size.height,
             desired_maximum_frame_latency: 2,
@@ -181,14 +181,6 @@ impl WgpuRenderer {
         // 画像の事前ロード（必要な場合のみ）
         self.preload_images(&draw_list.0);
 
-        // 深度順にソート（in-place）
-        let mut commands = draw_list.0.clone();
-        commands.sort_unstable_by(|a, b| {
-            self.get_command_depth(a)
-                .partial_cmp(&self.get_command_depth(b))
-                .unwrap_or(std::cmp::Ordering::Equal)
-        });
-
         // 単一のRenderPassで全て描画
         {
             let mut rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -198,12 +190,8 @@ impl WgpuRenderer {
                     depth_slice: None,
                     resolve_target: None,
                     ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(Color {
-                            r: 1.0,
-                            g: 1.0,
-                            b: 1.0,
-                            a: 1.0,
-                        }), // 白背景をデフォルトに
+                        // 背景はアプリ側でフルスクリーン矩形を最背面に描くためカラークリア不要
+                        load: wgpu::LoadOp::Load,
                         store: wgpu::StoreOp::Store,
                     },
                 })],
@@ -219,7 +207,8 @@ impl WgpuRenderer {
                 occlusion_query_set: None,
             });
 
-            self.render_batched_commands(&mut rpass, &commands, scroll_offset, scale_factor);
+            // stencil_to_wgpu_draw_list側で深度ソート済み。追加のソートやクローンを避けてオーバーヘッド削減。
+            self.render_batched_commands(&mut rpass, &draw_list.0, scroll_offset, scale_factor);
         }
 
         self.queue.submit(Some(encoder.finish()));

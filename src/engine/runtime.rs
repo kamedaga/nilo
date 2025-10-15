@@ -25,6 +25,7 @@ mod native {
         keyboard::{KeyCode, PhysicalKey},
         window::{Window, WindowAttributes, WindowId},
     };
+    use winit::dpi::PhysicalSize;
 
     use crate::engine::core::Engine;
     use crate::engine::state::{AppState, StateAccess};
@@ -49,6 +50,8 @@ mod native {
         prev_mouse_down: bool,
         last_hovered_button: Option<String>, // ホバー状態追跡用
         window_title: String,                // ウィンドウタイトル
+        // リサイズのデバウンス用（直近サイズを保持し、描画前に一度だけ適用）
+        pending_resize: Option<PhysicalSize<u32>>,
     }
 
     impl<S> AppHandler<S>
@@ -73,6 +76,7 @@ mod native {
                 prev_mouse_down: false,
                 last_hovered_button: None, // 初期化
                 window_title,
+                pending_resize: None,
             }
         }
 
@@ -140,19 +144,8 @@ mod native {
                     if size.width == 0 || size.height == 0 {
                         return;
                     }
-
-                    let viewport_height = size.height as f32 / scale_factor;
-                    let max_scroll = (self.content_length - viewport_height).max(0.0);
-                    renderer.resize(size);
-                    if max_scroll <= 0.0 {
-                        self.scroll_offset[1] = 0.0;
-                        self.target_scroll_offset[1] = 0.0;
-                    } else if self.scroll_offset[1] < -max_scroll {
-                        self.scroll_offset[1] = -max_scroll;
-                        self.target_scroll_offset[1] = -max_scroll;
-                    }
-                    self.state.static_stencils = None;
-                    self.state.static_buttons.clear();
+                    // ここでは重い再設定は行わず、直近サイズを記録して再描画要求のみ行う
+                    self.pending_resize = Some(size);
                     window.request_redraw();
                 }
                 WindowEvent::MouseWheel { delta, .. } => {
@@ -180,6 +173,7 @@ mod native {
                     {
                         // ホバー状態変化の検出のためキャッシュを無効化
                         self.state.static_stencils = None;
+                        self.state.static_text_inputs.clear();
                         window.request_redraw();
                     }
                 }
@@ -449,6 +443,24 @@ mod native {
                     }
                 }
                 WindowEvent::RedrawRequested => {
+                    // リサイズが保留されていればここで一度だけ適用（デバウンス）
+                    if let Some(size) = self.pending_resize.take() {
+                        let viewport_height = size.height as f32 / scale_factor;
+                        let max_scroll = (self.content_length - viewport_height).max(0.0);
+                        renderer.resize(size);
+                        if max_scroll <= 0.0 {
+                            self.scroll_offset[1] = 0.0;
+                            self.target_scroll_offset[1] = 0.0;
+                        } else if self.scroll_offset[1] < -max_scroll {
+                            self.scroll_offset[1] = -max_scroll;
+                            self.target_scroll_offset[1] = -max_scroll;
+                        }
+                        // レイアウトキャッシュを無効化
+                    self.state.static_stencils = None;
+                    self.state.static_buttons.clear();
+                    self.state.static_text_inputs.clear();
+                        self.state.static_text_inputs.clear();
+                    }
                     // ウィンドウサイズを正しく取得
                     let size = renderer.size();
                     let window_size = [
@@ -562,6 +574,7 @@ mod native {
                     if self.last_hovered_button != current_hovered {
                         self.last_hovered_button = current_hovered;
                         self.state.static_stencils = None;
+                        self.state.static_text_inputs.clear();
                     }
 
                     let events_snapshot: Vec<UIEvent> =
@@ -873,6 +886,8 @@ mod native {
         // ホットリロード用
         restart_flag: Arc<Mutex<bool>>,
         updated_app: Arc<Mutex<Option<App>>>,
+        // リサイズのデバウンス用
+        pending_resize: Option<PhysicalSize<u32>>,
     }
 
     impl<S> AppHandlerWithDynamicReload<S>
@@ -903,6 +918,7 @@ mod native {
                 last_hovered_button: None,
                 restart_flag,
                 updated_app,
+                pending_resize: None,
             }
         }
 
@@ -919,6 +935,8 @@ mod native {
                             // 状態をリセット
                             self.state.static_stencils = None;
                             self.state.static_buttons.clear();
+                            self.state.static_text_inputs.clear();
+                            self.state.static_text_inputs.clear();
                             self.state.expanded_body = None;
                             self.state.cached_window_size = None;
                             self.button_handlers.clear();
@@ -985,19 +1003,8 @@ mod native {
                     if size.width == 0 || size.height == 0 {
                         return;
                     }
-
-                    let viewport_height = size.height as f32 / scale_factor;
-                    let max_scroll = (self.content_length - viewport_height).max(0.0);
-                    renderer.resize(size);
-                    if max_scroll <= 0.0 {
-                        self.scroll_offset[1] = 0.0;
-                        self.target_scroll_offset[1] = 0.0;
-                    } else if self.scroll_offset[1] < -max_scroll {
-                        self.scroll_offset[1] = -max_scroll;
-                        self.target_scroll_offset[1] = -max_scroll;
-                    }
-                    self.state.static_stencils = None;
-                    self.state.static_buttons.clear();
+                    // 重い処理はRedrawRequestedで一度だけ行う
+                    self.pending_resize = Some(size);
                     window.request_redraw();
                 }
                 WindowEvent::MouseWheel { delta, .. } => {
@@ -1023,6 +1030,7 @@ mod native {
                         || (old_mouse_pos[1] - self.mouse_pos[1]).abs() > 0.5
                     {
                         self.state.static_stencils = None;
+                        self.state.static_text_inputs.clear();
                         window.request_redraw();
                     }
                 }
@@ -1288,6 +1296,22 @@ mod native {
                     }
                 }
                 WindowEvent::RedrawRequested => {
+                    // リサイズをここで一度だけ適用
+                    if let Some(size) = self.pending_resize.take() {
+                        let viewport_height = size.height as f32 / scale_factor;
+                        let max_scroll = (self.content_length - viewport_height).max(0.0);
+                        renderer.resize(size);
+                        if max_scroll <= 0.0 {
+                            self.scroll_offset[1] = 0.0;
+                            self.target_scroll_offset[1] = 0.0;
+                        } else if self.scroll_offset[1] < -max_scroll {
+                            self.scroll_offset[1] = -max_scroll;
+                            self.target_scroll_offset[1] = -max_scroll;
+                        }
+                        self.state.static_stencils = None;
+                        self.state.static_buttons.clear();
+                        self.state.static_text_inputs.clear();
+                    }
                     // ウィンドウサイズを正しく取得
                     let size = renderer.size();
                     let window_size = [
@@ -1349,6 +1373,7 @@ mod native {
                     if self.last_hovered_button != current_hovered {
                         self.last_hovered_button = current_hovered;
                         self.state.static_stencils = None;
+                        self.state.static_text_inputs.clear();
                     }
 
                     // イベント処理
@@ -1531,6 +1556,8 @@ mod native {
 
         restart_flag: Arc<Mutex<bool>>,
         updated_app: Arc<Mutex<Option<App>>>,
+        // リサイズのデバウンス用
+        pending_resize: Option<PhysicalSize<u32>>,
     }
 
     impl<S> AppHandlerWithDynamicReloadAndTitle<S>
@@ -1569,6 +1596,7 @@ mod native {
                 window_title: title,
                 restart_flag,
                 updated_app,
+                pending_resize: None,
             }
         }
 
@@ -1585,6 +1613,7 @@ mod native {
                             // 状態をリセット
                             self.state.static_stencils = None;
                             self.state.static_buttons.clear();
+                            self.state.static_text_inputs.clear();
                             self.state.expanded_body = None;
                             self.state.cached_window_size = None;
                             self.button_handlers.clear();
@@ -1651,19 +1680,7 @@ mod native {
                     if size.width == 0 || size.height == 0 {
                         return;
                     }
-
-                    let viewport_height = size.height as f32 / scale_factor;
-                    let max_scroll = (self.content_length - viewport_height).max(0.0);
-                    renderer.resize(size);
-                    if max_scroll <= 0.0 {
-                        self.scroll_offset[1] = 0.0;
-                        self.target_scroll_offset[1] = 0.0;
-                    } else if self.scroll_offset[1] < -max_scroll {
-                        self.scroll_offset[1] = -max_scroll;
-                        self.target_scroll_offset[1] = -max_scroll;
-                    }
-                    self.state.static_stencils = None;
-                    self.state.static_buttons.clear();
+                    self.pending_resize = Some(size);
                     window.request_redraw();
                 }
                 WindowEvent::MouseWheel { delta, .. } => {
@@ -1954,6 +1971,22 @@ mod native {
                     }
                 }
                 WindowEvent::RedrawRequested => {
+                    // リサイズが保留されていればここで適用
+                    if let Some(size) = self.pending_resize.take() {
+                        let viewport_height = size.height as f32 / scale_factor;
+                        let max_scroll = (self.content_length - viewport_height).max(0.0);
+                        renderer.resize(size);
+                        if max_scroll <= 0.0 {
+                            self.scroll_offset[1] = 0.0;
+                            self.target_scroll_offset[1] = 0.0;
+                        } else if self.scroll_offset[1] < -max_scroll {
+                            self.scroll_offset[1] = -max_scroll;
+                            self.target_scroll_offset[1] = -max_scroll;
+                        }
+                        self.state.static_stencils = None;
+                        self.state.static_buttons.clear();
+                        self.state.static_text_inputs.clear();
+                    }
                     // ウィンドウサイズを正しく取得
                     let size = renderer.size();
                     let window_size = [
