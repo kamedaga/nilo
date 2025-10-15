@@ -6,7 +6,7 @@
 // Native環境専用のruntime
 #[cfg(not(target_arch = "wasm32"))]
 mod native {
-    use crate::parser::ast::{App, ViewNode};
+    use crate::parser::ast::App;
     use crate::stencil::stencil::stencil_to_wgpu_draw_list;
     use crate::ui::event::{EventQueue, UIEvent};
     use crate::ui::viewport;
@@ -16,7 +16,6 @@ mod native {
     use std::collections::HashMap;
     use std::sync::{Arc, Mutex}; // ログマクロを追加
 
-    use colored::Colorize;
 
     use winit::{
         application::ApplicationHandler,
@@ -81,11 +80,13 @@ mod native {
         }
 
         /// フレームカウントと経過時間を更新（dynamic_section用）
+        #[allow(dead_code)]
         fn update_frame_state(&mut self) {
             // frame_countフィールドがあれば更新
             if let Some(current_frame_str) = self.state.custom_state.get_field("frame_count") {
                 if let Ok(current_frame) = current_frame_str.parse::<u32>() {
-                    self.state
+                    let _ = self
+                        .state
                         .custom_state
                         .set("frame_count", (current_frame + 1).to_string());
                 }
@@ -95,7 +96,8 @@ mod native {
             if let Some(current_time_str) = self.state.custom_state.get_field("elapsed_time") {
                 if let Ok(current_time) = current_time_str.parse::<f32>() {
                     // 60FPSを想定して時間を更新（約0.0167秒/フレーム）
-                    self.state
+                    let _ = self
+                        .state
                         .custom_state
                         .set("elapsed_time", format!("{:.3}", current_time + 0.0167));
                 }
@@ -474,7 +476,8 @@ mod native {
                         self.state.custom_state.get_field("frame_count")
                     {
                         if let Ok(current_frame) = current_frame_str.parse::<u32>() {
-                            self.state
+                            let _ = self
+                                .state
                                 .custom_state
                                 .set("frame_count", (current_frame + 1).to_string());
                         }
@@ -484,7 +487,8 @@ mod native {
                         self.state.custom_state.get_field("elapsed_time")
                     {
                         if let Ok(current_time) = current_time_str.parse::<f32>() {
-                            self.state
+                            let _ = self
+                                .state
                                 .custom_state
                                 .set("elapsed_time", format!("{:.3}", current_time + 0.0167));
                         }
@@ -796,6 +800,7 @@ mod native {
     }
 
     /// ホットリロード機能付きのAppHandler
+    #[allow(dead_code)]
     struct AppHandlerWithHotReload<S>
     where
         S: StateAccess + 'static + Clone + std::fmt::Debug,
@@ -1552,6 +1557,7 @@ mod native {
         mouse_down: bool,
         prev_mouse_down: bool,
         last_hovered_button: Option<String>,
+        #[allow(dead_code)]
         window_title: String,
 
         restart_flag: Arc<Mutex<bool>>,

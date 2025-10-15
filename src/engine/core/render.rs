@@ -2,7 +2,6 @@
 // レンダリング関連（各要素の描画）
 
 use super::utils::*;
-use log::info;
 use crate::engine::state::{AppState, StateAccess};
 use crate::parser::ast::{Expr, ViewNode};
 use crate::stencil::stencil::Stencil;
@@ -157,7 +156,7 @@ pub fn render_text_input_lightweight<S>(
         } else {
             // Draw text split into: pre | ime_comp? | post
             let (pre, post) = {
-                let mut iter = current_value.chars();
+                let iter = current_value.chars();
                 let pre: String = iter.clone().take(cursor_pos).collect();
                 let post: String = iter.skip(cursor_pos).collect();
                 (pre, post)
@@ -193,7 +192,7 @@ pub fn render_text_input_lightweight<S>(
             let draw_x = base_x;
 
             // Build visible substrings inside [scroll_x, scroll_x+inner_width]
-            fn trim_left_by_px(s: &str, mut cut_px: f32, fs: f32, ff: &str) -> String {
+            fn trim_left_by_px(s: &str, cut_px: f32, fs: f32, ff: &str) -> String {
                 if cut_px <= 0.0 { return s.to_string(); }
                 let mut acc = 0.0f32;
                 for (idx, ch) in s.char_indices() {

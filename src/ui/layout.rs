@@ -163,6 +163,7 @@ pub struct ComputedSize {
 /// 新しいレイアウトエンジン
 pub struct LayoutEngine {
     /// コンポーネントのキャッシュ
+    #[allow(dead_code)]
     component_cache: HashMap<String, ComputedSize>,
 }
 
@@ -837,6 +838,7 @@ impl LayoutEngine {
     }
 
     /// コンポーネントサイズを計算（コンポーネント定義のスタイルを考慮）
+    #[allow(dead_code)]
     fn compute_component_size<F>(
         &mut self,
         name: &str,
@@ -882,7 +884,7 @@ impl LayoutEngine {
     /// ForEach文のサイズを計算（各アイテムの展開を事前計算）
     fn compute_foreach_size<F, G>(
         &mut self,
-        var: &str,
+        _var: &str,
         iterable: &Expr,
         body: &[WithSpan<ViewNode>],
         context: &LayoutContext,
@@ -919,7 +921,7 @@ impl LayoutEngine {
         let mut max_width: f32 = 0.0;
 
         // 各アイテムに対してボディの各ノードのサイズを計算
-        for (index, item) in items.iter().enumerate() {
+        for (index, _item) in items.iter().enumerate() {
             // bodyの各ノードのサイズを直接計算（再帰を避けるため compute_node_size_safe を使用）
             for child in body {
                 // ForEach内の子要素は簡略計算を使用して再帰を制限
@@ -1935,6 +1937,7 @@ impl LayoutEngine {
     }
 
     /// ノード内の変数を展開したノードを作成
+    #[allow(dead_code)]
     fn expand_node_variables<F>(&self, node: &WithSpan<ViewNode>, eval: &F) -> WithSpan<ViewNode>
     where
         F: Fn(&Expr) -> String,
@@ -2062,6 +2065,7 @@ impl LayoutEngine {
     }
 
     /// VStackレイアウト（互換性のため残存）
+    #[allow(dead_code)]
     fn layout_vstack<'a, F, G>(
         &mut self,
         children: &'a [WithSpan<ViewNode>],

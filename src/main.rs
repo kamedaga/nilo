@@ -5,11 +5,8 @@ const MY_FONT: &[u8] = include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/font
 
 use log::info;
 use nilo::nilo_function;
-use nilo::{nilo_state_watcher, nilo_state_validator};
-use nilo::register_safe_state_call;
+
 // register_state_accessible_call は自動登録マクロに置き換え
-use nilo::{AppState, StateAccess, nilo_safe_accessible};
-use nilo::parser::ast::Expr;
 
 
 nilo::nilo_state! {
@@ -73,7 +70,7 @@ fn main() {
 
         let state = State::default();
         
-        // デモアプリを起動（マクロ側で "src/" を付与するため、ファイル名のみ指定）
+
         // プロジェクトルート基準のパスを許可する実装に合わせる
         nilo::run_nilo_app!("src/startup.nilo", state, &cli_args, Some("Nilo Startup"));
     }

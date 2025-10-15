@@ -273,11 +273,11 @@ impl TextMeasurementSystem {
         let mut line_heights = Vec::new();
         let mut max_text_width = 0.0_f32;
         let mut total_height = 0.0_f32;
-        let mut actual_layout_run_count = 0;
+        let mut _actual_layout_run_count = 0;
 
         // glyphonのBufferからレイアウト情報を取得
         for layout_run in buffer.layout_runs() {
-            actual_layout_run_count += 1;
+            _actual_layout_run_count += 1;
             let line_height = metrics.line_height;
             let mut line_width = 0.0_f32;
             let mut glyph_count = 0;
@@ -488,7 +488,7 @@ impl TextMeasurementSystem {
             max_width * 0.90, // 10%縮小
         ];
 
-        for (i, width) in attempts.iter().enumerate() {
+        for (_i, width) in attempts.iter().enumerate() {
             let result = self.measure_text(
                 text,
                 font_size,

@@ -9,7 +9,7 @@ use crate::parser::ast::{App, Expr, ViewNode, WithSpan};
 use crate::stencil::stencil::Stencil;
 use crate::ui::{LayoutParams, layout_vstack};
 use std::collections::hash_map::DefaultHasher;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::hash::{Hash, Hasher};
 
 /// 状態のハッシュを計算（動的セクションの変更検知用）
@@ -311,7 +311,7 @@ where
             }
             ViewNode::TextInput { id, value, .. } => {
                 let st = lnode.node.style.as_ref();
-                let (w,h,relw,relh) = if let Some(s) = st {
+                let (_w,_h,_relw,_relh) = if let Some(s) = st {
                     (
                         s.width,
                         s.height,

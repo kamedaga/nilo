@@ -7,6 +7,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use wasm_bindgen::JsCast;
 
 /// DOM要素のID生成用カウンター
+#[allow(dead_code)]
 static DOM_ID_COUNTER: AtomicUsize = AtomicUsize::new(0);
 
 /// DOMレンダラ
@@ -17,6 +18,7 @@ pub struct DomRenderer {
     /// ウィンドウサイズ
     size: (u32, u32),
     /// 各Stencil用のDOM要素IDマップ（キャッシング用）
+    #[allow(dead_code)]
     element_cache: HashMap<String, String>,
     /// スケールファクター
     scale_factor: f32,
@@ -43,7 +45,9 @@ impl DomRenderer {
         }
     }
 
+    
     /// 一意なDOM要素IDを生成
+    #[allow(dead_code)]
     fn generate_element_id() -> String {
         let id = DOM_ID_COUNTER.fetch_add(1, Ordering::Relaxed);
         format!("nilo-element-{}", id)

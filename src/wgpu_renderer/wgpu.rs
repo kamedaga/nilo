@@ -1,6 +1,6 @@
 use std::sync::Arc;
 use wgpu::{
-    Color, CompositeAlphaMode, Device, Instance, PresentMode, Queue, Surface, SurfaceConfiguration,
+    CompositeAlphaMode, Device, Instance, PresentMode, Queue, Surface, SurfaceConfiguration,
     Texture, TextureFormat, TextureUsages, TextureView, TextureViewDescriptor,
 };
 use winit::window::Window;

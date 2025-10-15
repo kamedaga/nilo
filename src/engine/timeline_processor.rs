@@ -20,7 +20,7 @@
 //    - ステンシルへの変換と描画
 
 use crate::engine::state::AppState;
-use crate::parser::ast::{App, Expr, ViewNode, WithSpan};
+use crate::parser::ast::{App, ViewNode, WithSpan};
 use std::collections::HashMap;
 
 /// 処理済みノードツリー

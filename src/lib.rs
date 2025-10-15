@@ -38,6 +38,7 @@ pub use engine::state::CustomStateContext;
 pub use engine::state::register_state_watcher;
 
 // 型付き関数登録 API の公開
+#[allow(deprecated)]
 pub use engine::rust_call::{
     CallableFn,
     FromExpr,
@@ -121,6 +122,7 @@ pub fn set_custom_fonts(fonts: &[(&str, &'static [u8])]) {
 }
 
 /// 登録済みの指定されたカスタムフォントを取得する内部関数
+#[allow(dead_code)]
 pub(crate) fn get_custom_font(name: &str) -> Option<&'static [u8]> {
     get_font_map()
         .read()
@@ -698,6 +700,7 @@ const WASM_FONT: &[u8] = include_bytes!(concat!(
 ));
 
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 struct WasmTestState {
     items: Vec<i32>,
     next_item_value: i32,

@@ -8,7 +8,7 @@ use std::any::{Any, TypeId};
 use std::cell::RefCell;
 use std::collections::HashMap;
 // use std::collections::hash_map::DefaultHasher; // unused
-use std::hash::{Hash, Hasher};
+// removed unused Hasher import
 use std::sync::{Arc, Once, OnceLock, RwLock};
 
 /// コンポーネント専用の状態管理構造体（軽量化版）
@@ -825,6 +825,7 @@ impl<S: StateAccess + 'static> AppState<S> {
     }
 
     /// onclick属性で使用される関数呼び出しを実行（stateアクセス可能）
+    #[allow(deprecated)]
     pub fn execute_onclick_function_call(&mut self, name: &str, args: &[Expr]) -> bool {
         log::info!("🖱️ onclick: Executing function '{}'", name);
 
@@ -860,11 +861,11 @@ impl<S: StateAccess + 'static> AppState<S> {
         if !base_style.responsive_rules.is_empty() {}
 
         // responsive_rulesを評価
-        for (idx, rule) in base_style.responsive_rules.iter().enumerate() {
+        for (_idx, rule) in base_style.responsive_rules.iter().enumerate() {
             // 条件式を評価
             let condition_result = self.eval_expr_from_ast(&rule.condition);
 
-            if let Some([w, h]) = self.cached_window_size {
+            if let Some([_w, _h]) = self.cached_window_size {
             } else {
             }
 
@@ -1345,6 +1346,7 @@ impl<S: StateAccess + 'static> AppState<S> {
     }
 
     /// Rustコール実行メソッド
+    #[allow(deprecated)]
     pub fn execute_rust_call(&mut self, name: &str, args: &[Expr]) -> bool {
         let result = crate::engine::rust_call::execute_state_accessible_call(name, self, args);
         if result {

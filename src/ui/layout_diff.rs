@@ -1,7 +1,7 @@
 // レイアウト差分計算システム
 // ノードツリーの変更を検出し、変更があった部分のみを再計算する
 
-use crate::parser::ast::{App, ComponentArg, Expr, Style, ViewNode, WithSpan};
+use crate::parser::ast::{App, Expr, Style, ViewNode, WithSpan};
 use crate::ui::{LayoutParams, LayoutedNode};
 use std::collections::HashMap;
 
