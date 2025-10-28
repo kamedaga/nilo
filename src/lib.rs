@@ -7,6 +7,8 @@ pub mod parser;
 pub mod renderer_abstract;
 pub mod stencil;
 pub mod ui;
+#[cfg(target_arch = "wasm32")]
+pub mod wasm;
 #[cfg(feature = "wgpu")]
 pub mod wgpu_renderer;
 
@@ -611,8 +613,62 @@ pub fn run_with_hotreload<S, P>(
 }
 
 // ========================================
-// WASM版エントリポイント
+// WASM版エントリポイント（main.rsに移動）
 // ========================================
+
+/// DOMコンテナの準備（スクロール位置保存付きで再作成）
+#[cfg(target_arch = "wasm32")]
+pub fn prepare_dom_container(container_id: &str) {
+    use wasm_bindgen::JsCast;
+    use web_sys::{HtmlElement, window};
+
+    if let Some(window) = window() {
+        if let Some(document) = window.document() {
+            // 既存のコンテナを完全に削除して再作成
+            if let Some(existing) = document.get_element_by_id(container_id) {
+                // 親要素のスクロール位置を保存
+                let parent_scroll_top = if let Some(parent) = existing.parent_element() {
+                    parent.scroll_top()
+                } else {
+                    0
+                };
+                
+                let parent_scroll_left = if let Some(parent) = existing.parent_element() {
+                    parent.scroll_left()
+                } else {
+                    0
+                };
+                
+                // 既存のコンテナを削除
+                let _ = existing.remove();
+                
+                // 新しいコンテナを作成
+                if let Ok(new_container) = document.create_element("div") {
+                    let _ = new_container.set_attribute("id", container_id);
+                    
+                    // スタイルを設定
+                    if let Some(html_element) = new_container.dyn_ref::<HtmlElement>() {
+                        let style = html_element.style();
+                        let _ = style.set_property("width", "100%");
+                        let _ = style.set_property("min-height", "100%");
+                        let _ = style.set_property("position", "relative");
+                    }
+                    
+                    // #preview-containerに追加
+                    if let Some(preview_container) = document.get_element_by_id("preview-container") {
+                        let _ = preview_container.append_child(&new_container);
+                        
+                        // スクロール位置を復元
+                        preview_container.set_scroll_top(parent_scroll_top);
+                        preview_container.set_scroll_left(parent_scroll_left);
+                        
+                        log::info!("Recreated DOM container (scroll position preserved)");
+                    }
+                }
+            }
+        }
+    }
+}
 
 #[cfg(target_arch = "wasm32")]
 pub fn run_nilo_wasm<S>(nilo_source: &str, initial_state: S, window_title: Option<&str>)
@@ -689,8 +745,8 @@ where
 
 // WASM版用のエントリポイント
 // app.niloの内容を解析し、デフォルト埋め込みソース
-#[cfg(target_arch = "wasm32")]
-const WASM_NILO_SOURCE: &str = include_str!("inputtest.nilo");
+//#[cfg(target_arch = "wasm32")]
+//const WASM_NILO_SOURCE: &str = include_str!("inputtest.nilo");
 
 // フォントファイルの埋め込み
 #[cfg(target_arch = "wasm32")]

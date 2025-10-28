@@ -1,0 +1,655 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Nilo Browser Editor</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+            height: 100vh;
+            overflow: hidden;
+            background: #1e1e1e;
+        }
+        
+        .container {
+            display: flex;
+            height: 100vh;
+        }
+        
+        .sidebar {
+            width: 250px;
+            background: #252526;
+            border-right: 1px solid #3e3e42;
+            display: flex;
+            flex-direction: column;
+        }
+        
+        .sidebar-header {
+            padding: 16px;
+            background: #2d2d30;
+            border-bottom: 1px solid #3e3e42;
+            color: #cccccc;
+            font-weight: 600;
+        }
+        
+        .file-list {
+            flex: 1;
+            overflow-y: auto;
+        }
+        
+        .file-item {
+            padding: 8px 16px;
+            color: #cccccc;
+            cursor: pointer;
+            transition: background 0.1s;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        
+        .file-item:hover {
+            background: #2a2d2e;
+        }
+        
+        .file-item.active {
+            background: #37373d;
+            color: #ffffff;
+        }
+        
+        .file-icon {
+            font-size: 14px;
+        }
+        
+        .editor-panel {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            background: #1e1e1e;
+            min-width: 0;
+            min-height: 0;
+            overflow: hidden;
+        }
+        
+        .toolbar {
+            height: 48px;
+            background: #2d2d30;
+            border-bottom: 1px solid #3e3e42;
+            display: flex;
+            align-items: center;
+            padding: 0 16px;
+            gap: 12px;
+        }
+        
+        .toolbar-title {
+            color: #cccccc;
+            font-weight: 500;
+            flex: 1;
+        }
+        
+        .btn {
+            padding: 6px 14px;
+            background: #0e639c;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 13px;
+            transition: background 0.2s;
+        }
+        
+        .btn:hover {
+            background: #1177bb;
+        }
+        
+        .btn-secondary {
+            background: #3e3e42;
+        }
+        
+        .btn-secondary:hover {
+            background: #505050;
+        }
+        
+        .editor-wrapper {
+            flex: 1;
+            display: flex;
+            position: relative;
+            overflow: hidden;
+            min-height: 0;
+        }
+        
+        #editor {
+            flex: 1;
+            min-width: 0;
+            overflow: hidden;
+        }
+        
+        .divider {
+            width: 4px;
+            background: #3e3e42;
+            cursor: col-resize;
+            transition: background 0.2s;
+            flex-shrink: 0;
+        }
+        
+        .divider:hover {
+            background: #0e639c;
+        }
+        
+        .preview-panel {
+            flex: 1;
+            background: white;
+            position: relative;
+            display: flex;
+            flex-direction: column;
+            min-width: 0;
+            overflow: hidden;
+        }
+        
+        .preview-header {
+            height: 36px;
+            background: #f3f3f3;
+            border-bottom: 1px solid #e0e0e0;
+            display: flex;
+            align-items: center;
+            padding: 0 12px;
+            color: #333;
+            font-size: 13px;
+            flex-shrink: 0;
+        }
+        
+        #preview-container {
+            flex: 1;
+            overflow: auto;
+            position: relative;
+            min-height: 0;
+        }
+        
+        .status-bar {
+            height: 24px;
+            background: #007acc;
+            color: white;
+            display: flex;
+            align-items: center;
+            padding: 0 12px;
+            font-size: 12px;
+            gap: 16px;
+        }
+        
+        .status-item {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- サイドバー -->
+        <div class="sidebar">
+            <div class="sidebar-header">📁 ファイル</div>
+            <div class="file-list" id="file-list">
+                <div class="file-item active" data-file="app.nilo">
+                    <span class="file-icon">📄</span>
+                    <span>app.nilo</span>
+                </div>
+                <div class="file-item" data-file="startup.nilo">
+                    <span class="file-icon">📄</span>
+                    <span>startup.nilo</span>
+                </div>
+            </div>
+        </div>
+        
+        <!-- エディタパネル -->
+        <div class="editor-panel">
+            <div class="toolbar">
+                <span class="toolbar-title">🚀 Nilo Browser Editor</span>
+                <button class="btn" onclick="updatePreview()">▶ 実行</button>
+                <button class="btn-secondary btn" onclick="saveFile()">💾 保存</button>
+                <button class="btn-secondary btn" onclick="resetFiles()">🔄 リセット</button>
+            </div>
+            
+            <div class="editor-wrapper">
+                <div id="editor"></div>
+                <div class="divider" id="divider"></div>
+                <div class="preview-panel">
+                    <div class="preview-header">👁️ プレビュー</div>
+                    <div id="preview-container">
+                        <div id="container" style="width: 100%; min-height: 100%; position: relative;"></div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="status-bar">
+                <div class="status-item">
+                    <span id="status-text">🔥 ホットリロード有効</span>
+                </div>
+                <div class="status-item" id="file-name">app.nilo</div>
+                <div class="status-item" id="auto-save-status">💾 自動保存: ON</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Monaco Editor -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.44.0/min/vs/editor/editor.main.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.44.0/min/vs/loader.min.js"></script>
+    
+    <script type="module">
+        import init, { run_nilo_code_from_browser } from '/nilo.js';
+        
+        let editor;
+        let currentFile = 'app.nilo';
+        
+        // LocalStorageからファイルを読み込む（保存されていれば）
+        const loadFilesFromStorage = () => {
+            const savedFiles = localStorage.getItem('nilo_files');
+            if (savedFiles) {
+                try {
+                    return JSON.parse(savedFiles);
+                } catch (e) {
+                    console.error('Failed to load files from storage:', e);
+                }
+            }
+            return null;
+        };
+        
+        // LocalStorageにファイルを保存
+        const saveFilesToStorage = () => {
+            try {
+                localStorage.setItem('nilo_files', JSON.stringify(files));
+                console.log('💾 Files auto-saved to LocalStorage');
+            } catch (e) {
+                console.error('Failed to save files to storage:', e);
+            }
+        };
+        
+        let files = loadFilesFromStorage() || {
+            'app.nilo': `VStack(style: {
+    width: 100ww,
+    background: "#f5f5f5",
+    padding: [20, 20],
+    gap: 16px
+}) {
+    Text("Nilo ブラウザエディタ", style: {
+        font_size: 28px,
+        color: "#333",
+        font_weight: "bold"
+    })
+    
+    Text("ここでコードを編集できます", style: {
+        font_size: 16px,
+        color: "#666"
+    })
+    
+    Button(id: demo_btn, label: "クリック！", style: {
+        background: "#0e639c",
+        color: "white",
+        padding: [12, 24],
+        border_radius: 6px,
+        font_size: 14px
+    })
+}`,
+            'startup.nilo': `flow {
+    start: Welcome
+}
+
+timeline Welcome {
+    VStack(style: {
+        width: 100ww,
+        background: "#1e1e1e",
+        padding: [60, 40],
+        align: "center"
+    }) {
+        Text("Nilo", style: {
+            font_size: 64px,
+            color: "#ffffff",
+            font_weight: "bold"
+        })
+        
+        Text("ブラウザで動くUIフレームワーク", style: {
+            font_size: 20px,
+            color: "#cccccc",
+            margin_top: 16px
+        })
+    }
+}`
+        };
+        
+        // WASM初期化
+        console.log('🔧 Initializing WASM...');
+        await init();
+        console.log('✅ WASM initialized');
+        
+        // Monaco Editor初期化
+        require.config({ 
+            paths: { 
+                'vs': 'https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.44.0/min/vs' 
+            } 
+        });
+        
+        require(['vs/editor/editor.main'], function() {
+            console.log('🎨 Monaco Editor loaded');
+            
+            // Nilo言語登録
+            monaco.languages.register({ id: 'nilo' });
+            
+            // シンタックスハイライト定義
+            monaco.languages.setMonarchTokensProvider('nilo', {
+                keywords: [
+                    'VStack', 'HStack', 'Text', 'Button', 'View', 'Section', 'Column', 'Row',
+                    'flow', 'timeline', 'component', 'style', 'onclick', 'when',
+                    'start', 'id', 'label', 'Spacing', 'Image', 'TextInput'
+                ],
+                
+                tokenizer: {
+                    root: [
+                        // キーワード
+                        [/[a-zA-Z_]\w*/, {
+                            cases: {
+                                '@keywords': 'keyword',
+                                '@default': 'identifier'
+                            }
+                        }],
+                        
+                        // 文字列
+                        [/"([^"\\]|\\.)*$/, 'string.invalid'],
+                        [/"/, 'string', '@string'],
+                        
+                        // 数値
+                        [/\d+px\b/, 'number.unit'],
+                        [/\d+ww\b/, 'number.unit'],
+                        [/\d+wh\b/, 'number.unit'],
+                        [/\d+vw\b/, 'number.unit'],
+                        [/\d+vh\b/, 'number.unit'],
+                        [/\d+/, 'number'],
+                        
+                        // カラーコード
+                        [/#[0-9a-fA-F]{3,8}\b/, 'number.hex'],
+                        
+                        // コメント
+                        [/\/\/.*$/, 'comment'],
+                        
+                        // 括弧
+                        [/[{}()\[\]]/, '@brackets'],
+                        
+                        // デリミタ
+                        [/[,:]/, 'delimiter'],
+                    ],
+                    
+                    string: [
+                        [/[^\\"]+/, 'string'],
+                        [/\\./, 'string.escape'],
+                        [/"/, 'string', '@pop']
+                    ],
+                }
+            });
+            
+            // テーマ設定（Niloカスタムテーマ）
+            monaco.editor.defineTheme('nilo-dark', {
+                base: 'vs-dark',
+                inherit: true,
+                rules: [
+                    { token: 'keyword', foreground: '569CD6', fontStyle: 'bold' },
+                    { token: 'string', foreground: 'CE9178' },
+                    { token: 'number', foreground: 'B5CEA8' },
+                    { token: 'number.hex', foreground: 'B5CEA8' },
+                    { token: 'number.unit', foreground: 'B5CEA8' },
+                    { token: 'comment', foreground: '6A9955', fontStyle: 'italic' },
+                    { token: 'identifier', foreground: '9CDCFE' },
+                ],
+                colors: {
+                    'editor.background': '#1e1e1e',
+                }
+            });
+            
+            // エディタ作成
+            editor = monaco.editor.create(document.getElementById('editor'), {
+                value: files[currentFile],
+                language: 'nilo',
+                theme: 'nilo-dark',
+                automaticLayout: true,
+                minimap: { enabled: true },
+                fontSize: 14,
+                tabSize: 4,
+                insertSpaces: true,
+                wordWrap: 'on',
+                lineNumbers: 'on',
+                renderWhitespace: 'selection',
+                scrollBeyondLastLine: false,
+                folding: true,
+                bracketPairColorization: {
+                    enabled: true
+                },
+                suggestOnTriggerCharacters: true,
+                quickSuggestions: true,
+            });
+            
+            console.log('✅ Editor created');
+            
+            // ホットリロード: 自動プレビュー更新 + LocalStorage保存
+            let updateTimer;
+            let saveTimer;
+            editor.onDidChangeModelContent(() => {
+                files[currentFile] = editor.getValue();
+                
+                // ホットリロード: デバウンス処理（500ms待機後に更新）
+                clearTimeout(updateTimer);
+                updateTimer = setTimeout(() => {
+                    console.log('� Hot reloading preview...');
+                    updatePreview();
+                }, 500);
+                
+                // LocalStorageへの自動保存（1秒待機後）
+                clearTimeout(saveTimer);
+                saveTimer = setTimeout(() => {
+                    saveFilesToStorage();
+                }, 1000);
+            });
+            
+            // 初回プレビュー
+            updatePreview();
+        });
+        
+        // プレビュー更新関数
+        window.updatePreview = function() {
+            const startTime = performance.now();
+            
+            try {
+                const code = files[currentFile];
+                console.log(`📝 Rendering ${currentFile}...`);
+                
+                // スクロール位置を保存
+                const previewContainer = document.getElementById('preview-container');
+                const scrollTop = previewContainer.scrollTop;
+                const scrollLeft = previewContainer.scrollLeft;
+                
+                // コンテナをクリアして再作成
+                previewContainer.innerHTML = '<div id="container" style="width: 100%; min-height: 100%; position: relative;"></div>';
+                
+                // WASMランタイムでNiloコードを実行
+                run_nilo_code_from_browser(code);
+                
+                // スクロール位置を復元（次のフレームで実行）
+                requestAnimationFrame(() => {
+                    previewContainer.scrollTop = scrollTop;
+                    previewContainer.scrollLeft = scrollLeft;
+                });
+                
+                const elapsed = (performance.now() - startTime).toFixed(2);
+                console.log(`✅ Rendered in ${elapsed}ms`);
+                
+                document.getElementById('status-text').textContent = `🔥 更新完了 (${elapsed}ms)`;
+                setTimeout(() => {
+                    document.getElementById('status-text').textContent = '🔥 ホットリロード有効';
+                }, 2000);
+            } catch (error) {
+                console.error('❌ Preview error:', error);
+                
+                const errorHtml = `
+                    <div style="padding: 20px; font-family: monospace;">
+                        <h2 style="color: #d32f2f; margin-bottom: 16px;">🚫 エラーが発生しました</h2>
+                        <div style="background: #ffebee; padding: 12px; border-left: 4px solid #d32f2f; border-radius: 4px;">
+                            <strong>エラーメッセージ:</strong><br>
+                            <pre style="margin: 8px 0; white-space: pre-wrap;">${error.message}</pre>
+                        </div>
+                        <div style="margin-top: 16px; color: #666;">
+                            <strong>ヒント:</strong> 構文を確認してください
+                        </div>
+                    </div>
+                `;
+                
+                document.getElementById('preview-container').innerHTML = errorHtml;
+                document.getElementById('status-text').textContent = '❌ エラー';
+            }
+        };
+        
+        // ファイル切り替え - ホットリロード対応
+        document.getElementById('file-list').addEventListener('click', (e) => {
+            const fileItem = e.target.closest('.file-item');
+            if (!fileItem) return;
+            
+            const filename = fileItem.dataset.file;
+            if (filename === currentFile) return;
+            
+            console.log(`📂 Switching to ${filename}`);
+            
+            // 現在のファイルを保存
+            if (editor) {
+                files[currentFile] = editor.getValue();
+            }
+            
+            // ファイル切り替え
+            currentFile = filename;
+            
+            // UI更新
+            document.querySelectorAll('.file-item').forEach(item => {
+                item.classList.remove('active');
+            });
+            fileItem.classList.add('active');
+            document.getElementById('file-name').textContent = filename;
+            
+            // エディタ更新（カーソル位置を先頭に）
+            if (editor) {
+                editor.setValue(files[currentFile]);
+                editor.setPosition({ lineNumber: 1, column: 1 });
+                editor.focus();
+            }
+            
+            // プレビュー即座に更新
+            updatePreview();
+        });
+        
+        // ファイル保存（ローカルダウンロード）
+        window.saveFile = function() {
+            if (editor) {
+                files[currentFile] = editor.getValue();
+            }
+            
+            const blob = new Blob([files[currentFile]], { type: 'text/plain;charset=utf-8' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = currentFile;
+            a.style.display = 'none';
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+            
+            console.log(`💾 Saved ${currentFile}`);
+            document.getElementById('status-text').textContent = `💾 ${currentFile} を保存しました`;
+            setTimeout(() => {
+                document.getElementById('status-text').textContent = '準備完了';
+            }, 2000);
+        };
+        
+        // キーボードショートカット
+        document.addEventListener('keydown', (e) => {
+            // Ctrl+S / Cmd+S でファイル保存
+            if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+                e.preventDefault();
+                saveFile();
+            }
+            
+            // Ctrl+Enter / Cmd+Enter で即座にプレビュー更新
+            if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+                e.preventDefault();
+                updatePreview();
+            }
+        });
+        
+        // ファイルをリセット（初期状態に戻す）
+        window.resetFiles = function() {
+            if (!confirm('すべてのファイルを初期状態にリセットしますか？\n（保存していない変更は失われます）')) {
+                return;
+            }
+            
+            localStorage.removeItem('nilo_files');
+            location.reload();
+        };
+        
+        // リサイズ機能（エディタとプレビューの分割比率を調整）
+        const divider = document.getElementById('divider');
+        let isResizing = false;
+        let lastX = 0;
+        
+        divider.addEventListener('mousedown', (e) => {
+            isResizing = true;
+            lastX = e.clientX;
+            document.body.style.cursor = 'col-resize';
+            document.body.style.userSelect = 'none';
+            e.preventDefault();
+        });
+        
+        document.addEventListener('mousemove', (e) => {
+            if (!isResizing) return;
+            
+            const container = document.querySelector('.editor-wrapper');
+            const containerRect = container.getBoundingClientRect();
+            const editorWidth = e.clientX - containerRect.left;
+            const editorPercent = (editorWidth / containerRect.width) * 100;
+            
+            // 最小20%、最大80%の制限
+            if (editorPercent >= 20 && editorPercent <= 80) {
+                const editorEl = document.getElementById('editor');
+                const previewEl = document.querySelector('.preview-panel');
+                
+                editorEl.style.flex = `0 0 ${editorPercent}%`;
+                previewEl.style.flex = `0 0 ${100 - editorPercent}%`;
+                
+                // Monaco Editorのレイアウト更新
+                if (editor) {
+                    editor.layout();
+                }
+            }
+        });
+        
+        document.addEventListener('mouseup', () => {
+            if (isResizing) {
+                isResizing = false;
+                document.body.style.cursor = 'default';
+                document.body.style.userSelect = 'auto';
+                console.log('📐 Panel resize complete');
+            }
+        });
+        
+        // ウィンドウリサイズ時のエディタレイアウト更新
+        window.addEventListener('resize', () => {
+            if (editor) {
+                editor.layout();
+            }
+        });
+        
+        console.log('🎉 Nilo Browser Editor ready!');
+        console.log('📌 Shortcuts:');
+        console.log('   Ctrl+S / Cmd+S: ファイル保存');
+        console.log('   Ctrl+Enter / Cmd+Enter: 即座にプレビュー更新');
+    </script>
+</body>
+</html>

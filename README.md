@@ -42,7 +42,7 @@ cargo build --release
 
 ### wasmビルド
 ```bash
-cargo run --bin build_wasm_with_html
+cargo run --bin build_wasm
 ```
 
 ## wasm用spaサーバーを起動
@@ -116,7 +116,7 @@ dom(wasm), tiny-skiaレンダラ
 
 * 現在domレンダラーの実装を行っています。
 ```bash
-cargo run --bin build_wasm_with_html
+cargo run --bin build_wasm
 ```
 でhtml, js, wasmファイルが生成されます(テスト中)
 ※wgpuレンダラーと完全に見た目が一致するわけではないので、ご了承ください(比較画像も作る予定)

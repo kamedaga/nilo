@@ -30,6 +30,17 @@ where
     // ウィンドウサイズを取得する関数
     let get_window_size = || -> [f32; 2] {
         if let Some(window_obj) = window() {
+            if let Some(document) = window_obj.document() {
+                // #containerの実際のサイズを取得
+                if let Some(container) = document.get_element_by_id("container") {
+                    let width = container.client_width() as f32;
+                    let height = container.client_height() as f32;
+                    if width > 0.0 && height > 0.0 {
+                        return [width, height];
+                    }
+                }
+            }
+            // フォールバック: windowサイズを使用
             let width = window_obj
                 .inner_width()
                 .ok()
@@ -79,18 +90,34 @@ where
         log::info!("Initial DOM render complete");
     }
 
-    // イベントリスナーの設定
+    // イベントリスナーの設定（#preview-containerに登録して永続化）
     if let Some(window_obj) = window() {
         if let Some(document) = window_obj.document() {
-            if let Some(body) = document.body() {
+            // Register event listeners directly on `#container` so event.clientX/Y
+            // coordinates and the container's bounding rect share the same origin.
+            // Registering on `#preview-container` caused offset mismatches.
+            let event_target = document.get_element_by_id("container");
+                
+            if let Some(target) = event_target {
                 // マウスムーブイベント
                 let mouse_pos_clone = Arc::clone(&mouse_pos);
                 let closure = Closure::wrap(Box::new(move |event: web_sys::MouseEvent| {
-                    let mut pos = mouse_pos_clone.lock().unwrap();
-                    pos[0] = event.client_x() as f32;
-                    pos[1] = event.client_y() as f32;
+                    // #container要素内の相対座標を取得
+                    if let Some(window) = window() {
+                        if let Some(document) = window.document() {
+                            if let Some(container) = document.get_element_by_id("container") {
+                                use wasm_bindgen::JsCast;
+                                if let Ok(element) = container.dyn_into::<web_sys::Element>() {
+                                    let rect = element.get_bounding_client_rect();
+                                    let mut pos = mouse_pos_clone.lock().unwrap();
+                                    pos[0] = (event.client_x() as f64 - rect.left()) as f32;
+                                    pos[1] = (event.client_y() as f64 - rect.top()) as f32;
+                                }
+                            }
+                        }
+                    }
                 }) as Box<dyn FnMut(_)>);
-                body.add_event_listener_with_callback(
+                target.add_event_listener_with_callback(
                     "mousemove",
                     closure.as_ref().unchecked_ref(),
                 )
@@ -101,13 +128,30 @@ where
                 let mouse_down_clone = Arc::clone(&mouse_down);
                 let event_queue_clone = Arc::clone(&event_queue);
                 let state_clone = Arc::clone(&state);
-                let mouse_pos_clone = Arc::clone(&mouse_pos);
-                let closure = Closure::wrap(Box::new(move |_event: web_sys::MouseEvent| {
+                let closure = Closure::wrap(Box::new(move |event: web_sys::MouseEvent| {
                     *mouse_down_clone.lock().unwrap() = true;
+
+                    // #container要素内の相対座標を取得
+                    let pos = if let Some(window) = window() {
+                        if let Some(document) = window.document() {
+                            if let Some(container) = document.get_element_by_id("container") {
+                                let rect = container.get_bounding_client_rect();
+                                [
+                                    (event.client_x() as f64 - rect.left()) as f32,
+                                    (event.client_y() as f64 - rect.top()) as f32,
+                                ]
+                            } else {
+                                [0.0, 0.0]
+                            }
+                        } else {
+                            [0.0, 0.0]
+                        }
+                    } else {
+                        [0.0, 0.0]
+                    };
 
                     // ボタンのヒットテストを行う
                     let state_guard = state_clone.lock().unwrap();
-                    let pos = *mouse_pos_clone.lock().unwrap();
 
                     for (id, button_pos, button_size) in &state_guard.all_buttons {
                         let in_bounds = pos[0] >= button_pos[0]
@@ -116,6 +160,8 @@ where
                             && pos[1] <= button_pos[1] + button_size[1];
 
                         if in_bounds {
+                            log::info!("Button clicked: {} at pos={:?}, button_pos={:?}, button_size={:?}", 
+                                id, pos, button_pos, button_size);
                             event_queue_clone
                                 .lock()
                                 .unwrap()
@@ -124,7 +170,7 @@ where
                         }
                     }
                 }) as Box<dyn FnMut(_)>);
-                body.add_event_listener_with_callback(
+                target.add_event_listener_with_callback(
                     "mousedown",
                     closure.as_ref().unchecked_ref(),
                 )
@@ -136,11 +182,11 @@ where
                 let closure = Closure::wrap(Box::new(move |_event: web_sys::MouseEvent| {
                     *mouse_down_clone.lock().unwrap() = false;
                 }) as Box<dyn FnMut(_)>);
-                body.add_event_listener_with_callback("mouseup", closure.as_ref().unchecked_ref())
+                target.add_event_listener_with_callback("mouseup", closure.as_ref().unchecked_ref())
                     .ok();
                 closure.forget();
 
-                log::info!("Event listeners registered");
+                log::info!("Event listeners registered on preview-container");
             }
         }
     }
@@ -185,19 +231,35 @@ where
             }
         }
 
-        // レンダリング - ウィンドウサイズを動的に取得
+        // レンダリング - コンテナサイズを動的に取得
         let window_size = if let Some(window_obj) = window() {
-            let width = window_obj
-                .inner_width()
-                .ok()
-                .and_then(|v| v.as_f64())
-                .unwrap_or(800.0) as f32;
-            let height = window_obj
-                .inner_height()
-                .ok()
-                .and_then(|v| v.as_f64())
-                .unwrap_or(600.0) as f32;
-            [width, height]
+            if let Some(document) = window_obj.document() {
+                // #containerの実際のサイズを取得
+                if let Some(container) = document.get_element_by_id("container") {
+                    let width = container.client_width() as f32;
+                    let height = container.client_height() as f32;
+                    if width > 0.0 && height > 0.0 {
+                        [width, height]
+                    } else {
+                        // フォールバック
+                        let width = window_obj
+                            .inner_width()
+                            .ok()
+                            .and_then(|v| v.as_f64())
+                            .unwrap_or(800.0) as f32;
+                        let height = window_obj
+                            .inner_height()
+                            .ok()
+                            .and_then(|v| v.as_f64())
+                            .unwrap_or(600.0) as f32;
+                        [width, height]
+                    }
+                } else {
+                    [800.0, 600.0]
+                }
+            } else {
+                [800.0, 600.0]
+            }
         } else {
             [800.0, 600.0]
         };

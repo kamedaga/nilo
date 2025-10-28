@@ -125,6 +125,7 @@ impl DomRenderer {
             if let Some(window) = window() {
                 if let Some(document) = window.document() {
                     if let Some(container) = document.get_element_by_id(&self.container_id) {
+                        // コンテナをクリア（スクロール位置はrun_nilo_code_from_browser側で管理）
                         container.set_inner_html("");
                     }
                 }
