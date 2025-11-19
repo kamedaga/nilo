@@ -1,0 +1,133 @@
+flow {
+    start: IntervalExample
+}
+
+timeline IntervalExample {
+    VStack(style: {
+        width: 100%,
+        background: "#2c3e50",
+        padding: 40,
+        spacing: 30,
+        align: "center"
+    }) {
+        // タイトル
+        Text("⏰ 定期実行デモ", style: {
+            font_size: 36px,
+            color: "#ecf0f1",
+            weight: "bold"
+        })
+        
+        // タイムスタンプ表示
+        VStack(style: {
+            spacing: 15,
+            padding: 30,
+            background: "#34495e",
+            rounded: 15
+        }) {
+            Text("現在時刻（1秒ごと更新）", style: {
+                font_size: 18px,
+                color: "#95a5a6"
+            })
+            
+            Text("{}", state.timestamp, style: {
+                font_size: 28px,
+                color: "#3498db",
+                weight: "bold"
+            })
+            
+            Text("{}", state.status, style: {
+                font_size: 14px,
+                color: "#2ecc71"
+            })
+            
+            HStack(style: {spacing: 15}) {
+                Button(id: "start_timer_btn", label: "🎬 開始", onclick: start_timer(), style: {
+                    padding: [12, 24],
+                    background: "#27ae60",
+                    color: "#ffffff",
+                    rounded: 8,
+                    font_size: 16px
+                })
+                
+                Button(id: "stop_timer_btn", label: "⏹️ 停止", onclick: stop_timer(), style: {
+                    padding: [12, 24],
+                    background: "#e74c3c",
+                    color: "#ffffff",
+                    rounded: 8,
+                    font_size: 16px
+                })
+            }
+        }
+        
+        Spacing(20px)
+        
+        // カウンター表示
+        VStack(style: {
+            spacing: 15,
+            padding: 30,
+            background: "#34495e",
+            rounded: 15
+        }) {
+            Text("カウンター（500msごと）", style: {
+                font_size: 18px,
+                color: "#95a5a6"
+            })
+            
+            Text("{}", state.counter, style: {
+                font_size: 48px,
+                color: "#e67e22",
+                weight: "bold"
+            })
+            
+            HStack(style: {spacing: 15}) {
+                Button(id: "start_counter_btn", label: "▶️ 開始", onclick: start_counter(), style: {
+                    padding: [12, 24],
+                    background: "#16a085",
+                    color: "#ffffff",
+                    rounded: 8,
+                    font_size: 16px
+                })
+                
+                Button(id: "stop_counter_btn", label: "⏸️ 停止", onclick: stop_counter(), style: {
+                    padding: [12, 24],
+                    background: "#c0392b",
+                    color: "#ffffff",
+                    rounded: 8,
+                    font_size: 16px
+                })
+            }
+        }
+        
+        Spacing(20px)
+        
+        // 説明
+        VStack(style: {
+            spacing: 10,
+            padding: 20,
+            background: "#1a252f",
+            rounded: 10,
+            max_width: 600
+        }) {
+            Text("💡 使い方", style: {
+                font_size: 20px,
+                color: "#f39c12",
+                weight: "bold"
+            })
+            
+            Text("• タイムスタンプは1000ms（1秒）ごとに自動更新されます", style: {
+                font_size: 14px,
+                color: "#bdc3c7"
+            })
+            
+            Text("• カウンターは500ms（0.5秒）ごとに増加します", style: {
+                font_size: 14px,
+                color: "#bdc3c7"
+            })
+            
+            Text("• 開始/停止ボタンで制御できます", style: {
+                font_size: 14px,
+                color: "#bdc3c7"
+            })
+        }
+    }
+}

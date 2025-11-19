@@ -226,7 +226,8 @@ impl WgpuRenderer {
             | DrawCommand::Circle { depth, .. }
             | DrawCommand::Triangle { depth, .. }
             | DrawCommand::Image { depth, .. }
-            | DrawCommand::Text { depth, .. } => *depth,
+            | DrawCommand::Text { depth, .. }
+            | DrawCommand::ScrollContainer { depth, .. } => *depth,
         }
     }
 
@@ -246,17 +247,217 @@ impl WgpuRenderer {
         scroll_offset: [f32; 2],
         scale_factor: f32,
     ) {
-        // 型ごとに事前分類（借用問題を回避）
-        let mut shape_commands = Vec::new();
-        let mut image_commands = Vec::new();
-        let mut text_commands = Vec::new();
+        // ScrollContainerを展開してフラット化
+        let flattened_commands = self.flatten_scroll_containers(commands, scroll_offset);
+        
+        // フラット化されたコマンドをレンダリング
+        self.render_flattened_commands(rpass, &flattened_commands, scale_factor);
+    }
 
+    /// ScrollContainerを展開してフラット化
+    fn flatten_scroll_containers(
+        &self,
+        commands: &[DrawCommand],
+        scroll_offset: [f32; 2],
+    ) -> Vec<(DrawCommand, Option<(u32, u32, u32, u32)>)> {
+        let mut result = Vec::new();
+        
         for cmd in commands {
+            match cmd {
+                DrawCommand::ScrollContainer {
+                    position,
+                    width,
+                    height,
+                    children,
+                    scroll_offset: local_scroll,
+                    ..
+                } => {
+                    // ScrollContainer用のシザー矩形を計算（スクロールオフセット適用後の位置）
+                    let container_x = position[0] + scroll_offset[0];
+                    let container_y = position[1] + scroll_offset[1];
+                    let scissor_x = container_x as u32;
+                    let scissor_y = container_y as u32;
+                    let scissor_w = *width as u32;
+                    let scissor_h = *height as u32;
+                    let scissor = Some((scissor_x, scissor_y, scissor_w, scissor_h));
+                    
+                    // 子要素を再帰的に展開（親のスクロールとローカルスクロールを結合）
+                    let combined_scroll = [
+                        scroll_offset[0] + local_scroll[0],
+                        scroll_offset[1] + local_scroll[1],
+                    ];
+                    
+                    let child_commands = self.flatten_scroll_containers(children, combined_scroll);
+                    
+                    // 子要素をそのまま追加（スクロールは既に適用済み）
+                    for (child_cmd, child_scissor) in child_commands {
+                        // シザー矩形を結合（子要素のシザーと親のシザーの交差）
+                        let final_scissor = if let Some(child_sc) = child_scissor {
+                            // 交差を計算
+                            let x = child_sc.0.max(scissor_x);
+                            let y = child_sc.1.max(scissor_y);
+                            let right = (child_sc.0 + child_sc.2).min(scissor_x + scissor_w);
+                            let bottom = (child_sc.1 + child_sc.3).min(scissor_y + scissor_h);
+                            
+                            if right > x && bottom > y {
+                                Some((x, y, right - x, bottom - y))
+                            } else {
+                                None // 完全に範囲外
+                            }
+                        } else {
+                            scissor
+                        };
+                        
+                        // シザー矩形がある場合のみ追加
+                        if final_scissor.is_some() || child_scissor.is_none() {
+                            result.push((child_cmd, final_scissor));
+                        }
+                    }
+                }
+                _ => {
+                    // ★ scroll: falseのコマンドはスクロールオフセットを適用しない
+                    let should_scroll = match cmd {
+                        DrawCommand::Rect { scroll, .. } => *scroll,
+                        DrawCommand::Circle { scroll, .. } => *scroll,
+                        DrawCommand::Triangle { scroll, .. } => *scroll,
+                        DrawCommand::Text { scroll, .. } => *scroll,
+                        DrawCommand::Image { scroll, .. } => *scroll,
+                        DrawCommand::ScrollContainer { .. } => false, // 既に処理済み
+                    };
+                    
+                    let mut cmd_with_scroll = cmd.clone();
+                    if should_scroll {
+                        // scroll: trueの場合のみスクロールオフセットを適用
+                        self.apply_scroll_to_command(&mut cmd_with_scroll, scroll_offset);
+                    }
+                    result.push((cmd_with_scroll, None));
+                }
+            }
+        }
+        
+        result
+    }
+
+    /// コマンドにスクロールオフセットを適用
+    fn apply_scroll_to_command(&self, cmd: &mut DrawCommand, offset: [f32; 2]) {
+        match cmd {
+            DrawCommand::Rect { position, .. } => {
+                position[0] += offset[0];
+                position[1] += offset[1];
+            }
+            DrawCommand::Circle { center, .. } => {
+                center[0] += offset[0];
+                center[1] += offset[1];
+            }
+            DrawCommand::Triangle { p1, p2, p3, .. } => {
+                p1[0] += offset[0];
+                p1[1] += offset[1];
+                p2[0] += offset[0];
+                p2[1] += offset[1];
+                p3[0] += offset[0];
+                p3[1] += offset[1];
+            }
+            DrawCommand::Text { position, .. } => {
+                position[0] += offset[0];
+                position[1] += offset[1];
+            }
+            DrawCommand::Image { position, .. } => {
+                position[0] += offset[0];
+                position[1] += offset[1];
+            }
+            DrawCommand::ScrollContainer { .. } => {
+                // ScrollContainerは既に展開済み
+            }
+        }
+    }
+
+    /// フラット化されたコマンドをレンダリング
+    fn render_flattened_commands<'a>(
+        &'a mut self,
+        rpass: &mut wgpu::RenderPass<'a>,
+        commands: &[(DrawCommand, Option<(u32, u32, u32, u32)>)],
+        scale_factor: f32,
+    ) {
+        let size_width = self.size.width;
+        let size_height = self.size.height;
+        
+        // デフォルトのシザー矩形を設定
+        rpass.set_scissor_rect(0, 0, size_width, size_height);
+        
+        // シザー矩形ごとにグループ化してバッチ処理
+        let mut current_scissor: Option<(u32, u32, u32, u32)> = None;
+        let mut batch_shapes = Vec::new();
+        let mut batch_images = Vec::new();
+        let mut batch_texts = Vec::new();
+        
+        for (cmd, scissor) in commands {
+            // シザー矩形が変わった場合、現在のバッチをレンダリング
+            if *scissor != current_scissor {
+                // バッチをフラッシュ（インライン展開）
+                if !batch_shapes.is_empty() {
+                    let list = DrawList(batch_shapes.clone());
+                    self.unified_renderer.draw(
+                        rpass,
+                        &list,
+                        &self.queue,
+                        self.size,
+                        [0.0, 0.0],
+                        scale_factor,
+                    );
+                    batch_shapes.clear();
+                }
+                
+                if !batch_images.is_empty() {
+                    let list = DrawList(batch_images.clone());
+                    self.image_renderer.draw(
+                        &self.device,
+                        rpass,
+                        &list,
+                        &self.queue,
+                        self.size,
+                        [0.0, 0.0],
+                        scale_factor,
+                    );
+                    batch_images.clear();
+                }
+                
+                if !batch_texts.is_empty() {
+                    self.text_renderer.render_multiple_texts(
+                        rpass,
+                        &batch_texts,
+                        [0.0, 0.0],
+                        scale_factor,
+                        &self.queue,
+                        &self.device,
+                        self.size.width,
+                        self.size.height,
+                    );
+                    batch_texts.clear();
+                }
+                
+                current_scissor = *scissor;
+                if let Some((x, y, w, h)) = current_scissor {
+                    rpass.set_scissor_rect(
+                        (x as f32 * scale_factor) as u32,
+                        (y as f32 * scale_factor) as u32,
+                        (w as f32 * scale_factor) as u32,
+                        (h as f32 * scale_factor) as u32,
+                    );
+                } else {
+                    rpass.set_scissor_rect(0, 0, size_width, size_height);
+                }
+            }
+            
+            // コマンドをバッチに追加
             match cmd {
                 DrawCommand::Rect { .. }
                 | DrawCommand::Circle { .. }
-                | DrawCommand::Triangle { .. } => shape_commands.push(cmd.clone()),
-                DrawCommand::Image { .. } => image_commands.push(cmd.clone()),
+                | DrawCommand::Triangle { .. } => {
+                    batch_shapes.push(cmd.clone());
+                }
+                DrawCommand::Image { .. } => {
+                    batch_images.push(cmd.clone());
+                }
                 DrawCommand::Text {
                     content,
                     position,
@@ -266,7 +467,7 @@ impl WgpuRenderer {
                     max_width,
                     ..
                 } => {
-                    text_commands.push((
+                    batch_texts.push((
                         content.clone(),
                         *position,
                         *size,
@@ -275,42 +476,43 @@ impl WgpuRenderer {
                         *max_width,
                     ));
                 }
+                DrawCommand::ScrollContainer { .. } => {
+                    // 既に展開済み
+                }
             }
         }
-
-        // 統合レンダラで図形を一括描画（一つのパイプライン）
-        if !shape_commands.is_empty() {
-            let list = DrawList(shape_commands);
+        
+        // 最後のバッチをレンダリング（インライン展開）
+        if !batch_shapes.is_empty() {
+            let list = DrawList(batch_shapes);
             self.unified_renderer.draw(
                 rpass,
                 &list,
                 &self.queue,
                 self.size,
-                scroll_offset,
+                [0.0, 0.0],
                 scale_factor,
             );
         }
-
-        // 画像描画
-        if !image_commands.is_empty() {
-            let list = DrawList(image_commands);
+        
+        if !batch_images.is_empty() {
+            let list = DrawList(batch_images);
             self.image_renderer.draw(
                 &self.device,
                 rpass,
                 &list,
                 &self.queue,
                 self.size,
-                scroll_offset,
+                [0.0, 0.0],
                 scale_factor,
             );
         }
-
-        // テキスト描画
-        if !text_commands.is_empty() {
+        
+        if !batch_texts.is_empty() {
             self.text_renderer.render_multiple_texts(
                 rpass,
-                &text_commands,
-                scroll_offset,
+                &batch_texts,
+                [0.0, 0.0],
                 scale_factor,
                 &self.queue,
                 &self.device,
@@ -318,5 +520,8 @@ impl WgpuRenderer {
                 self.size.height,
             );
         }
+        
+        // シザーテストをリセット
+        rpass.set_scissor_rect(0, 0, size_width, size_height);
     }
 }

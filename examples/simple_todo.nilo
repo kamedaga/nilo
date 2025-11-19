@@ -1,0 +1,29 @@
+flow {
+    start: SimpleTodo
+}
+
+timeline SimpleTodo(background: "#ffffff") {
+    VStack(style: {}) {
+        Text("Simple Todo App")
+        
+        HStack(style: {}) {
+            TextInput(input, bind: state.input, placeholder: "Enter task")
+            Button(id: add, label: "Add", onclick: add_todo())
+        }
+        
+        Text("Tasks: {}", state.todos.len())
+        
+        test!()
+        
+        foreach task in state.todos {
+            HStack(style: {}) {
+                Text("{}", task)
+                Button(id: delete, label: "Delete", onclick: remove_todo(task))
+            }
+        }
+        
+        if state.todos.len() > 0 {
+            Button(id: clear, label: "Clear All", onclick: clear_all())
+        }
+    }
+}

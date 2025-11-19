@@ -526,6 +526,9 @@ pub struct Style {
 
     // ★ テキスト折り返し制御
     pub wrap: Option<WrapMode>,
+    
+    // ★ スクロール制御
+    pub overflow: Option<OverflowMode>,
 
     // ★ レスポンシブ対応: 条件付きスタイル
     pub responsive_rules: Vec<ResponsiveRule>,
@@ -536,6 +539,15 @@ pub struct Style {
 pub enum WrapMode {
     Auto, // 自動折り返し（デフォルト）
     None, // 折り返ししない
+}
+
+/// オーバーフローモード（スクロール制御）
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum OverflowMode {
+    Visible, // 内容が溢れても表示（デフォルト）
+    Hidden,  // 溢れた部分を非表示
+    Scroll,  // スクロール可能
+    Auto,    // 必要に応じてスクロール
 }
 
 /// レスポンシブデザイン用の条件付きスタイル
@@ -696,6 +708,9 @@ impl Style {
         }
         if other.wrap.is_some() {
             result.wrap = other.wrap;
+        }
+        if other.overflow.is_some() {
+            result.overflow = other.overflow;
         }
 
         // ★ レスポンシブルール: 他のルールを優先的にマージ

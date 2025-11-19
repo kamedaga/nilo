@@ -16,7 +16,14 @@ where
             // onclick式を評価して実行
             match &onclick_expr {
                 Expr::FunctionCall { name, args } => {
-                    // 関数呼び出しの場合、stateアクセス可能な専用メソッドを使用
+                    // ★ 最初に非同期onclick関数をチェック
+                    if crate::engine::async_call::has_async_onclick(name) {
+                        log::info!("🚀 Executing async onclick: {}", name);
+                        crate::engine::async_call::execute_async_onclick(name, state, args);
+                        return; // 非同期関数が見つかったら通常のハンドラーは実行しない
+                    }
+                    
+                    // 通常の関数呼び出し（stateアクセス可能）
                     state.execute_onclick_function_call(name, args);
                 }
                 _ => {

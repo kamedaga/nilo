@@ -257,6 +257,15 @@ pub struct AppState<S> {
     /// 静的パートのテキスト入力領域キャッシュ
     pub static_text_inputs: Vec<(String, [f32; 2], [f32; 2])>,
 
+    /// ★ 新規追加: ScrollContainerの情報（ID, position, size, scroll_offset）
+    pub scroll_containers: Vec<(String, [f32; 2], [f32; 2], [f32; 2])>,
+
+    /// ★ 新規追加: ScrollContainerのローカルスクロールオフセットマップ（ID -> scroll_offset）
+    pub scroll_container_offsets: HashMap<String, [f32; 2]>,
+
+    /// ★ 新規追加: ScrollContainerのコンテンツ高さマップ（ID -> content_height）
+    pub scroll_container_content_heights: HashMap<String, f32>,
+
     /// ★ ロジック処理済みのノードツリー（タイムライン変更時のみリセット）
     pub expanded_body: Option<Vec<WithSpan<ViewNode>>>,
 
@@ -279,7 +288,7 @@ pub struct AppState<S> {
     // ★ レイアウト差分計算エンジン
     /// 静的部分のレイアウト差分エンジン
     pub layout_diff_static: Option<std::rc::Rc<std::cell::RefCell<LayoutDiffEngine<'static>>>>,
-    /// 動的部分のレイアウト差分エンジン
+    /// 動的部分のレイアウト差分計算エンジン
     pub layout_diff_dynamic: Option<std::rc::Rc<std::cell::RefCell<LayoutDiffEngine<'static>>>>,
 
     // ★ 新規追加: テキスト入力とIME関連の状態管理
@@ -321,6 +330,9 @@ impl<S> AppState<S> {
             static_stencils: None,
             static_buttons: Vec::new(),
             static_text_inputs: Vec::new(),
+            scroll_containers: Vec::new(),
+            scroll_container_offsets: HashMap::new(),
+            scroll_container_content_heights: HashMap::new(),
             expanded_body: None,
             local_vars_initialized: false,
             cached_window_size: None,
@@ -858,7 +870,7 @@ impl<S: StateAccess + 'static> AppState<S> {
     pub fn resolve_responsive_style(&self, base_style: &Style) -> Style {
         let mut result = base_style.clone();
 
-        if !base_style.responsive_rules.is_empty() {}
+        if (!base_style.responsive_rules.is_empty()) {}
 
         // responsive_rulesを評価
         for (_idx, rule) in base_style.responsive_rules.iter().enumerate() {
@@ -905,7 +917,7 @@ impl<S: StateAccess + 'static> AppState<S> {
 
         let is_hover = point_in_rect(mouse_pos, lnode.position, lnode.size);
 
-        let final_style = if is_hover {
+        let final_style = if (is_hover) {
             if let Some(ref hover_style) = style.hover {
                 style.merged(hover_style)
             } else {
@@ -1659,7 +1671,8 @@ fn offset_stencil(st: &Stencil, dx: f32, dy: f32) -> Stencil {
         Stencil::Rect { position, .. }
         | Stencil::RoundedRect { position, .. }
         | Stencil::Text { position, .. }
-        | Stencil::Image { position, .. } => {
+        | Stencil::Image { position, .. }
+        | Stencil::ScrollContainer { position, .. } => {
             position[0] += dx;
             position[1] += dy;
         }
@@ -1687,15 +1700,21 @@ fn adjust_stencil_depth_dynamic(stencil: &mut Stencil, depth_counter: &mut f32) 
 
     match stencil {
         Stencil::Rect { depth, .. }
-        | Stencil::RoundedRect { depth, .. }
         | Stencil::Circle { depth, .. }
         | Stencil::Triangle { depth, .. }
         | Stencil::Text { depth, .. }
         | Stencil::Image { depth, .. }
+        | Stencil::RoundedRect { depth, .. }
         | Stencil::ScrollBar { depth, .. } => {
             *depth = new_depth;
         }
         Stencil::Group(children) => {
+            for child in children {
+                adjust_stencil_depth_dynamic(child, depth_counter);
+            }
+        }
+        Stencil::ScrollContainer { depth, children, .. } => {
+            *depth = new_depth;
             for child in children {
                 adjust_stencil_depth_dynamic(child, depth_counter);
             }

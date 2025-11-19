@@ -6,6 +6,51 @@ use crate::engine::state::{AppState, StateAccess};
 use crate::parser::ast::{Expr, ViewNode};
 use crate::stencil::stencil::Stencil;
 use crate::ui::LayoutedNode;
+use std::collections::HashMap;
+
+thread_local! {
+    static TEXT_WIDTH_CACHE: std::cell::RefCell<HashMap<String, f32>> = std::cell::RefCell::new(HashMap::new());
+}
+
+/// キャッシュ付きテキスト幅計算
+#[inline]
+fn text_width_cached(text: &str, font_size: f32, font_family: &str) -> f32 {
+    if text.is_empty() {
+        return 0.0;
+    }
+    
+    let cache_key = format!("{}:{}:{}", text, font_size, font_family);
+    
+    TEXT_WIDTH_CACHE.with(|cache| {
+        let mut cache = cache.borrow_mut();
+        
+        if let Some(&width) = cache.get(&cache_key) {
+            return width;
+        }
+        
+        #[cfg(any(feature = "glyphon", target_arch = "wasm32"))]
+        let width = {
+            let (w, _h) = crate::ui::text_measurement::measure_text_size(
+                text,
+                font_size,
+                font_family,
+                None,
+            );
+            w
+        };
+        
+        #[cfg(not(any(feature = "glyphon", target_arch = "wasm32")))]
+        let width = font_size * 0.6 * text.chars().count() as f32;
+        
+        // キャッシュサイズ制限（メモリリーク防止）
+        if cache.len() > 500 {
+            cache.clear();
+        }
+        
+        cache.insert(cache_key, width);
+        width
+    })
+}
 
 /// 軽量化されたテキスト入力フィールド描画
 pub fn render_text_input_lightweight<S>(
@@ -58,6 +103,7 @@ pub fn render_text_input_lightweight<S>(
             border_color
         };
 
+        // 背景描画（1回のみ）
         if bg_color[3] > 0.0 {
             *depth_counter += 0.001;
             stencils.push(Stencil::RoundedRect {
@@ -71,9 +117,9 @@ pub fn render_text_input_lightweight<S>(
             });
         }
 
+        // ボーダー描画（必要な場合のみ）
         if effective_border_color[3] > 0.0 {
             let border_width = if is_focused { 2.0 } else { 1.0 };
-
             *depth_counter += 0.001;
             stencils.push(Stencil::RoundedRect {
                 position: [
@@ -87,17 +133,6 @@ pub fn render_text_input_lightweight<S>(
                 scroll: true,
                 depth: (1.0 - *depth_counter).max(0.0),
             });
-
-            *depth_counter += 0.001;
-            stencils.push(Stencil::RoundedRect {
-                position: lnode.position,
-                width: lnode.size[0],
-                height: lnode.size[1],
-                radius,
-                color: bg_color,
-                scroll: true,
-                depth: (1.0 - *depth_counter).max(0.0),
-            });
         }
 
         let text_color = style
@@ -106,7 +141,6 @@ pub fn render_text_input_lightweight<S>(
             .map(|c| convert_to_rgba(c))
             .unwrap_or([0.2, 0.2, 0.2, 1.0]);
 
-        // Current text and optional IME composition text
         let current_value = state.get_text_input_value(id);
         let ime_text = state.get_ime_composition_text(id).cloned();
         let placeholder_text = placeholder.as_deref().unwrap_or("");
@@ -114,128 +148,83 @@ pub fn render_text_input_lightweight<S>(
         let padding_x = 16.0;
         let padding_y = (lnode.size[1] - font_size * 1.2) / 2.0;
 
-        // Helper to measure text width accurately
-        fn text_width(text: &str, font_size: f32, font_family: &str) -> f32 {
-            #[cfg(any(feature = "glyphon", target_arch = "wasm32"))]
-            {
-                let (w, _h) = crate::ui::text_measurement::measure_text_size(
-                    text,
-                    font_size,
-                    font_family,
-                    None,
-                );
-                w
-            }
-            #[cfg(not(any(feature = "glyphon", target_arch = "wasm32")))]
-            {
-                font_size * 0.6 * text.chars().count() as f32
-            }
-        }
-
         let font_family = style
             .font
             .as_ref()
             .or(style.font_family.as_ref())
             .map(|s| s.clone())
             .unwrap_or_else(|| default_font.to_string());
-        let cursor_pos = state.get_text_cursor_position(id);
 
+        // プレースホルダー表示（早期リターン）
         if current_value.is_empty() && ime_text.is_none() {
-            // Show placeholder when nothing typed and no composition
             *depth_counter += 0.001;
             stencils.push(Stencil::Text {
                 content: placeholder_text.to_string(),
                 position: [lnode.position[0] + padding_x, lnode.position[1] + padding_y],
                 size: font_size,
                 color: [0.6, 0.6, 0.6, 1.0],
-                font: font_family.clone(),
+                font: font_family,
                 max_width: None,
                 scroll: true,
                 depth: (1.0 - *depth_counter).max(0.0),
             });
+            return;
+        }
+
+        let cursor_pos = state.get_text_cursor_position(id);
+        let base_x = lnode.position[0] + padding_x;
+        let text_y = lnode.position[1] + padding_y;
+        let inner_width = (lnode.size[0] - padding_x * 2.0).max(0.0);
+
+        // テキストを分割（カーソル位置で）
+        let chars: Vec<char> = current_value.chars().collect();
+        let pre: String = chars.iter().take(cursor_pos).collect();
+        let post: String = chars.iter().skip(cursor_pos).collect();
+
+        // 幅計算（キャッシュ利用）
+        let pre_w = text_width_cached(&pre, font_size, &font_family);
+        let comp_w = ime_text.as_ref()
+            .map(|t| text_width_cached(t, font_size, &font_family))
+            .unwrap_or(0.0);
+
+        // スクロール計算（簡略化）
+        let cursor_rel_x = pre_w + comp_w;
+        let one_char_px = text_width_cached("M", font_size, &font_family)
+            .max(text_width_cached("あ", font_size, &font_family))
+            .max(1.0);
+        let effective_width = (inner_width - one_char_px).max(1.0);
+        
+        let scroll_x = if cursor_rel_x > effective_width {
+            (cursor_rel_x - effective_width).max(0.0)
         } else {
-            // Draw text split into: pre | ime_comp? | post
-            let (pre, post) = {
-                let iter = current_value.chars();
-                let pre: String = iter.clone().take(cursor_pos).collect();
-                let post: String = iter.skip(cursor_pos).collect();
-                (pre, post)
-            };
+            0.0
+        };
 
-            let base_x = lnode.position[0] + padding_x;
-            let text_y = lnode.position[1] + padding_y;
-
-            // Measure widths first for scrolling
-            let pre_w = text_width(&pre, font_size, &font_family);
-            let comp_w = if let Some(comp) = ime_text.as_ref() {
-                text_width(comp, font_size, &font_family)
-            } else {
-                0.0
-            };
-
-            // Horizontal scroll to keep cursor visible with 1-char right padding
-            let inner_width = (lnode.size[0] - padding_x * 2.0).max(0.0);
-            let one_char_px = text_width("M", font_size, &font_family)
-                .max(text_width("あ", font_size, &font_family))
-                .max(1.0);
-            let effective_width = (inner_width - one_char_px).max(1.0);
-            let cursor_rel_x = pre_w + comp_w; // width before caret position
-            let mut scroll_x = if cursor_rel_x > effective_width {
-                cursor_rel_x - effective_width
-            } else {
-                0.0
-            };
-            if cursor_rel_x < scroll_x {
-                scroll_x = cursor_rel_x.max(0.0);
-            }
-            // After trimming strings by scroll_x, draw from base_x
-            let draw_x = base_x;
-
-            // Build visible substrings inside [scroll_x, scroll_x+inner_width]
-            fn trim_left_by_px(s: &str, cut_px: f32, fs: f32, ff: &str) -> String {
-                if cut_px <= 0.0 { return s.to_string(); }
-                let mut acc = 0.0f32;
-                for (idx, ch) in s.char_indices() {
-                    let w = text_width(&ch.to_string(), fs, ff);
-                    acc += w;
-                    if acc >= cut_px { return s[idx+ch.len_utf8()..].to_string(); }
+        // 表示テキストの計算（簡略化）
+        let visible_start = if scroll_x > 0.0 {
+            // スクロール位置からの文字を探す
+            let mut acc = 0.0;
+            let mut start_idx = 0;
+            for (i, ch) in pre.chars().enumerate() {
+                let w = text_width_cached(&ch.to_string(), font_size, &font_family);
+                if acc + w >= scroll_x {
+                    start_idx = i;
+                    break;
                 }
-                String::new()
+                acc += w;
             }
-            fn trim_right_to_fit(s: &str, max_px: f32, fs: f32, ff: &str) -> String {
-                if max_px <= 0.0 { return String::new(); }
-                let mut acc = 0.0f32;
-                let mut end_byte = 0usize;
-                for (idx, ch) in s.char_indices() {
-                    let w = text_width(&ch.to_string(), fs, ff);
-                    if acc + w > max_px { break; }
-                    acc += w;
-                    end_byte = idx + ch.len_utf8();
-                }
-                if end_byte == 0 { String::new() } else { s[..end_byte].to_string() }
-            }
+            start_idx
+        } else {
+            0
+        };
 
-            let mut pre_vis = if scroll_x >= pre_w { String::new() } else { trim_left_by_px(&pre, scroll_x, font_size, &font_family) };
-            let mut comp_vis = if let Some(comp) = ime_text.as_ref() {
-                let left_after_pre = (scroll_x - pre_w).max(0.0);
-                trim_left_by_px(comp, left_after_pre, font_size, &font_family)
-            } else { String::new() };
-            let mut post_vis = {
-                let left_after_pre_comp = (scroll_x - pre_w - comp_w).max(0.0);
-                trim_left_by_px(&post, left_after_pre_comp, font_size, &font_family)
-            };
-
-            // Right trim to fit window width
-            let mut remain = inner_width;
-            let pre_vis_w = text_width(&pre_vis, font_size, &font_family).min(remain);
-            pre_vis = trim_right_to_fit(&pre_vis, remain, font_size, &font_family);
-            remain -= pre_vis_w;
-            let comp_vis_w = text_width(&comp_vis, font_size, &font_family).min(remain);
-            comp_vis = trim_right_to_fit(&comp_vis, remain, font_size, &font_family);
-            remain -= comp_vis_w;
-            post_vis = trim_right_to_fit(&post_vis, remain, font_size, &font_family);
-
-            // Draw pre
+        let pre_vis: String = pre.chars().skip(visible_start).collect();
+        
+        // 描画（最小限の命令）
+        let mut draw_x = base_x;
+        
+        // Pre テキスト
+        if !pre_vis.is_empty() {
             *depth_counter += 0.001;
             stencils.push(Stencil::Text {
                 content: pre_vis.clone(),
@@ -247,26 +236,31 @@ pub fn render_text_input_lightweight<S>(
                 scroll: true,
                 depth: (1.0 - *depth_counter).max(0.0),
             });
+            draw_x += text_width_cached(&pre_vis, font_size, &font_family);
+        }
 
-            // Draw IME composition (background + text)
-            if !comp_vis.is_empty() {
-                let bg_color = [0.2, 0.6, 1.0, 0.25];
-                let pre_vis_w_now = text_width(&pre_vis, font_size, &font_family);
-                let comp_width = text_width(&comp_vis, font_size, &font_family).max(1.0);
+        // IME変換中テキスト
+        if let Some(comp) = ime_text.as_ref() {
+            if !comp.is_empty() {
+                let comp_width = text_width_cached(comp, font_size, &font_family).max(1.0);
+                
+                // 背景
                 *depth_counter += 0.001;
                 stencils.push(Stencil::RoundedRect {
-                    position: [draw_x + pre_vis_w_now, lnode.position[1] + padding_y - 2.0],
+                    position: [draw_x, lnode.position[1] + padding_y - 2.0],
                     width: comp_width,
                     height: font_size * 1.2 + 4.0,
                     radius: 4.0,
-                    color: bg_color,
+                    color: [0.2, 0.6, 1.0, 0.25],
                     scroll: true,
                     depth: (1.0 - *depth_counter).max(0.0),
                 });
+                
+                // テキスト
                 *depth_counter += 0.001;
                 stencils.push(Stencil::Text {
-                    content: comp_vis.clone(),
-                    position: [draw_x + pre_vis_w_now, text_y],
+                    content: comp.clone(),
+                    position: [draw_x, text_y],
                     size: font_size,
                     color: text_color,
                     font: font_family.clone(),
@@ -274,49 +268,28 @@ pub fn render_text_input_lightweight<S>(
                     scroll: true,
                     depth: (1.0 - *depth_counter).max(0.0),
                 });
-            }
-
-            // Draw post
-            if !post_vis.is_empty() {
-                let pre_vis_w_now = text_width(&pre_vis, font_size, &font_family);
-                let comp_vis_w_now = text_width(&comp_vis, font_size, &font_family);
-                *depth_counter += 0.001;
-                stencils.push(Stencil::Text {
-                    content: post_vis.clone(),
-                    position: [draw_x + pre_vis_w_now + comp_vis_w_now, text_y],
-                    size: font_size,
-                    color: text_color,
-                    font: font_family.clone(),
-                    max_width: None,
-                    scroll: true,
-                    depth: (1.0 - *depth_counter).max(0.0),
-                });
+                draw_x += comp_width;
             }
         }
 
-        if is_focused {
-            // Cursor x based on measured width up to cursor, plus IME comp if active
-            let pre_for_cursor: String = current_value.chars().take(cursor_pos).collect();
-            let mut cursor_rel_x = text_width(&pre_for_cursor, font_size, &font_family);
-            if let Some(comp) = ime_text.as_ref() {
-                cursor_rel_x += text_width(comp, font_size, &font_family);
-            }
-            // Recompute scroll_x same as above (with 1-char right padding)
-            let inner_width = (lnode.size[0] - padding_x * 2.0).max(0.0);
-            let one_char_px = text_width("M", font_size, &font_family)
-                .max(text_width("あ", font_size, &font_family))
-                .max(1.0);
-            let effective_width = (inner_width - one_char_px).max(1.0);
-            let mut scroll_x = if cursor_rel_x > effective_width {
-                cursor_rel_x - effective_width
-            } else {
-                0.0
-            };
-            if cursor_rel_x < scroll_x {
-                scroll_x = cursor_rel_x.max(0.0);
-            }
-            let cursor_x = lnode.position[0] + padding_x + cursor_rel_x - scroll_x;
+        // Post テキスト
+        if !post.is_empty() {
+            *depth_counter += 0.001;
+            stencils.push(Stencil::Text {
+                content: post.clone(),
+                position: [draw_x, text_y],
+                size: font_size,
+                color: text_color,
+                font: font_family.clone(),
+                max_width: None,
+                scroll: true,
+                depth: (1.0 - *depth_counter).max(0.0),
+            });
+        }
 
+        // カーソル描画
+        if is_focused {
+            let cursor_x = base_x + cursor_rel_x - scroll_x;
             *depth_counter += 0.001;
             stencils.push(Stencil::Rect {
                 position: [cursor_x, lnode.position[1] + padding_y],

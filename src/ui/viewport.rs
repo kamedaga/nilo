@@ -81,7 +81,7 @@ pub fn filter_visible_stencils(
                 };
                 (y, *height)
             }
-            Stencil::Group(_) | Stencil::ScrollBar { .. } => {
+            Stencil::Group(_) | Stencil::ScrollBar { .. } | Stencil::ScrollContainer { .. } => {
                 result.push(s.clone());
                 continue;
             }

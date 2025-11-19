@@ -281,6 +281,17 @@ pub fn style_from_expr(expr: Expr) -> Style {
                             };
                         }
                     }
+                    "overflow" => {
+                        if let Some(Expr::String(o)) = Some(&resolved_value) {
+                            s.overflow = match o.to_lowercase().as_str() {
+                                "visible" => Some(OverflowMode::Visible),
+                                "hidden" => Some(OverflowMode::Hidden),
+                                "scroll" => Some(OverflowMode::Scroll),
+                                "auto" => Some(OverflowMode::Auto),
+                                _ => None,
+                            };
+                        }
+                    }
                     _ => {
                         // 未知のプロパティは無視
                     }

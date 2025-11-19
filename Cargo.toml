@@ -41,6 +41,8 @@ nilo_state_access_derive = { path = "./nilo_state_access_derive" }
 log = "0.4.27"
 regex = "1.11"
 linkme = "0.3"
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
+tokio = { version = "1", features = ["full"], optional = true }
 
 # WASM専用の依存関係
 wasm-bindgen = { version = "0.2", optional = true }
@@ -66,7 +68,7 @@ console_log = { version = "1.0", optional = true }
 
 [features]
 default = ["native"]
-native = ["wgpu", "winit", "pollster", "glyphon", "colored", "notify", "open"]
+native = ["wgpu", "winit", "pollster", "glyphon", "colored", "notify", "open", "tokio"]
 wasm = ["wasm-bindgen", "web-sys", "console_error_panic_hook", "wasm-bindgen-futures", "placeholder", "console_log"]
 
 [build]

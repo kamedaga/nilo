@@ -673,3 +673,13 @@ TextInput(id, bind: state.field, placeholder: "...")
 - `bind: state.<field>` は `value: state.<field>` の糖衣構文です。
 - 入力のたびに `state.<field>` が自動更新されます（IME確定も含む）。
 - 既存の `value: state.<field>` でも同じ動作になります。
+
+flow Login {
+  start: LoginMenu
+  LoginMenu -> [Login, Signup]
+}
+
+flow Dashboard {
+  start: Dashboard
+  LoginMenu -> [Settings, Profile]
+}

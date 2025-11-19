@@ -1,0 +1,165 @@
+flow {
+    start: main
+}
+
+timeline main {
+    VStack(style: {
+        width: 100%,
+        height: 100%,
+        padding: 40px,
+        background: "#f5f5f5",
+        align: "center",
+        justify: "center"
+    }) {
+        // タイトル
+        VStack(style: {
+            background: "#ffffff",
+            rounded: 16px,
+            padding: 32px,
+            shadow: {blur: 8, offset: [0, 2], color: "#00000020"},
+            max_width: 600px,
+            width: 100%
+        }) {
+            Text("非同期Fetch デモ", style: {
+                font_size: 32px,
+                color: "#333333"
+            })
+            
+            Spacing(8px)
+            
+            Text("example.comからデータを取得します", style: {
+                font_size: 16px,
+                color: "#666666"
+            })
+        }
+        
+        Spacing(24px)
+        
+        // ボタン
+        HStack(style: {gap: 16px}) {
+            Button(id: "fetch_btn", label: "データを取得", onclick: start_fetch(), style: {
+                background: "#2196F3",
+                color: "#ffffff",
+                padding: [16, 32],
+                rounded: 8px,
+                font_size: 18px,
+                shadow: {blur: 4, offset: [0, 2], color: "#00000030"},
+                hover: {
+                    background: "#1976D2"
+                }
+            })
+        }
+        
+        // ローディング表示
+        if state.is_loading == "true" {
+            Spacing(24px)
+            VStack(style: {
+                padding: 16px,
+                background: "#FFF3E0",
+                rounded: 8px,
+                border: [2px, "solid", "#FFB74D"]
+            }) {
+                Text("🔄 データを取得中...", style: {
+                    font_size: 18px,
+                    color: "#F57C00"
+                })
+            }
+        }
+        
+        // エラーメッセージ
+        if state.error_message != "" {
+            Spacing(24px)
+            VStack(style: {
+                padding: 16px,
+                background: "#FFEBEE",
+                rounded: 8px,
+                border: [2px, "solid", "#EF5350"],
+                max_width: 600px,
+                width: 100%
+            }) {
+                Text("❌ エラーが発生しました", style: {
+                    font_size: 18px,
+                    color: "#C62828"
+                })
+                
+                Spacing(8px)
+                
+                Text("{}", state.error_message, style: {
+                    font_size: 14px,
+                    color: "#D32F2F",
+                    max_width: auto
+                })
+            }
+        }
+        
+        Spacing(24px)
+        
+        // 結果表示
+        VStack(style: {
+            padding: 24px,
+            background: "#ffffff",
+            rounded: 12px,
+            shadow: {blur: 8, offset: [0, 2], color: "#00000020"},
+            max_width: 600px,
+            width: 100%
+        }) {
+            Text("📋 取得結果:", style: {
+                font_size: 20px,
+                color: "#333333"
+            })
+            
+            Spacing(16px)
+            
+            VStack(style: {
+                padding: 16px,
+                background: "#f9f9f9",
+                rounded: 8px,
+                border: [1px, "solid", "#e0e0e0"],
+                width: 100%
+            }) {
+                Text("{}", state.fetch_result, style: {
+                    font_size: 14px,
+                    color: "#424242",
+                    max_width: 100%
+                })
+            }
+        }
+        
+        Spacing(32px)
+        
+        // 使い方の説明
+        VStack(style: {
+            padding: 20px,
+            background: "#E3F2FD",
+            rounded: 8px,
+            max_width: 600px,
+            width: 100%
+        }) {
+            Text("💡 使い方", style: {
+                font_size: 18px,
+                color: "#1565C0"
+            })
+            
+            Spacing(12px)
+            
+            Text("1. 「データを取得」ボタンをクリック", style: {
+                font_size: 14px,
+                color: "#1976D2"
+            })
+            
+            Spacing(4px)
+            
+            Text("2. example.comからHTMLを非同期で取得", style: {
+                font_size: 14px,
+                color: "#1976D2"
+            })
+            
+            Spacing(4px)
+            
+            Text("3. 取得したHTMLの最初の500文字を表示", style: {
+                font_size: 14px,
+                color: "#1976D2"
+            })
+        }
+    }
+}

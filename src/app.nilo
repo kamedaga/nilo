@@ -1,6 +1,7 @@
 
 flow {
     start: MainMenu
+    MainMenu -> [About, Contact]
 }
 
 timeline MainMenu {
@@ -38,7 +39,6 @@ timeline MainMenu {
             }
         }
         
-        Spacing(32px)
         
         VStack(style: {align: "center", gap: 12px}) {
             Text("Niloと作る建設的な未来", style: {font_size: 40px, color: "#ffffff", shadow: {blur: 12, offset: [0, 2], color: "#00000066"}})
@@ -49,15 +49,13 @@ timeline MainMenu {
             HotreloadCard()
             LintCard()
         }
-        Spacing(32px)
+    
         VStack(style: {align: "center", gap: 12px}) {
             Text("クロスプラットフォーム対応は当たり前です。", style: {font_size: 32px, color: "#a4f0ffff"})
         }
         
         CrossPlatformCard()
         
-        Spacing(32px)
-
         VStack(style: {align: "center", gap: 12px}) {
             Text("モダンな開発の鍵には、Stencilがあります。", style: {font_size: 40px, color: "#ffffff", shadow: {blur: 12, offset: [0, 2], color: "#00000066"}})
         }

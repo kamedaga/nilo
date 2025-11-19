@@ -39,6 +39,24 @@ pub use renderer_abstract::RendererType;
 pub use engine::state::CustomStateContext;
 pub use engine::state::register_state_watcher;
 
+// 非同期関数登録 API の公開
+pub use engine::async_call::{
+    register_async_call,
+    register_async_onclick,
+    register_async_safe_state_call,
+    has_async_call,
+    has_async_onclick,
+    has_pending_async_results,
+    set_event_loop_proxy,
+    AsyncEvent,
+    // 定期実行用の関数
+    register_async_interval,
+    start_async_interval,
+    stop_async_interval,
+    stop_all_async_intervals,
+    is_async_interval_running,
+};
+
 // 型付き関数登録 API の公開
 #[allow(deprecated)]
 pub use engine::rust_call::{
@@ -59,7 +77,6 @@ pub use nilo_state_access_derive::{
     nilo_state_accessible,
     nilo_safe_accessible,
 };
-
 
 /// Nilo 関数を自動登録する初期化関数
 pub fn init_nilo_functions() {
@@ -484,7 +501,6 @@ pub fn run_application_with_embedded<S, P>(
     S: StateAccess + Clone + Send + 'static + std::fmt::Debug,
     P: AsRef<std::path::Path> + Send + 'static,
 {
-    // 郢晢ｽｭ郢ｧ・ｰ郢晢ｽｬ郢晏生ﾎ晉ｹｧ雋槭・隴帶ｺｷ蝟ｧ
     init_logger(&cli_args.log_level);
     info!(
         "[RUNNER] run_application_with_embedded: file_path='{}' debug={} hotreload={} quiet={}",
@@ -500,7 +516,7 @@ pub fn run_application_with_embedded<S, P>(
             let file_path_ref = file_path.as_ref();
             let adjusted_path = if file_path_ref.file_name().is_some() && !file_path_ref.exists() {
                 let src_path = std::path::Path::new("").join(file_path_ref);
-                if src_path.exists() {
+                if (src_path.exists()) {
                     src_path
                 } else {
                     file_path_ref.to_path_buf()

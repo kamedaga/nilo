@@ -16,7 +16,6 @@ mod native {
     use std::collections::HashMap;
     use std::sync::{Arc, Mutex}; // ログマクロを追加
 
-
     use winit::{
         application::ApplicationHandler,
         event::{ElementState, Ime, KeyEvent, MouseButton, MouseScrollDelta, WindowEvent},
@@ -105,7 +104,7 @@ mod native {
         }
     }
 
-    impl<S> ApplicationHandler for AppHandler<S>
+    impl<S> ApplicationHandler<crate::engine::async_call::AsyncEvent> for AppHandler<S>
     where
         S: StateAccess + 'static + Clone + std::fmt::Debug,
     {
@@ -153,12 +152,59 @@ mod native {
                 WindowEvent::MouseWheel { delta, .. } => {
                     let viewport_height = renderer.size().height as f32 / scale_factor;
                     let max_scroll = (self.content_length - viewport_height).max(0.0);
-                    let y = match delta {
+                    
+                    let scroll_delta = match delta {
                         MouseScrollDelta::LineDelta(_, y) => y * 15.0,
                         MouseScrollDelta::PixelDelta(pos) => -pos.y as f32 / scale_factor,
                     };
-                    self.target_scroll_offset[1] =
-                        (self.target_scroll_offset[1] + y).clamp(-max_scroll, 0.0);
+                    
+                    // ★ マウス座標がScrollContainer内にあるかチェック
+                    let mut scroll_handled = false;
+                    for (id, pos, size, _offset) in &self.state.scroll_containers.clone() {
+                        let hover = {
+                            let x = self.mouse_pos[0];
+                            let y = self.mouse_pos[1];
+                            x >= pos[0] && x <= pos[0] + size[0] && y >= pos[1] && y <= pos[1] + size[1]
+                        };
+                        
+                        if hover {
+                            // ScrollContainer内でのスクロール
+                            log::info!("🖱️ Scrolling inside ScrollContainer: {}", id);
+                            
+                            // ★ ScrollContainerのコンテンツ高さを計算（簡易実装：子要素の最大Y座標）
+                            // 実際のコンテンツ高さはレイアウト時に計算すべきだが、ここでは簡易的にsize[1]の2倍と仮定
+                            let container_height = size[1];
+                            let content_height = container_height * 2.0; // TODO: 実際のコンテンツ高さを使用
+                            let max_container_scroll = (content_height - container_height).max(0.0);
+                            
+                            // 現在のスクロールオフセットを取得
+                            let current_offset = self.state.scroll_container_offsets
+                                .get(id)
+                                .copied()
+                                .unwrap_or([0.0, 0.0]);
+                            
+                            // 新しいスクロールオフセットを計算
+                            let new_offset_y = (current_offset[1] + scroll_delta).clamp(-max_container_scroll, 0.0);
+                            
+                            // スクロールオフセットを更新
+                            self.state.scroll_container_offsets.insert(
+                                id.clone(),
+                                [0.0, new_offset_y]
+                            );
+                            
+                            log::info!("📜 ScrollContainer {} offset: {} -> {}", id, current_offset[1], new_offset_y);
+                            
+                            scroll_handled = true;
+                            break;
+                        }
+                    }
+                    
+                    // ScrollContainer外の場合、グローバルスクロールを更新
+                    if !scroll_handled {
+                        self.target_scroll_offset[1] =
+                            (self.target_scroll_offset[1] + scroll_delta).clamp(-max_scroll, 0.0);
+                    }
+                    
                     window.request_redraw();
                 }
                 WindowEvent::CursorMoved { position, .. } => {
@@ -373,14 +419,18 @@ mod native {
                                             new_cursor_pos,
                                         );
                                         self.event_queue.push(UIEvent::TextChanged {
-                                            field_id: focused_field,
+                                            field_id: focused_field.clone(),
                                             new_value,
                                         });
+                                        
+                                        // ★ 即座に再描画（キャッシュは維持）
+                                        self.state.needs_redraw = true;
                                     }
                                 }
                             }
                         }
-                        window.request_redraw(); // テキスト入力時は再描画
+                        // ★ テキスト入力時は即座に再描画を要求
+                        window.request_redraw();
                     }
                 }
                 // ★ IME対応: IME関連のイベント処理
@@ -441,19 +491,38 @@ mod native {
                                 });
                             }
                         }
-                        window.request_redraw();
+                        window.request_redraw(); // IME状態変化時は再描画
                     }
                 }
                 WindowEvent::RedrawRequested => {
+                    // ★ 非同期結果をチェック（最優先）
+                    if crate::engine::async_call::has_pending_async_results() {
+                        log::info!("🔔 Pending async results detected, requesting redraw");
+                    }
+                    
+                    // ★ 非同期結果を適用
+                    let async_updates_applied = crate::engine::async_call::apply_async_results(&mut self.state);
+                    if (async_updates_applied) {
+                        // 非同期更新があった場合はレイアウトキャッシュを無効化
+                        self.state.static_stencils = None;
+                        self.state.static_buttons.clear();
+                        self.state.static_text_inputs.clear();
+                        self.state.needs_redraw = true;
+                        log::info!("Applied async updates, invalidating layout cache");
+                        
+                        // ★ 重要: 即座に次のフレームをリクエスト
+                        window.request_redraw();
+                    }
+                    
                     // リサイズが保留されていればここで一度だけ適用（デバウンス）
                     if let Some(size) = self.pending_resize.take() {
                         let viewport_height = size.height as f32 / scale_factor;
                         let max_scroll = (self.content_length - viewport_height).max(0.0);
                         renderer.resize(size);
-                        if max_scroll <= 0.0 {
+                        if (max_scroll <= 0.0) {
                             self.scroll_offset[1] = 0.0;
                             self.target_scroll_offset[1] = 0.0;
-                        } else if self.scroll_offset[1] < -max_scroll {
+                        } else if (self.scroll_offset[1] < -max_scroll) {
                             self.scroll_offset[1] = -max_scroll;
                             self.target_scroll_offset[1] = -max_scroll;
                         }
@@ -545,7 +614,7 @@ mod native {
                     self.state.all_buttons = buttons.clone();
                     self.state.all_text_inputs = text_inputs.clone();
 
-                    // ホバー状態とマウスイベントの処理
+                    // マウスイベント処理
                     let mut current_hovered = None;
                     for (id, pos, size) in &buttons {
                         let hover = {
@@ -555,7 +624,6 @@ mod native {
                                 && x <= pos[0] + size[0]
                                 && y >= pos[1]
                                 && y <= pos[1] + size[1];
-
                             in_bounds
                         };
 
@@ -563,7 +631,6 @@ mod native {
                             current_hovered = Some(id.clone());
                         }
 
-                        // マウスイベントの生成
                         if hover && self.mouse_down && !self.prev_mouse_down {
                             self.event_queue
                                 .push(UIEvent::ButtonPressed { id: id.clone() });
@@ -583,7 +650,7 @@ mod native {
 
                     let events_snapshot: Vec<UIEvent> =
                         self.event_queue.queue.iter().cloned().collect();
-                    if !events_snapshot.is_empty() {
+                    if (!events_snapshot.is_empty()) {
                         // when評価
                         if let Some(new_tl) =
                             Engine::step_whens(&self.app, &mut self.state, &events_snapshot)
@@ -635,7 +702,8 @@ mod native {
                                 viewport_w,
                                 self.scroll_offset[1],
                             );
-                            let draw_list = stencil_to_wgpu_draw_list(&vis);
+                            let mut draw_list = stencil_to_wgpu_draw_list(&vis);
+                            draw_list.update_scroll_offsets(&self.state.scroll_container_offsets);
                             renderer.render(&draw_list, self.scroll_offset, scale_factor);
 
                             self.prev_mouse_down = self.mouse_down;
@@ -663,14 +731,57 @@ mod native {
                         if let UIEvent::ButtonPressed { id } = ev {
                             if let Some(h) = self.button_handlers.get_mut(&id) {
                                 h(&mut self.state);
+                                // ★ ボタンハンドラ実行後に状態変更を反映
+                                self.state.needs_redraw = true;
+                                self.state.static_stencils = None;
+                                self.state.static_buttons.clear();
+                                self.state.static_text_inputs.clear();
                             }
                         }
                     }
 
-                    // ★ イベント処理後、needs_redrawフラグをチェック
-                    // 状態変更があった場合は再描画を要求
+                    // ★ ハンドラ実行後、needs_redrawフラグをチェック
+                    // 状態変更があった場合は即座に再レイアウト&再描画
                     if self.state.needs_redraw {
-                        window.request_redraw();
+                        self.state.needs_redraw = false;
+                        
+                        // 即座に新しいレイアウトを計算
+                        let (new_stencils, new_buttons, new_text_inputs) = Engine::layout_and_stencil(
+                            &self.app,
+                            &mut self.state,
+                            self.mouse_pos,
+                            self.mouse_down,
+                            self.prev_mouse_down,
+                            window_size,
+                        );
+                        
+                        self.state.all_buttons = new_buttons;
+                        self.state.all_text_inputs = new_text_inputs;
+                        
+                        // 新しいレイアウトで描画
+                        let size = renderer.size();
+                        let viewport_h = size.height as f32 / scale_factor;
+                        let viewport_w = size.width as f32 / scale_factor;
+                        let mut vis = viewport::filter_visible_stencils(
+                            &new_stencils,
+                            self.scroll_offset,
+                            viewport_h,
+                        );
+                        let draw_full = stencil_to_wgpu_draw_list(&new_stencils);
+                        self.content_length = draw_full.content_length();
+                        vis = viewport::inject_scrollbar(
+                            vis,
+                            self.content_length,
+                            viewport_h,
+                            viewport_w,
+                            self.scroll_offset[1],
+                        );
+                        let mut draw_list = stencil_to_wgpu_draw_list(&vis);
+                        draw_list.update_scroll_offsets(&self.state.scroll_container_offsets);
+                        renderer.render(&draw_list, self.scroll_offset, scale_factor);
+                        
+                        self.prev_mouse_down = self.mouse_down;
+                        return;
                     }
 
                     // 描画
@@ -691,12 +802,32 @@ mod native {
                         viewport_w,
                         self.scroll_offset[1],
                     );
-                    let draw_list = stencil_to_wgpu_draw_list(&vis);
+                    let mut draw_list = stencil_to_wgpu_draw_list(&vis);
+                    draw_list.update_scroll_offsets(&self.state.scroll_container_offsets);
                     renderer.render(&draw_list, self.scroll_offset, scale_factor);
 
                     self.prev_mouse_down = self.mouse_down;
                 }
                 _ => {}
+            }
+        }
+        
+        fn user_event(&mut self, _event_loop: &ActiveEventLoop, event: crate::engine::async_call::AsyncEvent) {
+            match event {
+                crate::engine::async_call::AsyncEvent::AsyncResultReady => {
+                    log::info!("📬 Received AsyncResultReady event");
+                    // ウィンドウに再描画を要求
+                    if let Some(window) = &self.window {
+                        window.request_redraw();
+                    }
+                }
+                crate::engine::async_call::AsyncEvent::IntervalTick(_name) => {
+                    log::debug!("⏰ Received IntervalTick event");
+                    // 定期実行イベントも再描画を要求
+                    if let Some(window) = &self.window {
+                        window.request_redraw();
+                    }
+                }
             }
         }
     }
@@ -715,7 +846,15 @@ mod native {
     where
         S: StateAccess + 'static + Clone + std::fmt::Debug,
     {
-        let event_loop = EventLoop::new().unwrap();
+        // ★ AsyncEvent型のEventLoopを作成
+        let event_loop = EventLoop::<crate::engine::async_call::AsyncEvent>::with_user_event()
+            .build()
+            .unwrap();
+        
+        // ★ EventLoopProxyを取得して登録
+        let proxy = event_loop.create_proxy();
+        crate::engine::async_call::set_event_loop_proxy(proxy);
+        
         let mut app_handler = AppHandler::new(app, state, "My Application".to_string());
         event_loop.run_app(&mut app_handler).unwrap();
     }
@@ -1015,12 +1154,61 @@ mod native {
                 WindowEvent::MouseWheel { delta, .. } => {
                     let viewport_height = renderer.size().height as f32 / scale_factor;
                     let max_scroll = (self.content_length - viewport_height).max(0.0);
-                    let y = match delta {
+                    
+                    let scroll_delta = match delta {
                         MouseScrollDelta::LineDelta(_, y) => y * 15.0,
                         MouseScrollDelta::PixelDelta(pos) => -pos.y as f32 / scale_factor,
                     };
-                    self.target_scroll_offset[1] =
-                        (self.target_scroll_offset[1] + y).clamp(-max_scroll, 0.0);
+                    
+                    // ★ マウス座標がScrollContainer内にあるかチェック
+                    let mut scroll_handled = false;
+                    for (id, pos, size, _offset) in &self.state.scroll_containers.clone() {
+                        let hover = {
+                            let x = self.mouse_pos[0];
+                            let y = self.mouse_pos[1];
+                            x >= pos[0] && x <= pos[0] + size[0] && y >= pos[1] && y <= pos[1] + size[1]
+                        };
+                        
+                        if hover {
+                            // ScrollContainer内でのスクロール
+                            log::info!("🖱️ Scrolling inside ScrollContainer: {}", id);
+                            
+                            // ScrollContainerのコンテンツ高さを取得
+                            let container_height = size[1];
+                            let content_height = self.state.scroll_container_content_heights
+                                .get(id)
+                                .copied()
+                                .unwrap_or(container_height * 2.0);
+                            let max_container_scroll = (content_height - container_height).max(0.0);
+                            
+                            // 現在のスクロールオフセットを取得
+                            let current_offset = self.state.scroll_container_offsets
+                                .get(id)
+                                .copied()
+                                .unwrap_or([0.0, 0.0]);
+                            
+                            // 新しいスクロールオフセットを計算
+                            let new_offset_y = (current_offset[1] + scroll_delta).clamp(-max_container_scroll, 0.0);
+                            
+                            // スクロールオフセットを更新
+                            self.state.scroll_container_offsets.insert(
+                                id.clone(),
+                                [0.0, new_offset_y]
+                            );
+                            
+                            log::info!("📜 ScrollContainer {} offset: {} -> {}", id, current_offset[1], new_offset_y);
+                            
+                            scroll_handled = true;
+                            break;
+                        }
+                    }
+                    
+                    // ScrollContainer外の場合、グローバルスクロールを更新
+                    if !scroll_handled {
+                        self.target_scroll_offset[1] =
+                            (self.target_scroll_offset[1] + scroll_delta).clamp(-max_scroll, 0.0);
+                    }
+                    
                     window.request_redraw();
                 }
                 WindowEvent::CursorMoved { position, .. } => {
@@ -1229,14 +1417,18 @@ mod native {
                                             new_cursor_pos,
                                         );
                                         self.event_queue.push(UIEvent::TextChanged {
-                                            field_id: focused_field,
+                                            field_id: focused_field.clone(),
                                             new_value,
                                         });
+                                        
+                                        // ★ 即座に再描画（キャッシュは維持）
+                                        self.state.needs_redraw = true;
                                     }
                                 }
                             }
                         }
-                        window.request_redraw(); // テキスト入力時は再描画
+                        // ★ テキスト入力時は即座に再描画を要求
+                        window.request_redraw();
                     }
                 }
                 // ★ IME対応: IME関連のイベント処理
@@ -1301,6 +1493,25 @@ mod native {
                     }
                 }
                 WindowEvent::RedrawRequested => {
+                    // ★ 非同期結果をチェック（最優先）
+                    if crate::engine::async_call::has_pending_async_results() {
+                        log::info!("🔔 Pending async results detected, requesting redraw");
+                    }
+                    
+                    // ★ 非同期結果を適用
+                    let async_updates_applied = crate::engine::async_call::apply_async_results(&mut self.state);
+                    if (async_updates_applied) {
+                        // 非同期更新があった場合はレイアウトキャッシュを無効化
+                        self.state.static_stencils = None;
+                        self.state.static_buttons.clear();
+                        self.state.static_text_inputs.clear();
+                        self.state.needs_redraw = true;
+                        log::info!("Applied async updates, invalidating layout cache");
+                        
+                        // ★ 重要: 即座に次のフレームをリクエスト
+                        window.request_redraw();
+                    }
+                    
                     // リサイズをここで一度だけ適用
                     if let Some(size) = self.pending_resize.take() {
                         let viewport_height = size.height as f32 / scale_factor;
@@ -1335,7 +1546,8 @@ mod native {
                     ];
                     self.mouse_pos = adjusted_mouse_pos;
 
-                    // ホバー状態を確実に反映するため、毎フレーム新しくレイアウト
+                    // ★ 最適化: テキスト入力時はキャッシュを活用してレイアウトをスキップ
+                    // ホバー状態が変わった時のみフルレイアウト
                     let (stencils, buttons, text_inputs) = Engine::layout_and_stencil(
                         &self.current_app,
                         &mut self.state,
@@ -1433,7 +1645,8 @@ mod native {
                                 viewport_w,
                                 self.scroll_offset[1],
                             );
-                            let draw_list = stencil_to_wgpu_draw_list(&vis);
+                            let mut draw_list = stencil_to_wgpu_draw_list(&vis);
+                            draw_list.update_scroll_offsets(&self.state.scroll_container_offsets);
                             renderer.render(&draw_list, self.scroll_offset, scale_factor);
 
                             self.prev_mouse_down = self.mouse_down;
@@ -1461,8 +1674,57 @@ mod native {
                         if let UIEvent::ButtonPressed { id } = ev {
                             if let Some(h) = self.button_handlers.get_mut(&id) {
                                 h(&mut self.state);
+                                // ★ ボタンハンドラ実行後に状態変更を反映
+                                self.state.needs_redraw = true;
+                                self.state.static_stencils = None;
+                                self.state.static_buttons.clear();
+                                self.state.static_text_inputs.clear();
                             }
                         }
+                    }
+
+                    // ★ ハンドラ実行後、needs_redrawフラグをチェック
+                    // 状態変更があった場合は即座に再レイアウト&再描画
+                    if self.state.needs_redraw {
+                        self.state.needs_redraw = false;
+                        
+                        // 即座に新しいレイアウトを計算
+                        let (new_stencils, new_buttons, new_text_inputs) = Engine::layout_and_stencil(
+                            &self.current_app,
+                            &mut self.state,
+                            self.mouse_pos,
+                            self.mouse_down,
+                            self.prev_mouse_down,
+                            window_size,
+                        );
+                        
+                        self.state.all_buttons = new_buttons;
+                        self.state.all_text_inputs = new_text_inputs;
+                        
+                        // 新しいレイアウトで描画
+                        let size = renderer.size();
+                        let viewport_h = size.height as f32 / scale_factor;
+                        let viewport_w = size.width as f32 / scale_factor;
+                        let mut vis = viewport::filter_visible_stencils(
+                            &new_stencils,
+                            self.scroll_offset,
+                            viewport_h,
+                        );
+                        let draw_full = stencil_to_wgpu_draw_list(&new_stencils);
+                        self.content_length = draw_full.content_length();
+                        vis = viewport::inject_scrollbar(
+                            vis,
+                            self.content_length,
+                            viewport_h,
+                            viewport_w,
+                            self.scroll_offset[1],
+                        );
+                        let mut draw_list = stencil_to_wgpu_draw_list(&vis);
+                        draw_list.update_scroll_offsets(&self.state.scroll_container_offsets);
+                        renderer.render(&draw_list, self.scroll_offset, scale_factor);
+                        
+                        self.prev_mouse_down = self.mouse_down;
+                        return;
                     }
 
                     // 描画
@@ -1483,7 +1745,8 @@ mod native {
                         viewport_w,
                         self.scroll_offset[1],
                     );
-                    let draw_list = stencil_to_wgpu_draw_list(&vis);
+                    let mut draw_list = stencil_to_wgpu_draw_list(&vis);
+                    draw_list.update_scroll_offsets(&self.state.scroll_container_offsets);
                     renderer.render(&draw_list, self.scroll_offset, scale_factor);
 
                     self.prev_mouse_down = self.mouse_down;
@@ -1503,8 +1766,15 @@ mod native {
         state.initialize_router(&app.flow);
         let app = Arc::new(app);
 
-        // env_logger::init(); // 削除: lib.rsで既に初期化されている
-        let event_loop = EventLoop::new().unwrap();
+        // ★ AsyncEvent型のEventLoopを作成
+        let event_loop = EventLoop::<crate::engine::async_call::AsyncEvent>::with_user_event()
+            .build()
+            .unwrap();
+        
+        // ★ EventLoopProxyを取得して登録
+        let proxy = event_loop.create_proxy();
+        crate::engine::async_call::set_event_loop_proxy(proxy);
+        
         let title = window_title.unwrap_or("My Application").to_string();
         let mut app_handler = AppHandler::new(app, state, title);
         event_loop.run_app(&mut app_handler).unwrap();
@@ -1692,12 +1962,61 @@ mod native {
                 WindowEvent::MouseWheel { delta, .. } => {
                     let viewport_height = renderer.size().height as f32 / scale_factor;
                     let max_scroll = (self.content_length - viewport_height).max(0.0);
-                    let y = match delta {
+                    
+                    let scroll_delta = match delta {
                         MouseScrollDelta::LineDelta(_, y) => y * 15.0,
                         MouseScrollDelta::PixelDelta(pos) => -pos.y as f32 / scale_factor,
                     };
-                    self.target_scroll_offset[1] =
-                        (self.target_scroll_offset[1] + y).clamp(-max_scroll, 0.0);
+                    
+                    // ★ マウス座標がScrollContainer内にあるかチェック
+                    let mut scroll_handled = false;
+                    for (id, pos, size, _offset) in &self.state.scroll_containers.clone() {
+                        let hover = {
+                            let x = self.mouse_pos[0];
+                            let y = self.mouse_pos[1];
+                            x >= pos[0] && x <= pos[0] + size[0] && y >= pos[1] && y <= pos[1] + size[1]
+                        };
+                        
+                        if hover {
+                            // ScrollContainer内でのスクロール
+                            log::info!("🖱️ Scrolling inside ScrollContainer: {}", id);
+                            
+                            // ScrollContainerのコンテンツ高さを取得
+                            let container_height = size[1];
+                            let content_height = self.state.scroll_container_content_heights
+                                .get(id)
+                                .copied()
+                                .unwrap_or(container_height * 2.0);
+                            let max_container_scroll = (content_height - container_height).max(0.0);
+                            
+                            // 現在のスクロールオフセットを取得
+                            let current_offset = self.state.scroll_container_offsets
+                                .get(id)
+                                .copied()
+                                .unwrap_or([0.0, 0.0]);
+                            
+                            // 新しいスクロールオフセットを計算
+                            let new_offset_y = (current_offset[1] + scroll_delta).clamp(-max_container_scroll, 0.0);
+                            
+                            // スクロールオフセットを更新
+                            self.state.scroll_container_offsets.insert(
+                                id.clone(),
+                                [0.0, new_offset_y]
+                            );
+                            
+                            log::info!("📜 ScrollContainer {} offset: {} -> {}", id, current_offset[1], new_offset_y);
+                            
+                            scroll_handled = true;
+                            break;
+                        }
+                    }
+                    
+                    // ScrollContainer外の場合、グローバルスクロールを更新
+                    if !scroll_handled {
+                        self.target_scroll_offset[1] =
+                            (self.target_scroll_offset[1] + scroll_delta).clamp(-max_scroll, 0.0);
+                    }
+                    
                     window.request_redraw();
                 }
                 WindowEvent::CursorMoved { position, .. } => {
@@ -1905,14 +2224,18 @@ mod native {
                                             new_cursor_pos,
                                         );
                                         self.event_queue.push(UIEvent::TextChanged {
-                                            field_id: focused_field,
+                                            field_id: focused_field.clone(),
                                             new_value,
                                         });
+                                        
+                                        // ★ 即座に再描画（キャッシュは維持）
+                                        self.state.needs_redraw = true;
                                     }
                                 }
                             }
                         }
-                        window.request_redraw(); // テキスト入力時は再描画
+                        // ★ テキスト入力時は即座に再描画を要求
+                        window.request_redraw();
                     }
                 }
                 // ★ IME対応: IME関連のイベント処理
@@ -1977,6 +2300,25 @@ mod native {
                     }
                 }
                 WindowEvent::RedrawRequested => {
+                    // ★ 非同期結果をチェック（最優先）
+                    if crate::engine::async_call::has_pending_async_results() {
+                        log::info!("🔔 Pending async results detected, requesting redraw");
+                    }
+                    
+                    // ★ 非同期結果を適用
+                    let async_updates_applied = crate::engine::async_call::apply_async_results(&mut self.state);
+                    if (async_updates_applied) {
+                        // 非同期更新があった場合はレイアウトキャッシュを無効化
+                        self.state.static_stencils = None;
+                        self.state.static_buttons.clear();
+                        self.state.static_text_inputs.clear();
+                        self.state.needs_redraw = true;
+                        log::info!("Applied async updates, invalidating layout cache");
+                        
+                        // ★ 重要: 即座に次のフレームをリクエスト
+                        window.request_redraw();
+                    }
+                    
                     // リサイズが保留されていればここで適用
                     if let Some(size) = self.pending_resize.take() {
                         let viewport_height = size.height as f32 / scale_factor;
@@ -2054,6 +2396,7 @@ mod native {
                     if self.last_hovered_button != current_hovered {
                         self.last_hovered_button = current_hovered;
                         self.state.static_stencils = None;
+                        self.state.static_text_inputs.clear();
                     }
 
                     // イベント処理
@@ -2108,7 +2451,8 @@ mod native {
                                 viewport_w,
                                 self.scroll_offset[1],
                             );
-                            let draw_list = stencil_to_wgpu_draw_list(&vis);
+                            let mut draw_list = stencil_to_wgpu_draw_list(&vis);
+                            draw_list.update_scroll_offsets(&self.state.scroll_container_offsets);
                             renderer.render(&draw_list, self.scroll_offset, scale_factor);
 
                             self.prev_mouse_down = self.mouse_down;
@@ -2136,8 +2480,57 @@ mod native {
                         if let UIEvent::ButtonPressed { id } = ev {
                             if let Some(h) = self.button_handlers.get_mut(&id) {
                                 h(&mut self.state);
+                                // ★ ボタンハンドラ実行後に状態変更を反映
+                                self.state.needs_redraw = true;
+                                self.state.static_stencils = None;
+                                self.state.static_buttons.clear();
+                                self.state.static_text_inputs.clear();
                             }
                         }
+                    }
+
+                    // ★ ハンドラ実行後、needs_redrawフラグをチェック
+                    // 状態変更があった場合は即座に再レイアウト&再描画
+                    if self.state.needs_redraw {
+                        self.state.needs_redraw = false;
+                        
+                        // 即座に新しいレイアウトを計算
+                        let (new_stencils, new_buttons, new_text_inputs) = Engine::layout_and_stencil(
+                            &self.current_app,
+                            &mut self.state,
+                            self.mouse_pos,
+                            self.mouse_down,
+                            self.prev_mouse_down,
+                            window_size,
+                        );
+                        
+                        self.state.all_buttons = new_buttons;
+                        self.state.all_text_inputs = new_text_inputs;
+                        
+                        // 新しいレイアウトで描画
+                        let size = renderer.size();
+                        let viewport_h = size.height as f32 / scale_factor;
+                        let viewport_w = size.width as f32 / scale_factor;
+                        let mut vis = viewport::filter_visible_stencils(
+                            &new_stencils,
+                            self.scroll_offset,
+                            viewport_h,
+                        );
+                        let draw_full = stencil_to_wgpu_draw_list(&new_stencils);
+                        self.content_length = draw_full.content_length();
+                        vis = viewport::inject_scrollbar(
+                            vis,
+                            self.content_length,
+                            viewport_h,
+                            viewport_w,
+                            self.scroll_offset[1],
+                        );
+                        let mut draw_list = stencil_to_wgpu_draw_list(&vis);
+                        draw_list.update_scroll_offsets(&self.state.scroll_container_offsets);
+                        renderer.render(&draw_list, self.scroll_offset, scale_factor);
+                        
+                        self.prev_mouse_down = self.mouse_down;
+                        return;
                     }
 
                     // 描画
@@ -2158,7 +2551,8 @@ mod native {
                         viewport_w,
                         self.scroll_offset[1],
                     );
-                    let draw_list = stencil_to_wgpu_draw_list(&vis);
+                    let mut draw_list = stencil_to_wgpu_draw_list(&vis);
+                    draw_list.update_scroll_offsets(&self.state.scroll_container_offsets);
                     renderer.render(&draw_list, self.scroll_offset, scale_factor);
 
                     self.prev_mouse_down = self.mouse_down;
