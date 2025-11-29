@@ -1,7 +1,7 @@
 // src/engine/engine/dynamic_section.rs
 // DynamicSection関連
 
-use super::utils::convert_to_rgba;
+use super::utils::{convert_to_rgba, shadow_to_params};
 use crate::engine::state::{AppState, StateAccess};
 use crate::parser::ast::{App, Expr, Style, ViewNode};
 use crate::stencil::stencil::Stencil;
@@ -84,27 +84,21 @@ pub fn render_dynamic_section_background(
 
             // 影の描画
             if let Some(sh) = style.shadow.clone() {
-                let (off, scol) = match sh {
-                    crate::parser::ast::Shadow::On => ([0.0, 2.0], [0.0, 0.0, 0.0, 0.2]),
-                    crate::parser::ast::Shadow::Spec { offset, color, .. } => {
-                        let scol = color
-                            .as_ref()
-                            .map(|c| convert_to_rgba(c))
-                            .unwrap_or([0.0, 0.0, 0.0, 0.2]);
-                        (offset, scol)
-                    }
-                };
-
-                depth_counter += 0.001;
-                stencils.push(Stencil::RoundedRect {
-                    position: [lnode.position[0] + off[0], lnode.position[1] + off[1]],
-                    width: lnode.size[0],
-                    height: lnode.size[1],
-                    radius,
-                    color: [scol[0], scol[1], scol[2], (scol[3] * 0.9).min(1.0)],
-                    scroll: true,
-                    depth: (1.0_f32 - depth_counter).max(0.0),
-                });
+                let (offset, scol, blur) = shadow_to_params(&sh);
+                if scol[3] > 0.0 && blur > 0.0 {
+                    depth_counter += 0.001;
+                    stencils.push(Stencil::BoxShadow {
+                        position: lnode.position,
+                        width: lnode.size[0],
+                        height: lnode.size[1],
+                        radius,
+                        color: [scol[0], scol[1], scol[2], (scol[3] * 0.9).min(1.0)],
+                        blur,
+                        offset,
+                        scroll: true,
+                        depth: (1.0_f32 - depth_counter).max(0.0),
+                    });
+                }
             }
 
             // 背景

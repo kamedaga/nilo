@@ -1,4 +1,4 @@
-use log::{info, error};
+use log::{error, info};
 use notify::{Config, Event, RecommendedWatcher, RecursiveMode, Watcher};
 use std::path::Path;
 use std::sync::mpsc::{self, Receiver, Sender};
@@ -66,7 +66,7 @@ impl HotReloader {
                         // タイムアウトは正常、続行
                     }
                     Err(mpsc::RecvTimeoutError::Disconnected) => {
-                        error!("Watcher disconnected"); 
+                        error!("Watcher disconnected");
                         break;
                     }
                 }

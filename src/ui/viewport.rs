@@ -81,6 +81,21 @@ pub fn filter_visible_stencils(
                 };
                 (y, *height)
             }
+            Stencil::BoxShadow {
+                position,
+                height,
+                blur,
+                offset,
+                scroll,
+                ..
+            } => {
+                let y = if *scroll {
+                    position[1] + offset[1] - *blur + scroll_offset[1]
+                } else {
+                    position[1] + offset[1] - *blur
+                };
+                (y, *height + *blur * 2.0)
+            }
             Stencil::Group(_) | Stencil::ScrollBar { .. } | Stencil::ScrollContainer { .. } => {
                 result.push(s.clone());
                 continue;

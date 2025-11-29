@@ -1,0 +1,154 @@
+flow {
+    start: NewsHome
+    NewsHome -> ArticleDetail
+    ArticleDetail -> NewsHome
+}
+
+timeline NewsHome(background: "#0b1021") {
+    font: "japanese"
+    VStack(style: {
+        width: 100ww,
+        height: 100wh,
+        padding: [24px, 20px],
+        gap: 16px,
+        background: "linear-gradient(135deg, #0b1021 0%, #122552 35%, #0b1021 100%)"
+    }) {
+        VStack(style: {
+            width: 100%,
+            gap: 8px,
+            padding: [12px, 14px],
+            background: "#0f1a35cc",
+            rounded: 14px,
+            border_width: 1,
+            border_color: "#223463"
+        }) {
+            Text("Tech News JP (Apitube)", style: {
+                font_size: 22px,
+                color: "#ffffff",
+                font_weight: "bold"
+            })
+            Text("{}", state.status, style: {
+                font_size: 14px,
+                color: "#90c2ff",
+            })
+        }
+
+        if state.headlines.len() == 0 {
+            VStack(style: {
+                width: 100%,
+                padding: [40px, 24px],
+                gap: 12px,
+                align: "center",
+                background: "#101a33",
+                rounded: 16px,
+                border_width: 1,
+                border_color: "#1f2d52"
+            }) {
+                Text("まだ記事がありません", style: {font_size: 18px, color: "#ffffff"})
+                Text("起動時にのみニュースを取得します。APIキーが正しいか確認してください。", style: {font_size: 14px, color: "#9fb3d9", max_width: 680px})
+            }
+        } else {
+            VStack(style: {
+                width: 100%,
+                gap: 12px,
+                padding: [8px, 0px],
+            }) {
+                foreach headline in state.headlines {
+                    VStack(style: {
+                        width: 100%,
+                        background: "#0f1c3a",
+                        rounded: 14px,
+                        padding: [14px, 16px],
+                        gap: 10px,
+                        border_width: 1,
+                        border_color: "#1f2f59",
+                        shadow: {blur: 18, offset: [0, 8], color: "#00000055"}
+                    }) {
+                        Text("{}", headline, style: {
+                            font_size: 16px,
+                            color: "#e8f1ff",
+                            line_height: 1.5
+                        })
+                        HStack(style: {width: 100%, align: "right"}) {
+                            Button(id: open_article, label: "詳細を読む", onclick: select_article(headline_index), style: {
+                                padding: [8px, 14px],
+                                background: "linear-gradient(135deg, #2c7be5 0%, #1dd1a1 100%)",
+                                color: "#0b1021",
+                                font_weight: "bold",
+                                rounded: 10px,
+                                shadow: {blur: 10, offset: [0, 4], color: "#00000055"}
+                            })
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    when user.click(open_article) {
+        navigate_to(ArticleDetail)
+    }
+}
+
+timeline ArticleDetail(background: "#0b1021") {
+    font: "japanese"
+    VStack(style: {
+        width: 100ww,
+        height: 100wh,
+        padding: [24px, 20px],
+        gap: 16px,
+        background: "linear-gradient(135deg, #0b1021 0%, #0f1c3a 50%, #0b1021 100%)"
+    }) {
+        HStack(style: {gap: 10px}) {
+            Button(id: back_btn, label: "一覧へ戻る", style: {
+                padding: [8px, 14px],
+                background: "#12244a",
+                color: "#dbe7ff",
+                rounded: 10px,
+                border_width: 1,
+                border_color: "#1d3463"
+            })
+            Text("{}", state.status, style: {font_size: 13px, color: "#8fb2ff"})
+        }
+
+        VStack(style: {
+            width: 100%,
+            background: "#0f1c3a",
+            rounded: 16px,
+            padding: [18px, 18px],
+            gap: 12px,
+            border_width: 1,
+            border_color: "#1f2f59",
+            shadow: {blur: 20, offset: [0, 10], color: "#00000055"}
+        }) {
+            Text("{}", state.selected_title, style: {
+                font_size: 22px,
+                color: "#ffffff",
+                font_weight: "bold",
+                line_height: 1.4
+            })
+            HStack(style: {gap: 12px, align: "center"}) {
+                Text("配信元: {}", state.selected_source, style: {font_size: 14px, color: "#9fb3d9"})
+                Text("公開: {}", state.selected_published, style: {font_size: 14px, color: "#9fb3d9"})
+            }
+            Text("{}", state.selected_description, style: {
+                font_size: 15px,
+                color: "#dbe7ff",
+                line_height: 1.5
+            })
+            Spacing(6px)
+            Text("本文", style: {font_size: 14px, color: "#9fb3d9", font_weight: "bold"})
+            Text("{}", state.selected_body, style: {
+                font_size: 15px,
+                color: "#e8f1ff",
+                line_height: 1.6
+            })
+            Spacing(6px)
+            Text("URL: {}", state.selected_url, style: {font_size: 13px, color: "#8fb2ff"})
+        }
+    }
+
+    when user.click(back_btn) {
+        navigate_to(NewsHome)
+    }
+}

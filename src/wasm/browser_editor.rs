@@ -26,7 +26,7 @@ pub fn run_nilo_code_from_browser(nilo_source: &str) {
     let state = crate::WasmTestState::default();
     let start_view = app.flow.start.clone();
     let mut app_state = crate::engine::state::AppState::new(state, start_view.clone());
-    
+
     let initial_timeline = app_state.initialize_router_from_app(&app);
 
     // URLから初期タイムライン指定があれば適用

@@ -512,6 +512,7 @@ pub struct Style {
     pub gap: Option<DimensionValue>,
     pub max_width: Option<DimensionValue>,
     pub min_width: Option<DimensionValue>,
+    pub max_height: Option<DimensionValue>,
     pub min_height: Option<DimensionValue>,
     pub margin_top: Option<DimensionValue>,
     pub margin_bottom: Option<DimensionValue>,
@@ -526,7 +527,7 @@ pub struct Style {
 
     // ★ テキスト折り返し制御
     pub wrap: Option<WrapMode>,
-    
+
     // ★ スクロール制御
     pub overflow: Option<OverflowMode>,
 
@@ -673,6 +674,9 @@ impl Style {
         if other.min_width.is_some() {
             result.min_width = other.min_width.clone();
         }
+        if other.max_height.is_some() {
+            result.max_height = other.max_height.clone();
+        }
         if other.min_height.is_some() {
             result.min_height = other.min_height.clone();
         }
@@ -728,7 +732,7 @@ pub enum ColorValue {
     Hex(String),
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Align {
     Left,
     Center,

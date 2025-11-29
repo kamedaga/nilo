@@ -21,7 +21,7 @@ impl Default for State {
 fn add_todo_fn(ctx: &mut nilo::CustomStateContext<State>, _args: &[Expr]) {
     let input = ctx.get("input").unwrap_or_default();
     let trimmed = input.trim();
-    
+
     if !trimmed.is_empty() {
         let _ = ctx.list_append("todos", trimmed.to_string());
         let _ = ctx.set("input", String::new());
@@ -44,10 +44,10 @@ fn main() {
     #[cfg(not(target_arch = "wasm32"))]
     {
         nilo::init_nilo_functions();
-        
+
         let cli_args = nilo::parse_args();
         let state = State::default();
-        
+
         nilo::run_nilo_app!("examples/test.nilo", state, &cli_args, Some("Test"));
     }
 }

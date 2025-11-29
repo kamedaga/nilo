@@ -3,13 +3,16 @@
 // 例: 12 + 34 * (56 - 78) / 90
 
 //#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
-const MY_FONT: &[u8] = include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/fonts/NotoSansJP-Regular.ttf"));
+const MY_FONT: &[u8] = include_bytes!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/fonts/NotoSansJP-Regular.ttf"
+));
 
-use nilo::{nilo_state_watcher, nilo_state_validator};
 use nilo::register_safe_state_call;
+use nilo::{nilo_state_validator, nilo_state_watcher};
 // register_state_accessible_call は自動登録マクロに置き換え
-use nilo::{StateAccess, nilo_safe_accessible};
 use nilo::parser::ast::Expr;
+use nilo::{StateAccess, nilo_safe_accessible};
 
 mod calc;
 
@@ -77,12 +80,8 @@ fn validate_op(v: String) -> Result<(), String> {
 // left/right/op が変わったら再計算
 #[nilo_state_watcher(state = State, fields("left", "right", "op"))]
 fn recalc(state: &mut State) {
-    let l = state
-        .get_field("left")
-        .and_then(|s| s.parse::<f64>().ok());
-    let r = state
-        .get_field("right")
-        .and_then(|s| s.parse::<f64>().ok());
+    let l = state.get_field("left").and_then(|s| s.parse::<f64>().ok());
+    let r = state.get_field("right").and_then(|s| s.parse::<f64>().ok());
     let op = state.get_field("op").unwrap_or_default();
 
     let mut err: Option<String> = None;
@@ -144,8 +143,14 @@ fn set_op_fn(ctx: &mut nilo::CustomStateContext<State>, args: &[Expr]) {
 #[nilo_safe_accessible(state = State, name = "push_digit")]
 fn push_digit_fn(ctx: &mut nilo::CustomStateContext<State>, args: &[Expr]) {
     if let Some(d) = args.first() {
-        let s = match d { Expr::String(s) => s.clone(), Expr::Number(n) => n.to_string(), _ => return };
-        if !s.chars().all(|c| c.is_ascii_digit()) { return; }
+        let s = match d {
+            Expr::String(s) => s.clone(),
+            Expr::Number(n) => n.to_string(),
+            _ => return,
+        };
+        if !s.chars().all(|c| c.is_ascii_digit()) {
+            return;
+        }
         let expr = ctx.get("expr").unwrap_or_default();
         let new_expr = format!("{}{}", expr, s);
         let _ = ctx.set("expr", new_expr);
@@ -200,13 +205,20 @@ fn append_digit_fn(ctx: &mut nilo::CustomStateContext<State>, args: &[Expr]) {
         Some(Expr::String(s)) => s.clone(),
         _ => return,
     };
-    if !matches!(digit.as_str(), "0"|"1"|"2"|"3"|"4"|"5"|"6"|"7"|"8"|"9") {
+    if !matches!(
+        digit.as_str(),
+        "0" | "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9"
+    ) {
         return;
     }
     let side = ctx.get("editing").unwrap_or_else(|| "left".into());
     let key = if side == "right" { "right" } else { "left" };
     let current = ctx.get(key).unwrap_or_else(|| "0".into());
-    let new_val = if current == "0" { digit } else { format!("{}{}", current, digit) };
+    let new_val = if current == "0" {
+        digit
+    } else {
+        format!("{}{}", current, digit)
+    };
     let _ = ctx.set(key, new_val);
 }
 
@@ -224,41 +236,61 @@ fn main() {
         // Nilo関数を自動登録（関数・ウォッチャ・バリデータ含む）
         nilo::init_nilo_functions();
 
-        register_safe_state_call("increment_counter", |ctx: &mut nilo::CustomStateContext<State>, _args| {
-            if let Some(current) = ctx.get_as::<i32>("counter") {
-                let _ = ctx.set("counter", (current + 1).to_string());
-            }
-        });
-        register_safe_state_call("reset_counter", |ctx: &mut nilo::CustomStateContext<State>, _args| {
-            let _ = ctx.set("counter", "0".to_string());
-        });
+        register_safe_state_call(
+            "increment_counter",
+            |ctx: &mut nilo::CustomStateContext<State>, _args| {
+                if let Some(current) = ctx.get_as::<i32>("counter") {
+                    let _ = ctx.set("counter", (current + 1).to_string());
+                }
+            },
+        );
+        register_safe_state_call(
+            "reset_counter",
+            |ctx: &mut nilo::CustomStateContext<State>, _args| {
+                let _ = ctx.set("counter", "0".to_string());
+            },
+        );
 
         // ↑ 上記の関数は main 関数外で定義されているため自動登録される
-        register_safe_state_call("set_name", |ctx: &mut nilo::CustomStateContext<State>, args| {
-            if let Some(nilo::parser::ast::Expr::String(name)) = args.get(0) {
-                let _ = ctx.set("name", name.clone());
-            }
-        });
-        register_safe_state_call("toggle_ok", |ctx: &mut nilo::CustomStateContext<State>, _args| {
-            let current = ctx.get_as::<bool>("ok").unwrap_or(false);
-            let _ = ctx.set("ok", (!current).to_string());
-        });
-        register_safe_state_call("add_item", |ctx: &mut nilo::CustomStateContext<State>, args| {
-            if let Some(nilo::parser::ast::Expr::Number(n)) = args.get(0) {
-                let _ = ctx.list_append("items", n.to_string());
-            }
-        });
+        register_safe_state_call(
+            "set_name",
+            |ctx: &mut nilo::CustomStateContext<State>, args| {
+                if let Some(nilo::parser::ast::Expr::String(name)) = args.get(0) {
+                    let _ = ctx.set("name", name.clone());
+                }
+            },
+        );
+        register_safe_state_call(
+            "toggle_ok",
+            |ctx: &mut nilo::CustomStateContext<State>, _args| {
+                let current = ctx.get_as::<bool>("ok").unwrap_or(false);
+                let _ = ctx.set("ok", (!current).to_string());
+            },
+        );
+        register_safe_state_call(
+            "add_item",
+            |ctx: &mut nilo::CustomStateContext<State>, args| {
+                if let Some(nilo::parser::ast::Expr::Number(n)) = args.get(0) {
+                    let _ = ctx.list_append("items", n.to_string());
+                }
+            },
+        );
 
         // onclick互換レジストリへの assign ラッパー登録は未使用
 
         // カスタムフォントを名前付きで登録
         nilo::set_custom_font("japanese", MY_FONT);
-        
+
         let cli_args = nilo::parse_args();
 
         let state = State::default();
-        
+
         // デモアプリを起動（マクロ側で "src/" を付与するため、ファイル名のみ指定）
-        nilo::run_nilo_app!("examples/calc.nilo", state, &cli_args, Some("Nilo State Demo"));
+        nilo::run_nilo_app!(
+            "examples/calc.nilo",
+            state,
+            &cli_args,
+            Some("電卓")
+        );
     }
 }

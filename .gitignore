@@ -2,7 +2,7 @@
 /target/
 Cargo.lock/
 .cargo/
-
+/pkg/
 
 # IDE files
 .vscode/

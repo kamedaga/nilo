@@ -1,4 +1,4 @@
-// 統合シェーダー - すべての図形タイプを一つのパイプラインで描画
+// Unified shader: draws rect/triangle/circle and a lightweight box shadow
 
 struct ScreenUniform {
     screen_size: vec2<f32>,
@@ -8,23 +8,25 @@ struct ScreenUniform {
 var<uniform> screen: ScreenUniform;
 
 struct VertexInput {
-    @location(0) position: vec3<f32>,     // XYZ座標
-    @location(1) shape_type: u32,         // 0=Quad, 1=Triangle, 2=Circle
-    @location(2) color: u32,              // パックされたRGBA8 (Quad/Triangle用)
-    // location 3はスキップ（パディング用）
-    @location(4) center: vec2<f32>,       // Circle用: 中心座標
-    @location(5) radius: f32,             // Circle用: 半径
-    // location 6はスキップ（パディング用）
-    @location(7) color_vec: vec4<f32>,    // Circle用: カラーベクター
+    @location(0) position: vec3<f32>,     // NDC position
+    @location(1) shape_type: u32,         // 0=Quad, 1=Triangle, 2=Circle, 3=BoxShadow
+    @location(2) color: u32,              // packed RGBA8 (Quad/Triangle)
+    @location(3) blur: f32,               // shadow blur radius (px)
+    @location(4) center: vec2<f32>,       // circle/shadow center in px
+    @location(5) radius: f32,             // circle radius / corner radius (px)
+    @location(6) half_size: vec2<f32>,    // shadow half size (px)
+    @location(7) color_vec: vec4<f32>,    // unpacked color (Circle/Shadow)
 }
 
 struct VertexOutput {
     @builtin(position) position: vec4<f32>,
     @location(0) color: vec4<f32>,
     @location(1) @interpolate(flat) shape_type: u32,
-    @location(2) pixel_pos: vec2<f32>,         // Circle用: 各頂点のピクセル座標（補間される）
-    @location(3) @interpolate(flat) center: vec2<f32>,  // Circle用: 円の中心（補間しない）
-    @location(4) @interpolate(flat) radius: f32,        // Circle用: 半径（補間しない）
+    @location(2) pixel_pos: vec2<f32>,               // pixel position for distance fields
+    @location(3) @interpolate(flat) center: vec2<f32>,
+    @location(4) @interpolate(flat) radius: f32,
+    @location(5) @interpolate(flat) half_size: vec2<f32>,
+    @location(6) @interpolate(flat) blur: f32,
 }
 
 @vertex
@@ -32,14 +34,14 @@ fn vs_main(input: VertexInput) -> VertexOutput {
     var out: VertexOutput;
     out.position = vec4(input.position, 1.0);
     out.shape_type = input.shape_type;
-    
-    // デフォルト値で初期化
     out.color = vec4(0.0, 0.0, 0.0, 1.0);
     out.pixel_pos = vec2(0.0, 0.0);
     out.center = vec2(0.0, 0.0);
     out.radius = 0.0;
-    
-    // Quad/Triangle の場合: パックされたカラーをデコード
+    out.half_size = vec2(0.0, 0.0);
+    out.blur = 0.0;
+
+    // Quad/Triangle: unpack packed color
     if input.shape_type == 0u || input.shape_type == 1u {
         out.color = vec4(
             f32((input.color & 0x00ff0000u) >> 16u) / 255.0,
@@ -48,10 +50,9 @@ fn vs_main(input: VertexInput) -> VertexOutput {
             f32((input.color & 0xff000000u) >> 24u) / 255.0,
         );
     }
-    // Circle の場合: 元のCircleRendererと同じようにNDC→ピクセル変換
+    // Circle: convert NDC to pixel space
     else if input.shape_type == 2u {
         out.color = input.color_vec;
-        // NDC座標をピクセル座標に変換（補間される）
         out.pixel_pos = vec2(
             (input.position.x + 1.0) * 0.5 * screen.screen_size.x,
             (1.0 - input.position.y) * 0.5 * screen.screen_size.y
@@ -59,7 +60,19 @@ fn vs_main(input: VertexInput) -> VertexOutput {
         out.center = input.center;
         out.radius = input.radius;
     }
-    
+    // Box shadow: keep sRGB color and distance params
+    else if input.shape_type == 3u {
+        out.color = input.color_vec;
+        out.pixel_pos = vec2(
+            (input.position.x + 1.0) * 0.5 * screen.screen_size.x,
+            (1.0 - input.position.y) * 0.5 * screen.screen_size.y
+        );
+        out.center = input.center;
+        out.radius = input.radius;
+        out.half_size = input.half_size;
+        out.blur = input.blur;
+    }
+
     return out;
 }
 
@@ -72,33 +85,54 @@ fn srgb_to_linear(c: f32) -> f32 {
 
 @fragment
 fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
-    // Circle の場合: 距離ベースのアンチエイリアシング
+    // Circle alpha
     if input.shape_type == 2u {
+        // Half-pixel wide transition for smoother edges
         let dist = distance(input.pixel_pos, input.center);
-        let aa = 1.0 - smoothstep(input.radius - 1.0, input.radius + 1.0, dist);
-
-        // アルファが0以下の場合は透明（円の外側を完全に破棄）
-        if aa < 1.0 {
+        let alpha = 1.0 - smoothstep(input.radius - 1.5, input.radius + 1.5, dist);
+        if alpha <= 0.001 {
             discard;
         }
 
-        
-        // sRGB→linear補正
         let linear_rgb = vec3(
             srgb_to_linear(input.color.r),
             srgb_to_linear(input.color.g),
             srgb_to_linear(input.color.b),
         );
 
-        return vec4(linear_rgb, input.color.a * aa);
+        return vec4(linear_rgb, input.color.a * alpha);
     }
-    
-    // Quad/Triangleの場合: sRGB → Linear変換
+
+    // Box shadow: signed distance to rounded box
+    if input.shape_type == 3u {
+        let p = input.pixel_pos - input.center;
+        let q = abs(p) - input.half_size + vec2(input.radius, input.radius);
+        let dist = length(max(q, vec2(0.0))) + min(max(q.x, q.y), 0.0) - input.radius;
+        if dist < 0.0 {
+            discard;
+        }
+
+        let blur = max(input.blur, 0.5);
+        let alpha = 1.0 - smoothstep(0.0, blur, dist);
+        if alpha <= 0.001 {
+            discard;
+        }
+
+        let linear_rgb = vec3(
+            srgb_to_linear(input.color.r),
+            srgb_to_linear(input.color.g),
+            srgb_to_linear(input.color.b),
+        );
+
+        return vec4(linear_rgb, input.color.a * alpha);
+    }
+
+    // Quad/Triangle
     let linear = vec3(
         srgb_to_linear(input.color.r),
         srgb_to_linear(input.color.g),
         srgb_to_linear(input.color.b),
     );
-    
+
     return vec4(linear, input.color.a);
 }

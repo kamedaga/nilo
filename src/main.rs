@@ -1,13 +1,15 @@
 // リリースビルド時(not debug_assertions)にWindowsでコンソールウィンドウを非表示
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
-const MY_FONT: &[u8] = include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/fonts/NotoSansJP-Regular.ttf"));
+const MY_FONT: &[u8] = include_bytes!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/fonts/NotoSansJP-Regular.ttf"
+));
 
 use log::info;
 use nilo::nilo_function;
 
 // register_state_accessible_call は自動登録マクロに置き換え
-
 
 nilo::nilo_state! {
     struct State {
@@ -18,12 +20,10 @@ nilo::nilo_state! {
 impl Default for State {
     fn default() -> Self {
         Self {
-            input: String::new()
+            input: String::new(),
         }
     }
 }
-
-
 
 // #[nilo_state_assign] の直接デモは現在コメントアウト
 // #[nilo_state_assign(state = State, field = "counter")]
@@ -37,14 +37,14 @@ impl Default for State {
 #[nilo_function]
 fn open_url(url: String) {
     info!("🔗 Opening URL: {}", url);
-    
+
     #[cfg(not(target_arch = "wasm32"))]
     {
         if let Err(e) = open::that(&url) {
             log::error!("Failed to open URL: {}", e);
         }
     }
-    
+
     #[cfg(target_arch = "wasm32")]
     {
         if let Some(window) = web_sys::window() {
@@ -65,11 +65,10 @@ fn main() {
 
         // カスタムフォントを名前付きで登録
         nilo::set_custom_font("japanese", MY_FONT);
-        
+
         let cli_args = nilo::parse_args();
 
         let state = State::default();
-        
 
         // プロジェクトルート基準のパスを許可する実装に合わせる
         nilo::run_nilo_app!("src/startup.nilo", state, &cli_args, Some("Nilo Startup"));
@@ -90,7 +89,7 @@ extern crate console_log;
 pub fn wasm_main() {
     // パニック時のエラーメッセージをブラウザコンソールに表示
     console_error_panic_hook::set_once();
-    
+
     // WebAssembly用のロガーを初期化
     console_log::init_with_level(log::Level::Debug).expect("error initializing log");
 
@@ -100,7 +99,6 @@ pub fn wasm_main() {
     // WASM: manual registrations (macros don't auto-register here)
     // 1) typed Rust functions
     nilo::register_typed_call("open_url", open_url);
-    
 
     // カスタムフォントを登録
     nilo::set_custom_font("japanese", MY_FONT);
@@ -136,7 +134,7 @@ pub fn run_nilo_code_from_browser(nilo_source: &str) {
     let state = State::default();
     let start_view = app.flow.start.clone();
     let mut app_state = nilo::engine::state::AppState::new(state, start_view.clone());
-    
+
     let initial_timeline = app_state.initialize_router_from_app(&app);
 
     // URLから初期タイムライン指定があれば適用
@@ -150,4 +148,3 @@ pub fn run_nilo_code_from_browser(nilo_source: &str) {
     // DOMレンダラーでアプリを実行
     nilo::engine::runtime_dom::run_dom(app, app_state);
 }
-

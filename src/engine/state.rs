@@ -1,6 +1,7 @@
 use crate::parser::ast::{
     App, ColorValue, Edges, Expr, Rounded, Shadow, Style, Timeline, ViewNode, WithSpan,
 };
+use crate::engine::core::utils::shadow_to_params;
 use crate::stencil::stencil::Stencil;
 use crate::ui::layout_diff::LayoutDiffEngine;
 use log;
@@ -444,6 +445,8 @@ impl<S> AppState<S> {
         if let Some(bound_field) = self.text_input_bindings.get(&field_id).cloned() {
             crate::engine::state::with_custom_state(self, |ctx| { let _ = ctx.set(&bound_field, value.clone()); });
         }
+        // 入力変更を即時反映させるため再描画フラグを立てる
+        self.needs_redraw = true;
     }
 
     pub fn get_text_input_value(&self, field_id: &str) -> String {
@@ -1017,24 +1020,21 @@ impl<S: StateAccess + 'static> AppState<S> {
 
             // 影
             if let Some(sh) = style.shadow.clone() {
-                let (off, scol) = match sh {
-                    Shadow::On => ([0.0, 2.0], [0.0, 0.0, 0.0, 0.2]),
-                    Shadow::Spec { offset, color, .. } => {
-                        let scol = color.as_ref().map(to_rgba).unwrap_or([0.0, 0.0, 0.0, 0.2]);
-                        (offset, scol)
-                    }
-                };
-
-                *depth_counter += 0.001;
-                out.push(Stencil::RoundedRect {
-                    position: [lnode.position[0] + off[0], lnode.position[1] + off[1]],
-                    width: lnode.size[0],
-                    height: lnode.size[1],
-                    radius,
-                    color: [scol[0], scol[1], scol[2], (scol[3] * 0.9).min(1.0)],
-                    scroll: true,
-                    depth: (1.0 - *depth_counter).max(0.0),
-                });
+                let (offset, scol, blur) = shadow_to_params(&sh);
+                if scol[3] > 0.0 && blur > 0.0 {
+                    *depth_counter += 0.001;
+                    out.push(Stencil::BoxShadow {
+                        position: lnode.position,
+                        width: lnode.size[0],
+                        height: lnode.size[1],
+                        radius,
+                        color: [scol[0], scol[1], scol[2], (scol[3] * 0.9).min(1.0)],
+                        blur,
+                        offset,
+                        scroll: true,
+                        depth: (1.0 - *depth_counter).max(0.0),
+                    });
+                }
             }
 
             *depth_counter += 0.001;
@@ -1098,24 +1098,21 @@ impl<S: StateAccess + 'static> AppState<S> {
 
                 // 影の描画
                 if let Some(sh) = style.shadow.clone() {
-                    let (off, scol) = match sh {
-                        Shadow::On => ([0.0, 2.0], [0.0, 0.0, 0.0, 0.2]),
-                        Shadow::Spec { offset, color, .. } => {
-                            let scol = color.as_ref().map(to_rgba).unwrap_or([0.0, 0.0, 0.0, 0.2]);
-                            (offset, scol)
-                        }
-                    };
-
-                    *depth_counter += 0.001;
-                    out.push(Stencil::RoundedRect {
-                        position: [lnode.position[0] + off[0], lnode.position[1] + off[1]],
-                        width: lnode.size[0],
-                        height: lnode.size[1],
-                        radius,
-                        color: [scol[0], scol[1], scol[2], (scol[3] * 0.9).min(1.0)],
-                        scroll: true,
-                        depth: (1.0 - *depth_counter).max(0.0),
-                    });
+                    let (offset, scol, blur) = shadow_to_params(&sh);
+                    if scol[3] > 0.0 && blur > 0.0 {
+                        *depth_counter += 0.001;
+                        out.push(Stencil::BoxShadow {
+                            position: lnode.position,
+                            width: lnode.size[0],
+                            height: lnode.size[1],
+                            radius,
+                            color: [scol[0], scol[1], scol[2], (scol[3] * 0.9).min(1.0)],
+                            blur,
+                            offset,
+                            scroll: true,
+                            depth: (1.0 - *depth_counter).max(0.0),
+                        });
+                    }
                 }
 
                 // 背景の描画
@@ -1230,24 +1227,21 @@ impl<S: StateAccess + 'static> AppState<S> {
 
         // 影
         if let Some(sh) = style.shadow.clone() {
-            let (off, scol) = match sh {
-                Shadow::On => ([0.0, 2.0], [0.0, 0.0, 0.0, 0.25]),
-                Shadow::Spec { offset, color, .. } => {
-                    let scol = color.as_ref().map(to_rgba).unwrap_or([0.0, 0.0, 0.0, 0.25]);
-                    (offset, scol)
-                }
-            };
-
-            *depth_counter += 0.001;
-            out.push(Stencil::RoundedRect {
-                position: [lnode.position[0] + off[0], lnode.position[1] + off[1]],
-                width: lnode.size[0],
-                height: lnode.size[1],
-                radius,
-                color: [scol[0], scol[1], scol[2], (scol[3] * 0.9).min(1.0)],
-                scroll: true,
-                depth: (1.0 - *depth_counter).max(0.0),
-            });
+            let (offset, scol, blur) = shadow_to_params(&sh);
+            if scol[3] > 0.0 && blur > 0.0 {
+                *depth_counter += 0.001;
+                out.push(Stencil::BoxShadow {
+                    position: lnode.position,
+                    width: lnode.size[0],
+                    height: lnode.size[1],
+                    radius,
+                    color: [scol[0], scol[1], scol[2], (scol[3] * 0.9).min(1.0)],
+                    blur,
+                    offset,
+                    scroll: true,
+                    depth: (1.0 - *depth_counter).max(0.0),
+                });
+            }
         }
 
         if bg[3] > 0.0 {
@@ -1464,6 +1458,7 @@ pub trait StateAccess {
     fn list_insert(&mut self, _path: &str, _index: usize, _value: String) -> Result<(), String>;
     fn list_remove(&mut self, _path: &str, _value: String) -> Result<(), String>;
     fn list_clear(&mut self, _path: &str) -> Result<(), String>;
+    fn list_len(&self, _key: &str) -> Option<usize>;
 }
 
 type StateWatcherFn = Arc<dyn Fn(&mut dyn Any) + Send + Sync + 'static>;
@@ -1700,11 +1695,12 @@ fn adjust_stencil_depth_dynamic(stencil: &mut Stencil, depth_counter: &mut f32) 
 
     match stencil {
         Stencil::Rect { depth, .. }
+        | Stencil::RoundedRect { depth, .. }
+        | Stencil::BoxShadow { depth, .. }
         | Stencil::Circle { depth, .. }
         | Stencil::Triangle { depth, .. }
         | Stencil::Text { depth, .. }
         | Stencil::Image { depth, .. }
-        | Stencil::RoundedRect { depth, .. }
         | Stencil::ScrollBar { depth, .. } => {
             *depth = new_depth;
         }

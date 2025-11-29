@@ -1,9 +1,12 @@
 // Todoアプリのデモです
 
-const MY_FONT: &[u8] = include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/fonts/NotoSansJP-Regular.ttf"));
+const MY_FONT: &[u8] = include_bytes!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/fonts/NotoSansJP-Regular.ttf"
+));
 
-use nilo::{nilo_state_validator};
 use nilo::nilo_safe_accessible;
+use nilo::nilo_state_validator;
 use nilo::parser::ast::Expr;
 
 nilo::nilo_state! {
@@ -36,7 +39,7 @@ fn validate_input(v: String) -> Result<(), String> {
 fn add_todo_fn(ctx: &mut nilo::CustomStateContext<State>, _args: &[Expr]) {
     let input = ctx.get("input").unwrap_or_default();
     let trimmed = input.trim();
-    
+
     if !trimmed.is_empty() {
         // todosリストに追加
         if let Err(e) = ctx.list_append("todos", trimmed.to_string()) {
@@ -79,11 +82,11 @@ fn main() {
 
         // カスタムフォントを名前付きで登録
         nilo::set_custom_font("japanese", MY_FONT);
-        
+
         let cli_args = nilo::parse_args();
 
         let state = State::default();
-        
+
         // Todoアプリを起動
         nilo::run_nilo_app!("examples/todo.nilo", state, &cli_args, Some("Todo App"));
     }

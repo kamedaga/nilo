@@ -123,7 +123,7 @@ pub fn derive_state_access(input: TokenStream) -> TokenStream {
     }
     fn vec_inner(ty: &Type) -> Option<Type> {
         let actual_type = match ty {
-            Type::Group(group) => &*group.elem,  // Type::Groupの場合は内部の型を取得
+            Type::Group(group) => &*group.elem,  // Type::Groupの場合は中身の型を取得
             other => other,
         };
 
@@ -140,6 +140,16 @@ pub fn derive_state_access(input: TokenStream) -> TokenStream {
         }
         None
     }
+
+    // ---- list_len ----
+    let list_len_arms = fs.iter().map(|f| {
+        let field = &f.ident; let key = &f.key;
+        if vec_inner(&f.ty).is_some() {
+            quote! { #key => Some(self.#field.len()) }
+        } else {
+            quote! { #key => None }
+        }
+    });
 
     // ---- get_field ----
     let get_field_arms = fs.iter().map(|f| {
@@ -352,6 +362,9 @@ pub fn derive_state_access(input: TokenStream) -> TokenStream {
             }
             fn list_clear(&mut self, path: &str) -> Result<(), String> {
                 match path { #(#list_clear_arms,)* _ => Err(format!("unknown field: {}", path)) }
+            }
+            fn list_len(&self, key: &str) -> Option<usize> {
+                match key { #(#list_len_arms,)* _ => None }
             }
         }
     };

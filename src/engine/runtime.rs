@@ -16,6 +16,10 @@ mod native {
     use std::collections::HashMap;
     use std::sync::{Arc, Mutex}; // ログマクロを追加
 
+    // Scroll physics tuned close to desktop browsers/apps
+    const SCROLL_FRICTION: f32 = 0.9;
+    const SCROLL_VELOCITY_EPSILON: f32 = 0.05;
+
     use winit::{
         application::ApplicationHandler,
         event::{ElementState, Ime, KeyEvent, MouseButton, MouseScrollDelta, WindowEvent},
@@ -39,9 +43,8 @@ mod native {
         event_queue: EventQueue,
         button_handlers: HashMap<String, Box<dyn FnMut(&mut AppState<S>)>>,
         scroll_offset: [f32; 2],
+        scroll_velocity: f32,
         content_length: f32,
-        target_scroll_offset: [f32; 2],
-        smoothing: f32,
         mouse_pos_raw: [f32; 2],
         mouse_pos: [f32; 2],
         mouse_down: bool,
@@ -65,9 +68,8 @@ mod native {
                 event_queue: EventQueue::new(),
                 button_handlers: HashMap::new(),
                 scroll_offset: [0.0, 0.0],
+                scroll_velocity: 0.0,
                 content_length: 0.0,
-                target_scroll_offset: [0.0, 0.0],
-                smoothing: 0.5,
                 mouse_pos_raw: [0.0, 0.0],
                 mouse_pos: [0.0, 0.0],
                 mouse_down: false,
@@ -174,7 +176,12 @@ mod native {
                             // ★ ScrollContainerのコンテンツ高さを計算（簡易実装：子要素の最大Y座標）
                             // 実際のコンテンツ高さはレイアウト時に計算すべきだが、ここでは簡易的にsize[1]の2倍と仮定
                             let container_height = size[1];
-                            let content_height = container_height * 2.0; // TODO: 実際のコンテンツ高さを使用
+                            let content_height = self
+                                .state
+                                .scroll_container_content_heights
+                                .get(id)
+                                .copied()
+                                .unwrap_or(container_height);
                             let max_container_scroll = (content_height - container_height).max(0.0);
                             
                             // 現在のスクロールオフセットを取得
@@ -200,9 +207,8 @@ mod native {
                     }
                     
                     // ScrollContainer外の場合、グローバルスクロールを更新
-                    if !scroll_handled {
-                        self.target_scroll_offset[1] =
-                            (self.target_scroll_offset[1] + scroll_delta).clamp(-max_scroll, 0.0);
+                    if !scroll_handled && max_scroll > 0.0 {
+                        self.scroll_velocity += scroll_delta;
                     }
                     
                     window.request_redraw();
@@ -519,17 +525,15 @@ mod native {
                         let viewport_height = size.height as f32 / scale_factor;
                         let max_scroll = (self.content_length - viewport_height).max(0.0);
                         renderer.resize(size);
-                        if (max_scroll <= 0.0) {
-                            self.scroll_offset[1] = 0.0;
-                            self.target_scroll_offset[1] = 0.0;
-                        } else if (self.scroll_offset[1] < -max_scroll) {
-                            self.scroll_offset[1] = -max_scroll;
-                            self.target_scroll_offset[1] = -max_scroll;
+                        let clamped = self.scroll_offset[1].clamp(-max_scroll, 0.0);
+                        if (self.scroll_offset[1] != clamped) {
+                            self.scroll_velocity = 0.0;
                         }
+                        self.scroll_offset[1] = clamped;
                         // レイアウトキャッシュを無効化
-                    self.state.static_stencils = None;
-                    self.state.static_buttons.clear();
-                    self.state.static_text_inputs.clear();
+                        self.state.static_stencils = None;
+                        self.state.static_buttons.clear();
+                        self.state.static_text_inputs.clear();
                         self.state.static_text_inputs.clear();
                     }
                     // ウィンドウサイズを正しく取得
@@ -563,9 +567,23 @@ mod native {
                         }
                     }
 
-                    // スクロール補正
-                    self.scroll_offset[1] +=
-                        (self.target_scroll_offset[1] - self.scroll_offset[1]) * self.smoothing;
+                    // スクロール更新（慣性付き）
+                    let max_scroll = (self.content_length - window_size[1]).max(0.0);
+                    self.scroll_offset[1] += self.scroll_velocity;
+                    if self.scroll_offset[1] > 0.0 {
+                        self.scroll_offset[1] = 0.0;
+                        self.scroll_velocity = 0.0;
+                    } else if self.scroll_offset[1] < -max_scroll {
+                        self.scroll_offset[1] = -max_scroll;
+                        self.scroll_velocity = 0.0;
+                    }
+                    self.scroll_velocity *= SCROLL_FRICTION;
+                    if self.scroll_velocity.abs() < SCROLL_VELOCITY_EPSILON {
+                        self.scroll_velocity = 0.0;
+                    } else {
+                        // 慣性が残っている間は再描画をリクエストして減衰を継続
+                        window.request_redraw();
+                    }
 
                     // マウス座標の正確な計算（スクロールオフセット考慮）
                     let adjusted_mouse_pos = [
@@ -1018,9 +1036,8 @@ mod native {
         event_queue: EventQueue,
         button_handlers: HashMap<String, Box<dyn FnMut(&mut AppState<S>)>>,
         scroll_offset: [f32; 2],
+        scroll_velocity: f32,
         content_length: f32,
-        target_scroll_offset: [f32; 2],
-        smoothing: f32,
         mouse_pos_raw: [f32; 2],
         mouse_pos: [f32; 2],
         mouse_down: bool,
@@ -1052,9 +1069,8 @@ mod native {
                 event_queue: EventQueue::new(),
                 button_handlers: HashMap::new(),
                 scroll_offset: [0.0, 0.0],
+                scroll_velocity: 0.0,
                 content_length: 0.0,
-                target_scroll_offset: [0.0, 0.0],
-                smoothing: 0.5,
                 mouse_pos_raw: [0.0, 0.0],
                 mouse_pos: [0.0, 0.0],
                 mouse_down: false,
@@ -1178,7 +1194,7 @@ mod native {
                             let content_height = self.state.scroll_container_content_heights
                                 .get(id)
                                 .copied()
-                                .unwrap_or(container_height * 2.0);
+                                .unwrap_or(container_height);
                             let max_container_scroll = (content_height - container_height).max(0.0);
                             
                             // 現在のスクロールオフセットを取得
@@ -1204,9 +1220,8 @@ mod native {
                     }
                     
                     // ScrollContainer外の場合、グローバルスクロールを更新
-                    if !scroll_handled {
-                        self.target_scroll_offset[1] =
-                            (self.target_scroll_offset[1] + scroll_delta).clamp(-max_scroll, 0.0);
+                    if !scroll_handled && max_scroll > 0.0 {
+                        self.scroll_velocity += scroll_delta;
                     }
                     
                     window.request_redraw();
@@ -1517,13 +1532,11 @@ mod native {
                         let viewport_height = size.height as f32 / scale_factor;
                         let max_scroll = (self.content_length - viewport_height).max(0.0);
                         renderer.resize(size);
-                        if max_scroll <= 0.0 {
-                            self.scroll_offset[1] = 0.0;
-                            self.target_scroll_offset[1] = 0.0;
-                        } else if self.scroll_offset[1] < -max_scroll {
-                            self.scroll_offset[1] = -max_scroll;
-                            self.target_scroll_offset[1] = -max_scroll;
+                        let clamped = self.scroll_offset[1].clamp(-max_scroll, 0.0);
+                        if self.scroll_offset[1] != clamped {
+                            self.scroll_velocity = 0.0;
                         }
+                        self.scroll_offset[1] = clamped;
                         self.state.static_stencils = None;
                         self.state.static_buttons.clear();
                         self.state.static_text_inputs.clear();
@@ -1535,9 +1548,23 @@ mod native {
                         size.height as f32 / scale_factor,
                     ];
 
-                    // スクロール補正
-                    self.scroll_offset[1] +=
-                        (self.target_scroll_offset[1] - self.scroll_offset[1]) * self.smoothing;
+                    // スクロール更新（慣性付き）
+                    let max_scroll = (self.content_length - window_size[1]).max(0.0);
+                    self.scroll_offset[1] += self.scroll_velocity;
+                    if self.scroll_offset[1] > 0.0 {
+                        self.scroll_offset[1] = 0.0;
+                        self.scroll_velocity = 0.0;
+                    } else if self.scroll_offset[1] < -max_scroll {
+                        self.scroll_offset[1] = -max_scroll;
+                        self.scroll_velocity = 0.0;
+                    }
+                    self.scroll_velocity *= SCROLL_FRICTION;
+                    if self.scroll_velocity.abs() < SCROLL_VELOCITY_EPSILON {
+                        self.scroll_velocity = 0.0;
+                    } else {
+                        // 慣性が残っている間は再描画をリクエストして減衰を継続
+                        window.request_redraw();
+                    }
 
                     // マウス座標の正確な計算（スクロールオフセット考慮）
                     let adjusted_mouse_pos = [
@@ -1819,9 +1846,8 @@ mod native {
         event_queue: EventQueue,
         button_handlers: HashMap<String, Box<dyn FnMut(&mut AppState<S>)>>,
         scroll_offset: [f32; 2],
+        scroll_velocity: f32,
         content_length: f32,
-        target_scroll_offset: [f32; 2],
-        smoothing: f32,
         mouse_pos_raw: [f32; 2],
         mouse_pos: [f32; 2],
         mouse_down: bool,
@@ -1861,9 +1887,8 @@ mod native {
                 event_queue: EventQueue::new(),
                 button_handlers: HashMap::new(),
                 scroll_offset: [0.0, 0.0],
+                scroll_velocity: 0.0,
                 content_length: 0.0,
-                target_scroll_offset: [0.0, 0.0],
-                smoothing: 0.5,
                 mouse_pos_raw: [0.0, 0.0],
                 mouse_pos: [0.0, 0.0],
                 mouse_down: false,
@@ -1986,7 +2011,7 @@ mod native {
                             let content_height = self.state.scroll_container_content_heights
                                 .get(id)
                                 .copied()
-                                .unwrap_or(container_height * 2.0);
+                                .unwrap_or(container_height);
                             let max_container_scroll = (content_height - container_height).max(0.0);
                             
                             // 現在のスクロールオフセットを取得
@@ -2012,9 +2037,8 @@ mod native {
                     }
                     
                     // ScrollContainer外の場合、グローバルスクロールを更新
-                    if !scroll_handled {
-                        self.target_scroll_offset[1] =
-                            (self.target_scroll_offset[1] + scroll_delta).clamp(-max_scroll, 0.0);
+                    if !scroll_handled && max_scroll > 0.0 {
+                        self.scroll_velocity += scroll_delta;
                     }
                     
                     window.request_redraw();
@@ -2324,13 +2348,11 @@ mod native {
                         let viewport_height = size.height as f32 / scale_factor;
                         let max_scroll = (self.content_length - viewport_height).max(0.0);
                         renderer.resize(size);
-                        if max_scroll <= 0.0 {
-                            self.scroll_offset[1] = 0.0;
-                            self.target_scroll_offset[1] = 0.0;
-                        } else if self.scroll_offset[1] < -max_scroll {
-                            self.scroll_offset[1] = -max_scroll;
-                            self.target_scroll_offset[1] = -max_scroll;
+                        let clamped = self.scroll_offset[1].clamp(-max_scroll, 0.0);
+                        if self.scroll_offset[1] != clamped {
+                            self.scroll_velocity = 0.0;
                         }
+                        self.scroll_offset[1] = clamped;
                         self.state.static_stencils = None;
                         self.state.static_buttons.clear();
                         self.state.static_text_inputs.clear();
@@ -2342,9 +2364,23 @@ mod native {
                         size.height as f32 / scale_factor,
                     ];
 
-                    // スクロール補正
-                    self.scroll_offset[1] +=
-                        (self.target_scroll_offset[1] - self.scroll_offset[1]) * self.smoothing;
+                    // スクロール更新（慣性付き）
+                    let max_scroll = (self.content_length - window_size[1]).max(0.0);
+                    self.scroll_offset[1] += self.scroll_velocity;
+                    if self.scroll_offset[1] > 0.0 {
+                        self.scroll_offset[1] = 0.0;
+                        self.scroll_velocity = 0.0;
+                    } else if self.scroll_offset[1] < -max_scroll {
+                        self.scroll_offset[1] = -max_scroll;
+                        self.scroll_velocity = 0.0;
+                    }
+                    self.scroll_velocity *= SCROLL_FRICTION;
+                    if self.scroll_velocity.abs() < SCROLL_VELOCITY_EPSILON {
+                        self.scroll_velocity = 0.0;
+                    } else {
+                        // 慣性が残っている間は再描画をリクエストして減衰を継続
+                        window.request_redraw();
+                    }
 
                     // マウス座標の正確な計算（スクロールオフセット考慮）
                     let adjusted_mouse_pos = [

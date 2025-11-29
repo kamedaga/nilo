@@ -218,6 +218,11 @@ pub fn style_from_expr(expr: Expr) -> Style {
                             s.min_width = Some(*d);
                         }
                     }
+                    "max_height" => {
+                        if let Some(Expr::Dimension(d)) = Some(&resolved_value) {
+                            s.max_height = Some(*d);
+                        }
+                    }
                     "min_height" => {
                         if let Some(Expr::Dimension(d)) = Some(&resolved_value) {
                             s.min_height = Some(*d);

@@ -3,9 +3,10 @@
 // width/height の優先度を明確化した汎用レイアウトエンジン
 
 use crate::engine::state::format_text;
-use crate::parser::ast::{App, Expr, ViewNode, WithSpan};
+use crate::parser::ast::{App, Expr, OverflowMode, ViewNode, WithSpan};
 use crate::parser::ast::{DimensionValue, Edges, RelativeEdges, Style, Unit};
 use crate::stencil::stencil::Stencil as DrawStencil;
+use serde_json;
 
 // テキスト測定: Native環境とWASM環境で異なる実装を使用
 #[cfg(any(feature = "glyphon", target_arch = "wasm32"))]
@@ -64,6 +65,16 @@ pub struct LayoutedNode<'a> {
     pub node: &'a WithSpan<ViewNode>,
     pub position: [f32; 2],
     pub size: [f32; 2],
+}
+
+/// ScrollContainer���L�q���鋐������
+#[derive(Debug, Clone)]
+pub struct ScrollContainerInfo {
+    pub id: String,
+    pub position: [f32; 2],
+    pub size: [f32; 2],
+    pub content_size: [f32; 2],
+    pub overflow: OverflowMode,
 }
 
 /// レイアウトの初期パラメータ（後方互換性のため維持）
@@ -165,13 +176,49 @@ pub struct LayoutEngine {
     /// コンポーネントのキャッシュ
     #[allow(dead_code)]
     component_cache: HashMap<String, ComputedSize>,
+    /// ScrollContainer�̎擾�p�ɃJ�E���g
+    scroll_containers: Vec<ScrollContainerInfo>,
 }
 
 impl LayoutEngine {
     pub fn new() -> Self {
         Self {
             component_cache: HashMap::new(),
+            scroll_containers: Vec::new(),
         }
+    }
+
+    /// ScrollContainer�����\�b�h�Ƃ��čŏ��Ƀ��C�A�E�g
+    pub fn layout_with_positioning_and_scroll<'a, F, G>(
+        &mut self,
+        nodes: &'a [WithSpan<ViewNode>],
+        context: &LayoutContext,
+        available_size: [f32; 2],
+        start_position: [f32; 2],
+        eval: &F,
+        get_image_size: &G,
+        app: &'a App,
+    ) -> (Vec<LayoutedNode<'a>>, Vec<ScrollContainerInfo>)
+    where
+        F: Fn(&Expr) -> String,
+        G: Fn(&str) -> (u32, u32),
+    {
+        let layouted = self.layout_with_positioning(
+            nodes,
+            context,
+            available_size,
+            start_position,
+            eval,
+            get_image_size,
+            app,
+        );
+        let scroll_info = self.take_scroll_containers();
+        (layouted, scroll_info)
+    }
+
+    /// �ڂ��蓖�Ă���ScrollContainer�����擾���ď����N���A
+    pub fn take_scroll_containers(&mut self) -> Vec<ScrollContainerInfo> {
+        std::mem::take(&mut self.scroll_containers)
     }
 
     /// ノードのサイズを計算（メイン関数）
@@ -331,8 +378,8 @@ impl LayoutEngine {
                 let padding_y = (font_size * 1.2f32) * 0.5; // top + bottom approx
 
                 // 最低サイズ（視認性のため）
-                let min_width = 240.0f32;
-                let min_height = (font_size * 1.2f32).max(36.0f32);
+                let min_width = 120.0f32;
+                let min_height = (font_size * 1.2f32).max(32.0f32);
 
                 // まずは既定サイズ
                 let mut width = min_width + padding_x;
@@ -588,9 +635,9 @@ impl LayoutEngine {
         let measurement = self.measure_text(label, font_size, font_family, None);
 
         // ボタンのパディング
-        let button_padding = 20.0;
-        let min_button_width = 120.0;
-        let min_button_height = 48.0;
+        let button_padding = 12.0;
+        let min_button_width = 90.0;
+        let min_button_height = 44.0;
 
         ComputedSize {
             width: (measurement.width + button_padding * 2.0).max(min_button_width),
@@ -617,6 +664,44 @@ impl LayoutEngine {
             has_explicit_width: false,
             has_explicit_height: false,
         }
+    }
+
+    /// ScrollContainerのレイアウト情報を収集（子要素の最大領域を計算）
+    fn register_scroll_container(
+        &mut self,
+        position: [f32; 2],
+        size: [f32; 2],
+        overflow_mode: OverflowMode,
+        children: &[LayoutedNode],
+    ) {
+        // 子要素が無い場合は自分のサイズをそのまま利用
+        let mut max_right = position[0] + size[0];
+        let mut max_bottom = position[1] + size[1];
+
+        for child in children {
+            max_right = max_right.max(child.position[0] + child.size[0]);
+            max_bottom = max_bottom.max(child.position[1] + child.size[1]);
+        }
+
+        let content_width = (max_right - position[0]).max(size[0]);
+        let content_height = (max_bottom - position[1]).max(size[1]);
+
+        // Stencil側のコードに合わせた簡易的なID生成
+        let id = format!(
+            "scroll_{}_{}_{}_{}",
+            (position[0] * 10.0) as i32,
+            (position[1] * 10.0) as i32,
+            (size[0] * 10.0) as i32,
+            (size[1] * 10.0) as i32
+        );
+
+        self.scroll_containers.push(ScrollContainerInfo {
+            id,
+            position,
+            size,
+            content_size: [content_width, content_height],
+            overflow: overflow_mode,
+        });
     }
 
     /// VStackサイズを計算（子要素から積み上げ）
@@ -737,6 +822,7 @@ impl LayoutEngine {
     {
         let mut total_width: f32 = 0.0;
         let mut max_height: f32 = 0.0;
+        let padding = self.get_padding_from_style(parent_style, context);
 
         // HStackの最終的な幅を事前に決定
         let has_parent_width = context.parent_size[0] > 0.0;
@@ -782,11 +868,13 @@ impl LayoutEngine {
 
         // パス2: 相対幅の子要素のサイズを計算（残りの幅を使用）
         let mut child_sizes = Vec::new();
-        
+
         if (has_parent_width) {
             // 親幅がある場合：残りの幅を計算して相対幅の子要素に渡す
-            let available_for_relative = (hstack_width - total_fixed_width - total_spacing).max(0.0);
-            
+            let available_for_relative =
+                (hstack_width - total_fixed_width - total_spacing - padding.left - padding.right)
+                    .max(0.0);
+
             for (i, child) in children.iter().enumerate() {
                 let child_size = if (has_relative_width[i]) {
                     // 相対幅の子要素：残りの幅を親サイズとして渡す
@@ -796,7 +884,8 @@ impl LayoutEngine {
                 } else {
                     // 固定幅の子要素：既に計算済み
                     let width = fixed_widths[i];
-                    let temp_size = self.compute_node_size(child, context, eval, get_image_size, app);
+                    let temp_size =
+                        self.compute_node_size(child, context, eval, get_image_size, app);
                     ComputedSize {
                         width,
                         height: temp_size.height,
@@ -806,12 +895,12 @@ impl LayoutEngine {
                         has_explicit_height: temp_size.has_explicit_height,
                     }
                 };
-                
+
                 child_sizes.push(child_size.clone());
                 total_width += child_size.width;
                 max_height = max_height.max(child_size.height);
             }
-            
+
             // スペーシングを追加
             total_width += total_spacing;
         } else {
@@ -822,29 +911,27 @@ impl LayoutEngine {
                 total_width += child_size.width;
                 max_height = max_height.max(child_size.height);
             }
-            
+
             // スペーシングを追加
             total_width += total_spacing;
         }
 
         // HStackの最終的なサイズを決定
+        total_width += padding.left + padding.right;
+
         let final_width = if (has_parent_width) {
             hstack_width
         } else {
             total_width
         };
-
-        let final_height = if (context.parent_size[1] > 0.0 && context.parent_size[1] != context.window_size[1]) {
-            context.parent_size[1]
-        } else {
-            max_height
-        };
+        let content_height = max_height;
+        let final_height = content_height + padding.top + padding.bottom;
 
         ComputedSize {
             width: final_width,
             height: final_height,
             intrinsic_width: total_width,
-            intrinsic_height: max_height,
+            intrinsic_height: final_height,
             has_explicit_width: false,
             has_explicit_height: false,
         }
@@ -930,43 +1017,42 @@ impl LayoutEngine {
             vec![iterable_value]
         };
 
-        log::info!("🔍 compute_foreach_size: items.len()={}, parent_size={:?}", items.len(), context.parent_size);
 
         let mut total_height: f32 = 0.0;
         let mut max_width: f32 = 0.0;
 
         // 各アイテムに対してボディの各ノードのサイズを計算
-        for (item_index, _item) in items.iter().enumerate() {
+        for (item_index, item) in items.iter().enumerate() {
             // ★ 各アイテムのボディ全体の高さを正確に計算
             let mut item_height = 0.0;
-            
+
             for (body_index, child) in body.iter().enumerate() {
                 // 通常のcompute_node_sizeを使用してスタイルを正しく反映
-                let child_size = self.compute_node_size(child, context, eval, get_image_size, app);
+                let expanded_child =
+                    self.expand_foreach_variables(child, _var, item, &item_index.to_string(), eval);
 
-                log::info!("  📦 Item[{}] Body[{}]: size={}x{}", item_index, body_index, child_size.width, child_size.height);
-                
+                let child_size =
+                    self.compute_node_size(&expanded_child, context, eval, get_image_size, app);
+
+
                 item_height += child_size.height;
-                
+
                 // 幅の最大値を更新
                 if child_size.width > max_width {
                     max_width = child_size.width;
                 }
-                
+
                 // ★ body内の子要素間のスペーシングを正確に追加（最後の要素以外）
                 if body_index < body.len() - 1 {
                     // 子要素自身のスタイルからスペーシングを取得
                     let child_spacing = self.get_spacing_from_style(child.style.as_ref(), context);
-                    log::info!("  🔹 Body spacing: {}", child_spacing);
                     item_height += child_spacing;
                 }
             }
-            
-            log::info!("  ✅ Item[{}] total height: {}", item_index, item_height);
-            
+
             // ★ 各アイテムの高さを合計に追加
             total_height += item_height;
-            
+
             // ★ アイテム間のスペーシングを追加（最後のアイテム以外）
             // 注意: foreachノード自体にはスタイルがないため、
             // body全体をVStackとして扱い、その最初の子要素のスペーシングを使用
@@ -977,12 +1063,9 @@ impl LayoutEngine {
                 } else {
                     0.0
                 };
-                log::info!("  🔹 Inter-item spacing: {}", inter_item_spacing);
                 total_height += inter_item_spacing;
             }
         }
-
-        log::info!("🎯 foreach TOTAL: width={}, height={}", max_width, total_height);
 
         ComputedSize {
             width: max_width,
@@ -1226,6 +1309,13 @@ impl LayoutEngine {
                 let min_height = self.resolve_dimension_value(min_h, context, false);
                 computed.height = computed.height.max(min_height);
             }
+            // max_height (clamp)
+            if let Some(ref max_h) = style.max_height {
+                if max_h.unit != Unit::Auto {
+                    let max_height = self.resolve_dimension_value(max_h, context, false);
+                    computed.height = computed.height.min(max_height);
+                }
+            }
         }
     }
 
@@ -1245,7 +1335,7 @@ impl LayoutEngine {
                 } else {
                     context.parent_size[1]
                 };
-                
+
                 // 親サイズが0またはウィンドウサイズと同じ場合、ウィンドウサイズにフォールバック
                 let effective_parent = if parent_dimension <= 0.0 {
                     if is_width {
@@ -1256,7 +1346,7 @@ impl LayoutEngine {
                 } else {
                     parent_dimension
                 };
-                
+
                 dim.value * effective_parent / 100.0
             }
             Unit::Vw => dim.value * context.window_size[0] / 100.0,
@@ -1390,6 +1480,8 @@ impl LayoutEngine {
         F: Fn(&Expr) -> String,
         G: Fn(&str) -> (u32, u32),
     {
+        // �V�����C���Y�f�[�^�����߂�܂��񂪂��邱�Ƃ�����
+        self.scroll_containers.clear();
         let mut all_results = Vec::new();
 
         match nodes.len() {
@@ -1442,20 +1534,27 @@ impl LayoutEngine {
 
         // ★ overflowスタイルをチェック
         let overflow_mode = if let Some(style) = &node.style {
-            style.overflow.unwrap_or(crate::parser::ast::OverflowMode::Visible)
+            style.overflow.unwrap_or(OverflowMode::Visible)
         } else {
-            crate::parser::ast::OverflowMode::Visible
+            OverflowMode::Visible
         };
-        
+
         // ★ 一旦ScrollContainer機能を無効化して通常のレイアウトとして処理
         // TODO: ScrollContainerのレンダリングを修正後に再有効化
-        let _has_overflow_scroll = !matches!(overflow_mode, crate::parser::ast::OverflowMode::Visible);
-        
-        // ★ VStack/HStackの場合
+        let has_overflow_scroll = !matches!(overflow_mode, OverflowMode::Visible);
+
+        // �� VStack/HStack�̏ꍇ
         match &node.node {
             ViewNode::VStack(children) => {
-                // ★ 暫定的に全てのVStackを通常レイアウトとして処理
-                self.layout_vstack_recursive(
+                let child_anchor = results.len();
+                results.push(LayoutedNode {
+                    node,
+                    position,
+                    size: [computed_size.width, computed_size.height],
+                });
+
+                // �� �b��I�ɑS�Ă�VStack��ʏ탌�C�A�E�g�Ƃ��ď���
+                let mut child_results = self.layout_vstack_recursive(
                     children,
                     node.style.as_ref(),
                     context,
@@ -1464,13 +1563,36 @@ impl LayoutEngine {
                     eval,
                     get_image_size,
                     app,
-                )
-                .into_iter()
-                .for_each(|child| results.push(child));
+                );
+                let child_end = child_anchor + 1 + child_results.len();
+                child_results
+                    .into_iter()
+                    .for_each(|child| results.push(child));
+
+                if has_overflow_scroll {
+                    let children_slice = if child_end > child_anchor + 1 {
+                        &results[child_anchor + 1..child_end]
+                    } else {
+                        &[]
+                    };
+                    self.register_scroll_container(
+                        position,
+                        [computed_size.width, computed_size.height],
+                        overflow_mode,
+                        children_slice,
+                    );
+                }
             }
             ViewNode::HStack(children) => {
-                // ★ 暫定的に全てのHStackを通常レイアウトとして処理
-                self.layout_hstack_recursive(
+                let child_anchor = results.len();
+                results.push(LayoutedNode {
+                    node,
+                    position,
+                    size: [computed_size.width, computed_size.height],
+                });
+
+                // �� �b��I�ɑS�Ă�HStack��ʏ탌�C�A�E�g�Ƃ��ď���
+                let mut child_results = self.layout_hstack_recursive(
                     children,
                     node.style.as_ref(),
                     context,
@@ -1479,9 +1601,25 @@ impl LayoutEngine {
                     eval,
                     get_image_size,
                     app,
-                )
-                .into_iter()
-                .for_each(|child| results.push(child));
+                );
+                let child_end = child_anchor + 1 + child_results.len();
+                child_results
+                    .into_iter()
+                    .for_each(|child| results.push(child));
+
+                if has_overflow_scroll {
+                    let children_slice = if child_end > child_anchor + 1 {
+                        &results[child_anchor + 1..child_end]
+                    } else {
+                        &[]
+                    };
+                    self.register_scroll_container(
+                        position,
+                        [computed_size.width, computed_size.height],
+                        overflow_mode,
+                        children_slice,
+                    );
+                }
             }
             ViewNode::ComponentCall {
                 name,
@@ -1578,82 +1716,63 @@ impl LayoutEngine {
         G: Fn(&str) -> (u32, u32),
     {
         let mut results = Vec::new();
-        let mut current_y = start_position[1];
+        let padding = self.get_padding_from_style(parent_style, context);
+        let inner_width = (available_size[0] - padding.left - padding.right).max(0.0);
+        let inner_height = (available_size[1] - padding.top - padding.bottom).max(0.0);
+        let mut current_y = start_position[1] + padding.top;
 
-        // align: "center" の場合、子要素の合計高さを事前に計算
+        // align はクロス軸 (X) のみ調整する。縦方向のオフセットは行わない。
         let align = parent_style.and_then(|s| s.align);
-        let total_children_height = if matches!(align, Some(crate::parser::ast::Align::Center)) {
-            // パス1: 子要素のサイズを事前計算
-            let mut total_height = 0.0;
 
-            for (i, child) in children.iter().enumerate() {
-                let child_context = LayoutContext {
-                    window_size: context.window_size,
-                    parent_size: available_size,
-                    root_font_size: context.root_font_size,
-                    font_size: context.font_size,
-                    default_font: context.default_font.clone(),
-                };
-
-                let child_size =
-                    self.compute_node_size(child, &child_context, eval, get_image_size, app);
-                total_height += child_size.height;
-
-                if i < children.len() - 1 {
-                    total_height += self.get_spacing_from_style(parent_style, context);
-                }
-            }
-
-            total_height
-        } else {
-            0.0
+        let child_context = LayoutContext {
+            window_size: context.window_size,
+            parent_size: [inner_width, inner_height],
+            root_font_size: context.root_font_size,
+            font_size: context.font_size,
+            default_font: context.default_font.clone(),
         };
 
-        // align: "center" の場合、開始位置をオフセット
-        if matches!(align, Some(crate::parser::ast::Align::Center)) {
-            let center_offset = (available_size[1] - total_children_height) / 2.0;
-            current_y = start_position[1] + center_offset.max(0.0);
+        let mut child_sizes = Vec::with_capacity(children.len());
+        let mut max_child_width: f32 = 0.0;
+        for child in children.iter() {
+            let child_size =
+                self.compute_node_size(child, &child_context, eval, get_image_size, app);
+            max_child_width = max_child_width.max(child_size.width);
+            child_sizes.push(child_size);
         }
+        let center_offset_x = match align {
+            Some(crate::parser::ast::Align::Center) => (inner_width - max_child_width) / 2.0,
+            _ => 0.0,
+        };
 
         for (i, child) in children.iter().enumerate() {
-            // 子要素のコンテキストを作成
-            let child_context = LayoutContext {
-                window_size: context.window_size,
-                parent_size: available_size,
-                root_font_size: context.root_font_size,
-                font_size: context.font_size,
-                default_font: context.default_font.clone(),
-            };
-
-            // スペーシング計算（親のスタイルから取得）
             let spacing = if i < children.len() - 1 {
                 self.get_spacing_from_style(parent_style, context)
             } else {
                 0.0
             };
 
-            // 子要素のサイズを計算
-            let child_size =
-                self.compute_node_size(child, &child_context, eval, get_image_size, app);
+            let child_size = &child_sizes[i];
 
-            // align: "center" の場合、X座標を中央揃えに調整
-            let child_x = if matches!(align, Some(crate::parser::ast::Align::Center)) {
-                start_position[0] + (available_size[0] - child_size.width) / 2.0
-            } else {
-                start_position[0]
+            let child_x = match align {
+                Some(crate::parser::ast::Align::Center) => {
+                    start_position[0] + padding.left + center_offset_x
+                }
+                Some(crate::parser::ast::Align::Right) => {
+                    start_position[0] + padding.left + (inner_width - child_size.width).max(0.0)
+                }
+                _ => start_position[0] + padding.left,
             };
 
             let child_position = [child_x, current_y];
             let initial_results_len = results.len();
 
-            // 特別な処理が必要なノードタイプをチェック
             match &child.node {
                 ViewNode::ForEach {
                     var,
                     iterable,
                     body,
                 } => {
-                    // Foreach文を展開してレイアウト
                     self.layout_foreach_recursive(
                         var,
                         iterable,
@@ -1671,7 +1790,6 @@ impl LayoutEngine {
                     then_body,
                     else_body,
                 } => {
-                    // If文を直接処理
                     self.layout_if_recursive(
                         condition,
                         then_body,
@@ -1685,11 +1803,12 @@ impl LayoutEngine {
                     );
                 }
                 ViewNode::DynamicSection { name: _, body } => {
-                    // DynamicSectionを展開してレイアウト
+                    let used_height = current_y - (start_position[1] + padding.top);
+                    let remaining_height = (inner_height - used_height).max(0.0);
                     let child_results = self.layout_with_positioning(
                         body,
                         &child_context,
-                        [child_size.width, available_size[1] - current_y],
+                        [child_size.width, remaining_height],
                         child_position,
                         eval,
                         get_image_size,
@@ -1698,7 +1817,6 @@ impl LayoutEngine {
                     results.extend(child_results);
                 }
                 _ => {
-                    // 通常のノードを再帰的にレイアウト
                     self.layout_single_node_recursive(
                         child,
                         &child_context,
@@ -1711,25 +1829,25 @@ impl LayoutEngine {
                 }
             }
 
-            // 次の子要素の位置を更新（追加されたノード群の最大Y値を計算）
             let new_results_len = results.len();
             if new_results_len > initial_results_len {
                 let mut max_bottom = current_y;
                 for j in initial_results_len..new_results_len {
                     let node_bottom = results[j].position[1] + results[j].size[1];
-                    if (node_bottom > max_bottom) {
+                    if node_bottom > max_bottom {
                         max_bottom = node_bottom;
                     }
                 }
                 current_y = max_bottom + spacing;
             } else {
-                current_y += spacing; // フォールバック
+                current_y += spacing;
             }
         }
 
         results
     }
 
+    /// HStackレイアウト（再帰）
     /// HStackレイアウト（再帰的処理版）
     fn layout_hstack_recursive<'a, F, G>(
         &mut self,
@@ -1747,68 +1865,25 @@ impl LayoutEngine {
         G: Fn(&str) -> (u32, u32),
     {
         let mut results = Vec::new();
-        let mut current_x = start_position[0];
-
-        // align: "center" の場合、子要素の合計幅を事前に計算
+        let padding = self.get_padding_from_style(parent_style, context);
+        let inner_width = (available_size[0] - padding.left - padding.right).max(0.0);
+        let inner_height = (available_size[1] - padding.top - padding.bottom).max(0.0);
         let align = parent_style.and_then(|s| s.align);
-        let total_children_width = if matches!(align, Some(crate::parser::ast::Align::Center)) {
-            // パス1: 子要素のサイズを事前計算
-            let mut total_width = 0.0;
 
-            for (i, child) in children.iter().enumerate() {
-                let mut child_context = LayoutContext {
-                    window_size: context.window_size,
-                    parent_size: available_size,
-                    root_font_size: context.root_font_size,
-                    font_size: context.font_size,
-                    default_font: context.default_font.clone(),
-                };
-
-                // ComponentCallの場合、適切な親サイズを設定
-                if let ViewNode::ComponentCall { name, .. } = &child.node {
-                    if let Some(component) = app.components.iter().find(|c| &c.name == name) {
-                        let merged_style =
-                            merge_styles(component.default_style.as_ref(), child.style.as_ref());
-                        let component_explicit_size =
-                            self.get_explicit_size_from_style(Some(&merged_style), &child_context);
-
-                        if component_explicit_size.has_explicit_width {
-                            child_context.parent_size = available_size;
-                        }
-                    }
-                }
-
-                let child_size =
-                    self.compute_node_size(child, &child_context, eval, get_image_size, app);
-                total_width += child_size.width;
-
-                if i < children.len() - 1 {
-                    total_width += self.get_spacing_from_style(parent_style, context);
-                }
-            }
-
-            total_width
-        } else {
-            0.0
-        };
-
-        // align: "center" の場合、開始位置をオフセット
-        if matches!(align, Some(crate::parser::ast::Align::Center)) {
-            let center_offset = (available_size[0] - total_children_width) / 2.0;
-            current_x = start_position[0] + center_offset.max(0.0);
-        }
+        let mut child_contexts = Vec::with_capacity(children.len());
+        let mut child_sizes = Vec::with_capacity(children.len());
+        let mut total_children_width = 0.0;
+        let mut max_child_height: f32 = 0.0;
 
         for (i, child) in children.iter().enumerate() {
-            // 子要素のコンテキストを作成（親サイズを適切に設定）
             let mut child_context = LayoutContext {
                 window_size: context.window_size,
-                parent_size: available_size,
+                parent_size: [inner_width, inner_height],
                 root_font_size: context.root_font_size,
                 font_size: context.font_size,
                 default_font: context.default_font.clone(),
             };
 
-            // ComponentCallの場合、そのコンポーネントの幅仕様を確認して適切な親サイズを設定
             if let ViewNode::ComponentCall { name, .. } = &child.node {
                 if let Some(component) = app.components.iter().find(|c| &c.name == name) {
                     let merged_style =
@@ -1816,30 +1891,74 @@ impl LayoutEngine {
                     let component_explicit_size =
                         self.get_explicit_size_from_style(Some(&merged_style), &child_context);
 
-                    // パーセンテージベースの幅の場合、HStackの利用可能幅を親サイズとして使用
                     if component_explicit_size.has_explicit_width {
-                        child_context.parent_size = available_size;
+                        child_context.parent_size = [inner_width, inner_height];
                     }
                 }
             }
 
-            // スペーシング計算（親のスタイルから取得）
+            let child_size =
+                self.compute_node_size(child, &child_context, eval, get_image_size, app);
+
+            total_children_width += child_size.width;
+            max_child_height = max_child_height.max(child_size.height);
+
+            if i < children.len() - 1 {
+                total_children_width += self.get_spacing_from_style(parent_style, context);
+            }
+
+            child_contexts.push(child_context);
+            child_sizes.push(child_size);
+        }
+
+        let mut current_x = start_position[0] + padding.left;
+        let mut start_y = start_position[1] + padding.top;
+
+        if let Some(alignment) = align {
+            match alignment {
+                crate::parser::ast::Align::Center => {
+                    let center_offset_x = (inner_width - total_children_width) / 2.0;
+                    current_x = start_position[0] + padding.left + center_offset_x.max(0.0);
+
+                    let center_offset_y = (inner_height - max_child_height) / 2.0;
+                    start_y = start_position[1] + padding.top + center_offset_y;
+                }
+                crate::parser::ast::Align::Right => {
+                    let right_offset = inner_width - total_children_width;
+                    current_x = start_position[0] + padding.left + right_offset.max(0.0);
+                }
+                _ => {}
+            }
+        }
+
+        for (i, child) in children.iter().enumerate() {
+            let child_context = &child_contexts[i];
+            let child_size = &child_sizes[i];
+
             let spacing = if i < children.len() - 1 {
                 self.get_spacing_from_style(parent_style, context)
             } else {
                 0.0
             };
 
-            let child_position = [current_x, start_position[1]];
+            // 子自身が align: "right" の場合は右寄せで配置（HStack 内のメイン軸を右に揃える簡易対応）
+            let child_self_align = child
+                .style
+                .as_ref()
+                .and_then(|s| s.align)
+                .unwrap_or(crate::parser::ast::Align::Left);
 
-            // 子要素のサイズを先に計算してHStackレイアウトで使用
-            let child_size =
-                self.compute_node_size(child, &child_context, eval, get_image_size, app);
+            let child_x = if matches!(child_self_align, crate::parser::ast::Align::Right) {
+                start_position[0] + padding.left + (inner_width - child_size.width).max(0.0)
+            } else {
+                current_x
+            };
 
-            // 子要素を再帰的にレイアウト
+            let child_position = [child_x, start_y];
+
             self.layout_single_node_recursive(
                 child,
-                &child_context,
+                child_context,
                 child_position,
                 eval,
                 get_image_size,
@@ -1847,14 +1966,12 @@ impl LayoutEngine {
                 &mut results,
             );
 
-            // 次の子要素の位置を更新（計算したサイズを使用、ComponentCallの場合も正しい）
             current_x += child_size.width + spacing;
         }
 
         results
     }
 
-    /// Foreach文のレイアウト処理（再帰的）
     fn layout_foreach_recursive<'a, F, G>(
         &mut self,
         var: &str,
@@ -1980,16 +2097,24 @@ impl LayoutEngine {
                 // ★ HStack/VStackの子要素を変数展開してから処理
                 let expanded_children: Vec<WithSpan<ViewNode>> = children
                     .iter()
-                    .map(|child| self.expand_foreach_variables(child, var, item_value, item_index_value, eval))
+                    .map(|child| {
+                        self.expand_foreach_variables(
+                            child,
+                            var,
+                            item_value,
+                            item_index_value,
+                            eval,
+                        )
+                    })
                     .collect();
-                
+
                 // 展開された子要素でHStack/VStackノードを作成
                 let expanded_viewnode = match &node.node {
                     ViewNode::HStack(_) => ViewNode::HStack(expanded_children),
                     ViewNode::VStack(_) => ViewNode::VStack(expanded_children),
                     _ => unreachable!(),
                 };
-                
+
                 let new_node = Box::leak(Box::new(WithSpan {
                     node: expanded_viewnode,
                     line: node.line,
@@ -2014,7 +2139,7 @@ impl LayoutEngine {
 
                 // 結果を追加
                 results.extend(sub_results);
-                
+
                 // Y座標を更新
                 *current_y += size.height;
             }
@@ -2053,6 +2178,24 @@ impl LayoutEngine {
     where
         F: Fn(&Expr) -> String,
     {
+        // foreach変数がJSON文字列のときに "var.field" を展開できるようにするヘルパー
+        fn get_json_field(json_str: &str, path: &str) -> Option<String> {
+            if let Ok(val) = serde_json::from_str::<serde_json::Value>(json_str) {
+                let mut current = &val;
+                for part in path.split('.') {
+                    current = current.get(part)?;
+                }
+                return Some(match current {
+                    serde_json::Value::String(s) => s.clone(),
+                    serde_json::Value::Number(n) => n.to_string(),
+                    serde_json::Value::Bool(b) => b.to_string(),
+                    serde_json::Value::Null => "null".to_string(),
+                    other => other.to_string(),
+                });
+            }
+            None
+        }
+
         let expanded_viewnode = match &node.node {
             ViewNode::Text { format, args } => {
                 let mut final_format = format.clone();
@@ -2062,6 +2205,14 @@ impl LayoutEngine {
                     let value = match arg {
                         Expr::Path(path) if path == var => item_value.to_string(),
                         Expr::Path(path) if path == "item_index" => item_index_value.to_string(),
+                        Expr::Path(path)
+                            if path.starts_with(&format!("{}.", var)) && item_value.starts_with('{') =>
+                        {
+                            let rest = path
+                                .strip_prefix(&format!("{}.", var))
+                                .unwrap_or(path.as_str());
+                            get_json_field(item_value, rest).unwrap_or_else(|| eval(arg))
+                        }
                         _ => eval(arg),
                     };
                     final_format = final_format.replacen("{}", &value, 1);
@@ -2075,14 +2226,30 @@ impl LayoutEngine {
             ViewNode::VStack(children) => {
                 let expanded_children: Vec<WithSpan<ViewNode>> = children
                     .iter()
-                    .map(|child| self.expand_foreach_variables(child, var, item_value, item_index_value, eval))
+                    .map(|child| {
+                        self.expand_foreach_variables(
+                            child,
+                            var,
+                            item_value,
+                            item_index_value,
+                            eval,
+                        )
+                    })
                     .collect();
                 ViewNode::VStack(expanded_children)
             }
             ViewNode::HStack(children) => {
                 let expanded_children: Vec<WithSpan<ViewNode>> = children
                     .iter()
-                    .map(|child| self.expand_foreach_variables(child, var, item_value, item_index_value, eval))
+                    .map(|child| {
+                        self.expand_foreach_variables(
+                            child,
+                            var,
+                            item_value,
+                            item_index_value,
+                            eval,
+                        )
+                    })
                     .collect();
                 ViewNode::HStack(expanded_children)
             }
@@ -2255,11 +2422,7 @@ impl LayoutEngine {
     }
 
     /// LayoutedNodeをStencilに変換（ScrollContainer用）
-    fn layouted_node_to_stencil<F>(
-        &self,
-        layouted: LayoutedNode,
-        eval: &F,
-    ) -> DrawStencil
+    fn layouted_node_to_stencil<F>(&self, layouted: LayoutedNode, eval: &F) -> DrawStencil
     where
         F: Fn(&Expr) -> String,
     {
@@ -2267,19 +2430,28 @@ impl LayoutEngine {
             ViewNode::Text { format, args } => {
                 let values: Vec<String> = args.iter().map(|e| eval(e)).collect();
                 let content = format_text(format, &values);
-                
-                let font_size = layouted.node.style.as_ref()
+
+                let font_size = layouted
+                    .node
+                    .style
+                    .as_ref()
                     .and_then(|s| s.font_size)
                     .unwrap_or(16.0);
-                
-                let font = layouted.node.style.as_ref()
+
+                let font = layouted
+                    .node
+                    .style
+                    .as_ref()
                     .and_then(|s| s.font.clone())
                     .unwrap_or_else(|| "default".to_string());
-                
-                let color = layouted.node.style.as_ref()
+
+                let color = layouted
+                    .node
+                    .style
+                    .as_ref()
                     .and_then(|s| s.color.as_ref().map(crate::engine::state::to_rgba))
                     .unwrap_or([0.0, 0.0, 0.0, 1.0]);
-                
+
                 DrawStencil::Text {
                     content,
                     position: layouted.position,
@@ -2293,17 +2465,25 @@ impl LayoutEngine {
             }
             ViewNode::Button { label, .. } => {
                 // ボタンを複数のStencilで構成する必要がある場合はGroupを使用
-                let bg_color = layouted.node.style.as_ref()
+                let bg_color = layouted
+                    .node
+                    .style
+                    .as_ref()
                     .and_then(|s| s.background.as_ref().map(crate::engine::state::to_rgba))
                     .unwrap_or([0.13, 0.59, 0.95, 1.0]);
-                
-                let radius = layouted.node.style.as_ref()
-                    .and_then(|s| s.rounded.map(|r| match r {
-                        crate::parser::ast::Rounded::On => 8.0,
-                        crate::parser::ast::Rounded::Px(px) => px,
-                    }))
+
+                let radius = layouted
+                    .node
+                    .style
+                    .as_ref()
+                    .and_then(|s| {
+                        s.rounded.map(|r| match r {
+                            crate::parser::ast::Rounded::On => 8.0,
+                            crate::parser::ast::Rounded::Px(px) => px,
+                        })
+                    })
                     .unwrap_or(6.0);
-                
+
                 DrawStencil::Group(vec![
                     DrawStencil::RoundedRect {
                         position: layouted.position,
@@ -2317,7 +2497,8 @@ impl LayoutEngine {
                     DrawStencil::Text {
                         content: label.clone(),
                         position: [
-                            layouted.position[0] + layouted.size[0] * 0.5 - (label.len() as f32 * 8.0 * 0.5),
+                            layouted.position[0] + layouted.size[0] * 0.5
+                                - (label.len() as f32 * 8.0 * 0.5),
                             layouted.position[1] + layouted.size[1] * 0.5 - 8.0,
                         ],
                         size: 16.0,

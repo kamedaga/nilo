@@ -1,4 +1,4 @@
-// 統合レンダラ - 一つのパイプラインですべての図形を描画
+// Unified pipeline - draws primitive shapes (rect/triangle/circle) and lightweight box shadows
 
 use crate::renderer_abstract::command::{DrawCommand, DrawList};
 use wgpu::{
@@ -7,20 +7,17 @@ use wgpu::{
 };
 use winit::dpi::PhysicalSize;
 
-// 統合頂点構造体
-// Rustの構造体はアライメントルールに従うため、明示的にパディングを追加
 #[repr(C)]
 #[derive(Copy, Clone, bytemuck::Pod, bytemuck::Zeroable, Debug)]
 pub struct UnifiedVertex {
-    position: [f32; 3], // offset: 0, size: 12
-    shape_type: u32,    // offset: 12, size: 4
-    color: u32,         // offset: 16, size: 4
-    _padding: f32,      // offset: 20, size: 4 (パディング)
-    center: [f32; 2],   // offset: 24, size: 8
-    radius: f32,        // offset: 32, size: 4
-    _padding2: f32,     // offset: 36, size: 4 (パディング)
-    color_vec: [f32; 4], // offset: 40, size: 16
-                        // 合計: 56 bytes
+    position: [f32; 3],  // offset: 0, size: 12
+    shape_type: u32,     // offset: 12, size: 4
+    color: u32,          // offset: 16, size: 4
+    blur: f32,           // offset: 20, size: 4 (shadow blur or unused)
+    center: [f32; 2],    // offset: 24, size: 8 (circle/shadow center)
+    radius: f32,         // offset: 32, size: 4 (circle radius / corner radius)
+    half_size: [f32; 2], // offset: 36, size: 8 (shadow half-size or unused)
+    color_vec: [f32; 4], // offset: 44, size: 16
 }
 
 impl UnifiedVertex {
@@ -48,7 +45,13 @@ impl UnifiedVertex {
                     shader_location: 2,
                     format: VertexFormat::Uint32,
                 },
-                // @location(4) center: vec2<f32> (location 3はパディング用にスキップ)
+                // @location(3) blur: f32
+                VertexAttribute {
+                    offset: 20,
+                    shader_location: 3,
+                    format: VertexFormat::Float32,
+                },
+                // @location(4) center: vec2<f32>
                 VertexAttribute {
                     offset: 24,
                     shader_location: 4,
@@ -60,9 +63,15 @@ impl UnifiedVertex {
                     shader_location: 5,
                     format: VertexFormat::Float32,
                 },
-                // @location(7) color_vec: vec4<f32> (location 6はパディング用にスキップ)
+                // @location(6) half_size: vec2<f32>
                 VertexAttribute {
-                    offset: 40,
+                    offset: 36,
+                    shader_location: 6,
+                    format: VertexFormat::Float32x2,
+                },
+                // @location(7) color_vec: vec4<f32>
+                VertexAttribute {
+                    offset: 44,
                     shader_location: 7,
                     format: VertexFormat::Float32x4,
                 },
@@ -89,7 +98,6 @@ impl UnifiedRenderer {
     pub fn new(device: &Device, format: wgpu::TextureFormat) -> Self {
         let shader = device.create_shader_module(wgpu::include_wgsl!("../shaders/unified.wgsl"));
 
-        // Uniform Buffer の設定
         let uniform_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("Unified Uniform Buffer"),
             size: std::mem::size_of::<ScreenUniform>() as u64,
@@ -148,8 +156,9 @@ impl UnifiedRenderer {
             primitive: wgpu::PrimitiveState::default(),
             depth_stencil: Some(wgpu::DepthStencilState {
                 format: wgpu::TextureFormat::Depth32Float,
-                depth_write_enabled: true,
-                depth_compare: wgpu::CompareFunction::Less,
+                // 2Dレイヤーでは描画順で制御するため深度書き込みを無効化
+                depth_write_enabled: false,
+                depth_compare: wgpu::CompareFunction::LessEqual,
                 stencil: wgpu::StencilState::default(),
                 bias: wgpu::DepthBiasState::default(),
             }),
@@ -182,14 +191,12 @@ impl UnifiedRenderer {
         scroll_offset: [f32; 2],
         scale_factor: f32,
     ) {
-        // スクリーンサイズをUniformに設定
         let uniform = ScreenUniform {
             screen_size: [size.width as f32, size.height as f32],
             _padding: [0.0, 0.0],
         };
         queue.write_buffer(&self.uniform_buffer, 0, bytemuck::cast_slice(&[uniform]));
 
-        // 全コマンドを統合頂点バッファに変換
         let mut vertices = Vec::new();
 
         for cmd in &draw_list.0 {
@@ -263,7 +270,35 @@ impl UnifiedRenderer {
                         scale_factor,
                     );
                 }
-                _ => {} // Text/Imageは別レンダラで処理
+                DrawCommand::BoxShadow {
+                    position,
+                    width,
+                    height,
+                    radius,
+                    color,
+                    blur,
+                    offset,
+                    depth,
+                    scroll,
+                    ..
+                } => {
+                    self.add_box_shadow_vertices(
+                        &mut vertices,
+                        *position,
+                        *width,
+                        *height,
+                        *radius,
+                        *color,
+                        *blur,
+                        *offset,
+                        *depth,
+                        *scroll,
+                        scroll_offset,
+                        size,
+                        scale_factor,
+                    );
+                }
+                _ => {} // Text/Image are rendered by dedicated pipelines
             }
         }
 
@@ -271,10 +306,8 @@ impl UnifiedRenderer {
             return;
         }
 
-        // 頂点バッファに書き込み
         queue.write_buffer(&self.vertex_buffer, 0, bytemuck::cast_slice(&vertices));
 
-        // 描画
         rpass.set_pipeline(&self.pipeline);
         rpass.set_bind_group(0, &self.bind_group, &[]);
         rpass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
@@ -314,7 +347,6 @@ impl UnifiedRenderer {
         let (x1, y1) = screen_to_ndc(x, y, size);
         let (x2, y2) = screen_to_ndc(x + w, y + h, size);
 
-        // 2つの三角形で矩形を構成
         let verts = [
             [x1, y1, depth],
             [x2, y1, depth],
@@ -329,10 +361,10 @@ impl UnifiedRenderer {
                 position: pos,
                 shape_type: 0, // Quad
                 color: packed_color,
-                _padding: 0.0,
+                blur: 0.0,
                 center: [0.0, 0.0],
                 radius: 0.0,
-                _padding2: 0.0,
+                half_size: [0.0, 0.0],
                 color_vec: [0.0, 0.0, 0.0, 0.0],
             });
         }
@@ -383,10 +415,10 @@ impl UnifiedRenderer {
                 position: pos,
                 shape_type: 1, // Triangle
                 color: packed_color,
-                _padding: 0.0,
+                blur: 0.0,
                 center: [0.0, 0.0],
                 radius: 0.0,
-                _padding2: 0.0,
+                half_size: [0.0, 0.0],
                 color_vec: [0.0, 0.0, 0.0, 0.0],
             });
         }
@@ -420,7 +452,6 @@ impl UnifiedRenderer {
 
         let center_px = [cx, cy];
 
-        // 四角形の範囲
         let x0 = cx - r;
         let x1 = cx + r;
         let y0 = cy - r;
@@ -429,10 +460,6 @@ impl UnifiedRenderer {
         let (nx0, ny0) = screen_to_ndc(x0, y0, size);
         let (nx1, ny1) = screen_to_ndc(x1, y1, size);
 
-        // 元のCircleRendererと同じく、深度オフセットは使わない
-        // DrawCommandのdepth値を直接使用
-
-        // 2つの三角形で矩形を構成
         let positions = [
             [nx0, ny0, depth],
             [nx1, ny0, depth],
@@ -446,20 +473,87 @@ impl UnifiedRenderer {
             let v = UnifiedVertex {
                 position: pos,
                 shape_type: 2, // Circle
-                color: 0,      // 使用しない
-                _padding: 0.0,
+                color: 0,
+                blur: 0.0,
                 center: center_px,
                 radius: r,
-                _padding2: 0.0,
+                half_size: [0.0, 0.0],
                 color_vec: color,
             };
 
             vertices.push(v);
         }
     }
+
+    fn add_box_shadow_vertices(
+        &self,
+        vertices: &mut Vec<UnifiedVertex>,
+        position: [f32; 2],
+        width: f32,
+        height: f32,
+        radius: f32,
+        color: [f32; 4],
+        blur: f32,
+        offset: [f32; 2],
+        depth: f32,
+        scroll: bool,
+        scroll_offset: [f32; 2],
+        size: PhysicalSize<u32>,
+        scale_factor: f32,
+    ) {
+        let scaled_scroll = if scroll {
+            [
+                scroll_offset[0] * scale_factor,
+                scroll_offset[1] * scale_factor,
+            ]
+        } else {
+            [0.0, 0.0]
+        };
+
+        let px_pos = [
+            (position[0] + offset[0]) * scale_factor + scaled_scroll[0],
+            (position[1] + offset[1]) * scale_factor + scaled_scroll[1],
+        ];
+        let px_size = [width * scale_factor, height * scale_factor];
+        let blur_px = (blur * scale_factor).max(0.5);
+        let radius_px = (radius * scale_factor).max(0.0);
+
+        let center = [px_pos[0] + px_size[0] * 0.5, px_pos[1] + px_size[1] * 0.5];
+        let half_size = [px_size[0] * 0.5, px_size[1] * 0.5];
+
+        let x0 = px_pos[0] - blur_px;
+        let y0 = px_pos[1] - blur_px;
+        let x1 = px_pos[0] + px_size[0] + blur_px;
+        let y1 = px_pos[1] + px_size[1] + blur_px;
+
+        let (nx0, ny0) = screen_to_ndc(x0, y0, size);
+        let (nx1, ny1) = screen_to_ndc(x1, y1, size);
+
+        let positions = [
+            [nx0, ny0, depth],
+            [nx1, ny0, depth],
+            [nx0, ny1, depth],
+            [nx1, ny0, depth],
+            [nx1, ny1, depth],
+            [nx0, ny1, depth],
+        ];
+
+        for pos in positions {
+            vertices.push(UnifiedVertex {
+                position: pos,
+                shape_type: 3, // Box shadow quad
+                color: 0,
+                blur: blur_px,
+                center,
+                radius: radius_px,
+                half_size,
+                color_vec: color,
+            });
+        }
+    }
 }
 
-// ヘルパー関数
+// helpers
 fn pack_rgba8(c: [f32; 4]) -> u32 {
     let r = (c[0] * 255.0).round() as u32;
     let g = (c[1] * 255.0).round() as u32;

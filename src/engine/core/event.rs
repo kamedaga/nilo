@@ -22,7 +22,7 @@ where
                         crate::engine::async_call::execute_async_onclick(name, state, args);
                         return; // 非同期関数が見つかったら通常のハンドラーは実行しない
                     }
-                    
+
                     // 通常の関数呼び出し（stateアクセス可能）
                     state.execute_onclick_function_call(name, args);
                 }

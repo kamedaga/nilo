@@ -1,7 +1,7 @@
 // src/engine/engine/utils.rs
 // ユーティリティ関数
 
-use crate::parser::ast::ColorValue;
+use crate::parser::ast::{ColorValue, Shadow};
 use crate::stencil::stencil::Stencil;
 
 /// ユーティリティ関数群
@@ -71,11 +71,26 @@ pub fn hex_to_rgba_fast(s: &str) -> [f32; 4] {
 }
 
 #[inline]
+pub fn shadow_to_params(shadow: &Shadow) -> ([f32; 2], [f32; 4], f32) {
+    match shadow {
+        Shadow::On => ([0.0, 2.0], [0.0, 0.0, 0.0, 0.2], 8.0),
+        Shadow::Spec { offset, color, blur } => {
+            let col = color
+                .as_ref()
+                .map(convert_to_rgba)
+                .unwrap_or([0.0, 0.0, 0.0, 0.2]);
+            (*offset, col, *blur)
+        }
+    }
+}
+
+#[inline]
 pub fn offset_stencil_fast(stencil: &Stencil, dx: f32, dy: f32) -> Stencil {
     let mut result = stencil.clone();
     match &mut result {
         Stencil::Rect { position, .. }
         | Stencil::RoundedRect { position, .. }
+        | Stencil::BoxShadow { position, .. }
         | Stencil::Text { position, .. }
         | Stencil::Image { position, .. } => {
             position[0] += dx;
@@ -106,6 +121,7 @@ pub fn adjust_stencil_depth(stencil: &mut Stencil, depth_counter: &mut f32) {
     match stencil {
         Stencil::Rect { depth: d, .. }
         | Stencil::RoundedRect { depth: d, .. }
+        | Stencil::BoxShadow { depth: d, .. }
         | Stencil::Text { depth: d, .. }
         | Stencil::Circle { depth: d, .. }
         | Stencil::Triangle { depth: d, .. }

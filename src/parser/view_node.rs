@@ -1054,10 +1054,12 @@ fn parse_text_input(pair: Pair<Rule>) -> WithSpan<ViewNode> {
                 let mut inner = p.into_inner();
                 if let Some(key_pair) = inner.next() {
                     let key_rule = key_pair.as_rule();
-                    
+
                     // style_arg の場合
                     if key_rule == Rule::style_arg {
-                        style = Some(style_from_expr(parse_expr(key_pair.into_inner().next().unwrap())));
+                        style = Some(style_from_expr(parse_expr(
+                            key_pair.into_inner().next().unwrap(),
+                        )));
                     }
                     // named_arg の場合
                     else if key_rule == Rule::named_arg {
@@ -1098,11 +1100,19 @@ fn parse_text_input(pair: Pair<Rule>) -> WithSpan<ViewNode> {
     if let Some(ref st) = style {
         let w = st.width;
         let h = st.height;
-        let rw = st.relative_width.map(|d| (d.value, format!("{:?}", d.unit)));
-        let rh = st.relative_height.map(|d| (d.value, format!("{:?}", d.unit)));
+        let rw = st
+            .relative_width
+            .map(|d| (d.value, format!("{:?}", d.unit)));
+        let rh = st
+            .relative_height
+            .map(|d| (d.value, format!("{:?}", d.unit)));
         log::info!(
             "[PARSE] TextInput id={} style present: width={:?} rel_width={:?} height={:?} rel_height={:?}",
-            id, w, rw, h, rh
+            id,
+            w,
+            rw,
+            h,
+            rh
         );
     } else {
         log::info!("[PARSE] TextInput id={} style: None", id);

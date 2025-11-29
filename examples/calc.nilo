@@ -7,63 +7,98 @@ timeline Calc {
     VStack(style: {
         width: 100ww,
         height: 100wh,
-        background: "#fff",
         align: "center",
-        padding: [40, 20]
+        padding: [32, 16],
+        background: "linear-gradient(180deg, #0b1021 0%, #121a3a 45%, #0b1021 100%)"
     }) {
-        VStack(style: {gap: 24px, align: "center", width: 100%, max_width: 720px}) {
-            Text("Simple Calculator", style: {
-                font_size: 40px,
-                color: "#000"
-            })
+        VStack(style: {
+            gap: 24px,
+            align: "center",
+            width: 100%,
+            max_width: 420px,
+            background: "#0d1228cc",
+            padding: 24px,
+            rounded: 20px,
+            shadow: {blur: 28, offset: [0, 14], color: "#00000070"},
+            border_width: 1,
+            border_color: "#2a335a"
+        }) {
+            Spacing(4)
+            VStack(style: {width: 100%, gap: 8px, align: "center"}) {
+                Text("電卓", style: {
+                    font_size: 30px,
+                    color: "#e5ecff",
+                    font_weight: "bold"
+                })
+            }
 
-            // 表示行: expr と結果
-            VStack(style: {gap: 8px, align: "center"}) {
-                Text("{}", state.expr, style: {font_size: 24px, color: "#000"})
-                Text("= {}", state.result, style: {font_size: 28px, color: "#003a47ff"})
+            VStack(style: {
+                gap: 6px,
+                align: "center",
+                width: 100%,
+                background: "#111833",
+                rounded: 16px,
+                padding: [16, 16],
+                border_width: 1,
+                border_color: "#1f2a52",
+                shadow: {blur: 18, offset: [0, 8], color: "#00000050"}
+            }) {
+                Text("{}", state.expr, style: {font_size: 22px, color: "#8fb2ff"})
+                Text("= {}", state.result, style: {font_size: 32px, color: "#ffffff", font_weight: "bold"})
                 HStack(style: {gap: 8px}) {
-                    Button(id: clear, label: "Clear", onclick: clear_expr(), style: {padding: [8,12]})
-                    Button(id: back,  label: "⌫", onclick: backspace(), style: {padding: [8,12]})
+                    Button(id: clear, label: "AC", onclick: clear_expr(), style: {
+                        padding: [10,16],
+                        background: "#22305c",
+                        color: "#e5ecff",
+                        rounded: 10px
+                    })
+                    Button(id: back,  label: "⌫", onclick: backspace(), style: {
+                        padding: [10,16],
+                        background: "#22305c",
+                        color: "#e5ecff",
+                        rounded: 10px
+                    })
                 }
             }
 
-            // 演算子・括弧ボタン
-            HStack(style: {gap: 12px, align: "center"}) {
-                Button(id: op_lp, label: "(", onclick: push_paren("("), style: {padding: [10,16]})
-                Button(id: op_rp, label: ")", onclick: push_paren(")"), style: {padding: [10,16]})
-                Button(id: op_plus,  label: "+", onclick: set_op("+"), style: {padding: [10,16]})
-                Button(id: op_minus, label: "-", onclick: set_op("-"), style: {padding: [10,16]})
-                Button(id: op_mul,   label: "*", onclick: set_op("*"), style: {padding: [10,16]})
-                Button(id: op_div,   label: "/", onclick: set_op("/"), style: {padding: [10,16]})
-            }
-
-            // 数字キー（0-9）
-            VStack(style: {gap: 8px, align: "center"}) {
-                HStack(style: {gap: 8px}) {
-                    Button(id: d7, label: "7", onclick: push_digit("7"), style: {padding: [10,16]})
-                    Button(id: d8, label: "8", onclick: push_digit("8"), style: {padding: [10,16]})
-                    Button(id: d9, label: "9", onclick: push_digit("9"), style: {padding: [10,16]})
+            VStack(style: {gap: 10px, width: 100%}) {
+                HStack(style: {gap: 10px, width: 100%, align: "center", justify_content: "center"}) {
+                    Button(id: op_lp, label: "(", onclick: push_paren("("), style: {padding: [12,16], background: "#162140", color: "#e5ecff", rounded: 10px})
+                    Button(id: op_rp, label: ")", onclick: push_paren(")"), style: {padding: [12,16], background: "#162140", color: "#e5ecff", rounded: 10px})
+                    Button(id: op_plus,  label: "+", onclick: set_op("+"), style: {padding: [12,16], background: "#22305c", color: "#ffd166", rounded: 10px})
                 }
-                HStack(style: {gap: 8px}) {
-                    Button(id: d4, label: "4", onclick: push_digit("4"), style: {padding: [10,16]})
-                    Button(id: d5, label: "5", onclick: push_digit("5"), style: {padding: [10,16]})
-                    Button(id: d6, label: "6", onclick: push_digit("6"), style: {padding: [10,16]})
-                }
-                HStack(style: {gap: 8px}) {
-                    Button(id: d1, label: "1", onclick: push_digit("1"), style: {padding: [10,16]})
-                    Button(id: d2, label: "2", onclick: push_digit("2"), style: {padding: [10,16]})
-                    Button(id: d3, label: "3", onclick: push_digit("3"), style: {padding: [10,16]})
-                }
-                HStack(style: {gap: 8px, align: "center"}) {
-                    Spacing(48px)
-                    Button(id: d0, label: "0", onclick: push_digit("0"), style: {padding: [10,16], width: 96px})
-                    Spacing(48px)
+                HStack(style: {gap: 10px, width: 100%, align: "center", justify_content: "center"}) {
+                    Button(id: op_minus, label: "-", onclick: set_op("-"), style: {padding: [12,16], background: "#22305c", color: "#ffd166", rounded: 10px})
+                    Button(id: op_mul,   label: "×", onclick: set_op("*"), style: {padding: [12,16], background: "#22305c", color: "#ffd166", rounded: 10px})
+                    Button(id: op_div,   label: "÷", onclick: set_op("/"), style: {padding: [12,16], background: "#22305c", color: "#ffd166", rounded: 10px})
                 }
             }
 
-            // エラー表示
+            VStack(style: {gap: 10px, align: "center", width: 100%}) {
+                HStack(style: {gap: 10px, width: 100%, align: "center", justify_content: "center"}) {
+                    Button(id: d7, label: "7", onclick: push_digit("7"), style: {padding: [16,16], background: "#1a2648", color: "#e5ecff", rounded: 10px, font_size: 18px})
+                    Button(id: d8, label: "8", onclick: push_digit("8"), style: {padding: [16,16], background: "#1a2648", color: "#e5ecff", rounded: 10px, font_size: 18px})
+                    Button(id: d9, label: "9", onclick: push_digit("9"), style: {padding: [16,16], background: "#1a2648", color: "#e5ecff", rounded: 10px, font_size: 18px})
+                }
+                HStack(style: {gap: 10px, width: 100%, align: "center", justify_content: "center"}) {
+                    Button(id: d4, label: "4", onclick: push_digit("4"), style: {padding: [16,16], background: "#1a2648", color: "#e5ecff", rounded: 10px, font_size: 18px})
+                    Button(id: d5, label: "5", onclick: push_digit("5"), style: {padding: [16,16], background: "#1a2648", color: "#e5ecff", rounded: 10px, font_size: 18px})
+                    Button(id: d6, label: "6", onclick: push_digit("6"), style: {padding: [16,16], background: "#1a2648", color: "#e5ecff", rounded: 10px, font_size: 18px})
+                }
+                HStack(style: {gap: 10px, width: 100%, align: "center", justify_content: "center"}) {
+                    Button(id: d1, label: "1", onclick: push_digit("1"), style: {padding: [16,16], background: "#1a2648", color: "#e5ecff", rounded: 10px, font_size: 18px})
+                    Button(id: d2, label: "2", onclick: push_digit("2"), style: {padding: [16,16], background: "#1a2648", color: "#e5ecff", rounded: 10px, font_size: 18px})
+                    Button(id: d3, label: "3", onclick: push_digit("3"), style: {padding: [16,16], background: "#1a2648", color: "#e5ecff", rounded: 10px, font_size: 18px})
+                }
+                HStack(style: {gap: 10px, width: 100%, align: "center"}) {
+                    Spacing(40px)
+                    Button(id: d0, label: "0", onclick: push_digit("0"), style: {padding: [16,16], width: 160px, background: "#1a2648", color: "#e5ecff", rounded: 10px, font_size: 18px})
+                    Spacing(40px)
+                }
+            }
+
             if state.error != "" {
-                Text("{}", state.error, style: {color: "#ff6666", font_size: 16px})
+                Text("{}", state.error, style: {color: "#ff6666", font_size: 16px, font_weight: "bold"})
             }
         }
     }

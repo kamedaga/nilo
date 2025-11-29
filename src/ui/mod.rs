@@ -17,7 +17,7 @@ pub use text_measurement_wasm as text_measurement; // WASMではtext_measurement
 pub mod event;
 pub mod viewport;
 
-pub use layout::{LayoutParams, LayoutedNode, layout_vstack};
+pub use layout::{LayoutParams, LayoutedNode, ScrollContainerInfo, layout_vstack};
 // pub use layout_wrapper::{layout_with_new_engine, compute_single_node_size}; // ラッパー関数をエクスポート - 無効化
 // pub use layout_integration::{layout_with_new_system, calculate_node_size_with_new_system, is_new_layout_system_enabled}; // 統合関数をエクスポート - 無効化
 pub use layout_diff::{DiffStats, LayoutDiffEngine, NodeHash, NodeId};

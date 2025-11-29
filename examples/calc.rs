@@ -26,7 +26,9 @@ fn tokenize(s: &str) -> Result<Vec<Tok>, String> {
                 while let Some('0'..='9') | Some('.') = chars.peek().copied() {
                     buf.push(chars.next().unwrap());
                 }
-                let v: f64 = buf.parse().map_err(|_| format!("invalid number: {}", buf))?;
+                let v: f64 = buf
+                    .parse()
+                    .map_err(|_| format!("invalid number: {}", buf))?;
                 out.push(Tok::Num(v));
                 buf.clear();
             }
@@ -92,13 +94,20 @@ fn eval_rpn(rpn: &[Tok]) -> Result<f64, String> {
             Tok::Num(v) => st.push(*v),
             Tok::Op(op) => {
                 let (b, a) = (st.pop(), st.pop());
-                let (a, b) = match (a, b) { (Some(a), Some(b)) => (a, b), _ => return Err("invalid expression".into()) };
+                let (a, b) = match (a, b) {
+                    (Some(a), Some(b)) => (a, b),
+                    _ => return Err("invalid expression".into()),
+                };
                 let v = match op {
                     '+' => a + b,
                     '-' => a - b,
                     '*' => a * b,
                     '/' => {
-                        if b == 0.0 { return Err("division by zero".into()) } else { a / b }
+                        if b == 0.0 {
+                            return Err("division by zero".into());
+                        } else {
+                            a / b
+                        }
                     }
                     _ => return Err("unsupported operator".into()),
                 };
@@ -107,9 +116,12 @@ fn eval_rpn(rpn: &[Tok]) -> Result<f64, String> {
             _ => return Err("invalid RPN token".into()),
         }
     }
-    if st.len() == 1 { Ok(st[0]) } else { Err("invalid expression".into()) }
+    if st.len() == 1 {
+        Ok(st[0])
+    } else {
+        Err("invalid expression".into())
+    }
 }
-
 
 // When compiled as an example binary (cargo run --example calc),
 // provide a simple CLI to evaluate an expression.

@@ -1,5 +1,4 @@
 /// WASMブラウザ実行関連のモジュール
-
 pub mod browser_editor;
 
 // エントリポイントを再エクスポート

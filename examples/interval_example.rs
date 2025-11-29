@@ -11,7 +11,7 @@ struct IntervalState {
 
 fn main() {
     env_logger::init();
-    
+
     // 定期実行する非同期関数を登録（1秒ごと）
     register_async_interval("update_timestamp", |_state| async {
         // 現在時刻を取得
@@ -20,17 +20,17 @@ fn main() {
             .duration_since(UNIX_EPOCH)
             .unwrap()
             .as_secs();
-        
+
         let timestamp = format!("Timestamp: {}", now);
-        
+
         let mut updates = HashMap::new();
         updates.insert("timestamp".to_string(), timestamp);
         updates.insert("status".to_string(), "Updated!".to_string());
-        
+
         log::info!("⏰ Interval function executed");
         updates
     });
-    
+
     // 開始ボタン用の関数（状態不要）
     register_rust_call("start_timer", |_args| {
         if !is_async_interval_running("update_timestamp") {
@@ -40,7 +40,7 @@ fn main() {
             log::info!("Timer already running");
         }
     });
-    
+
     // 停止ボタン用の関数
     register_rust_call("stop_timer", |_args| {
         if stop_async_interval("update_timestamp") {
@@ -49,7 +49,7 @@ fn main() {
             log::info!("Timer not running");
         }
     });
-    
+
     // カウンター開始
     register_rust_call("start_counter", |_args| {
         if !is_async_interval_running("increment_counter") {
@@ -59,7 +59,7 @@ fn main() {
             log::info!("Counter already running");
         }
     });
-    
+
     // カウンター停止
     register_rust_call("stop_counter", |_args| {
         if stop_async_interval("increment_counter") {
@@ -68,7 +68,7 @@ fn main() {
             log::info!("Counter not running");
         }
     });
-    
+
     // カウンターを増やす定期実行関数（500msごと）
     register_async_interval("increment_counter", |_state| async {
         let mut updates = HashMap::new();
@@ -80,11 +80,11 @@ fn main() {
         updates.insert("counter".to_string(), new_value.to_string());
         updates
     });
-    
+
     // アプリ起動
     let cli_args = parse_args();
     let state = IntervalState::default();
-    
+
     run_application(
         "examples/interval_example.nilo",
         state,

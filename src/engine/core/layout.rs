@@ -7,9 +7,10 @@ use super::utils::*;
 use crate::engine::state::{AppState, StateAccess};
 use crate::parser::ast::{App, Expr, ViewNode, WithSpan};
 use crate::stencil::stencil::Stencil;
-use crate::ui::{LayoutParams, layout_vstack};
-use std::collections::hash_map::DefaultHasher;
+use crate::ui::layout::{LayoutContext, LayoutEngine};
+use crate::ui::{LayoutParams, ScrollContainerInfo};
 use std::collections::HashSet;
+use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 
 /// 状態のハッシュを計算（動的セクションの変更検知用）
@@ -286,7 +287,28 @@ where
     let eval_fn = |e: &Expr| state.eval_expr_from_ast(e);
     let get_img_size = |path: &str| state.get_image_size(path);
 
-    let layouted = layout_vstack(nodes, params.clone(), app, &eval_fn, &get_img_size);
+    // 新しいレイアウトエンジンでScrollContainer情報も取得
+    let mut engine = LayoutEngine::new();
+    let context = LayoutContext::from(&params);
+    let (layouted, scroll_containers) = engine.layout_with_positioning_and_scroll(
+        nodes,
+        &context,
+        params.parent_size,
+        params.start,
+        &eval_fn,
+        &get_img_size,
+        app,
+    );
+
+    // ScrollContainer情報をAppStateに反映（ID, position, size, offset初期値）
+    state.scroll_containers = scroll_containers
+        .iter()
+        .map(|sc| (sc.id.clone(), sc.position, sc.size, [0.0, 0.0]))
+        .collect();
+    state.scroll_container_content_heights = scroll_containers
+        .iter()
+        .map(|sc| (sc.id.clone(), sc.content_size[1]))
+        .collect();
 
     for lnode in &layouted {
         match &lnode.node.node {
@@ -311,19 +333,24 @@ where
             }
             ViewNode::TextInput { id, value, .. } => {
                 let st = lnode.node.style.as_ref();
-                let (_w,_h,_relw,_relh) = if let Some(s) = st {
+                let (_w, _h, _relw, _relh) = if let Some(s) = st {
                     (
                         s.width,
                         s.height,
                         s.relative_width.map(|d| (d.value, format!("{:?}", d.unit))),
-                        s.relative_height.map(|d| (d.value, format!("{:?}", d.unit)))
+                        s.relative_height
+                            .map(|d| (d.value, format!("{:?}", d.unit))),
                     )
-                } else { (None, None, None, None) };
+                } else {
+                    (None, None, None, None)
+                };
                 if let Some(Expr::Path(p)) = value {
                     if let Some(field) = p.strip_prefix("state.") {
                         state.set_text_input_binding(id, field);
                         if let Some(v) = state.custom_state.get_field(field) {
-                            if state.text_input_values.get(id).is_none() {
+                            // Keep the rendered input value in sync with the bound state so
+                            // Rust-side updates (e.g. clearing the field) propagate to the UI.
+                            if state.get_text_input_value(id) != v {
                                 state.set_text_input_value(id.clone(), v);
                             }
                         }
@@ -419,5 +446,73 @@ where
             }
         }
     }
-    (stencils, buttons, text_inputs)
+
+    // ScrollContainerで囲う必要がある要素を集約してStencilを再構成
+    fn stencil_bounds(st: &Stencil) -> Option<([f32; 2], f32, f32)> {
+        match st {
+            Stencil::Rect {
+                position,
+                width,
+                height,
+                ..
+            }
+            | Stencil::RoundedRect {
+                position,
+                width,
+                height,
+                ..
+            } => Some((*position, *width, *height)),
+            Stencil::Text { position, size, .. } => Some((*position, *size * 0.6 * 8.0, *size)),
+            Stencil::Image {
+                position,
+                width,
+                height,
+                ..
+            } => Some((*position, *width, *height)),
+            _ => None,
+        }
+    }
+
+    let mut regrouped: Vec<Stencil> = Vec::new();
+    let mut consumed = vec![false; stencils.len()];
+
+    for sc in &scroll_containers {
+        let mut children = Vec::new();
+        for (idx, st) in stencils.iter().enumerate() {
+            if consumed[idx] {
+                continue;
+            }
+
+            if let Some((pos, w, h)) = stencil_bounds(st) {
+                let inside_x =
+                    pos[0] >= sc.position[0] && pos[0] + w <= sc.position[0] + sc.size[0];
+                let inside_y =
+                    pos[1] >= sc.position[1] && pos[1] + h <= sc.position[1] + sc.size[1];
+                if inside_x && inside_y {
+                    consumed[idx] = true;
+                    children.push(st.clone());
+                }
+            }
+        }
+
+        if !children.is_empty() {
+            regrouped.push(Stencil::ScrollContainer {
+                id: sc.id.clone(),
+                position: sc.position,
+                width: sc.size[0],
+                height: sc.size[1],
+                overflow_mode: sc.overflow,
+                children,
+                depth: 0.4,
+            });
+        }
+    }
+
+    for (idx, st) in stencils.into_iter().enumerate() {
+        if !consumed[idx] {
+            regrouped.push(st);
+        }
+    }
+
+    (regrouped, buttons, text_inputs)
 }

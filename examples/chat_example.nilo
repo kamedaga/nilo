@@ -6,7 +6,7 @@ timeline ChatApp(background: "#ffffff") {
     font: "japanese"
     VStack(style: {
         width: 100ww,
-        height: 100wh, 
+        height: 100wh,
         align: "center",
         padding: [20, 20]
     }) {
@@ -27,19 +27,18 @@ timeline ChatApp(background: "#ffffff") {
                     color: "#000000",
                     font_weight: "bold",
                 })
-                
-                
+
                 HStack(style: {
                     gap: 12px,
                     align: "center"
                 }) {
-                    Text("👤", style: {font_size: 20px})
+                    Text("🙂", style: {font_size: 20px})
                     Text("{}", state.username, style: {
                         font_size: 18px,
                         color: "#ffffff",
                         font_weight: "bold"
                     })
-                    Text("•", style: {
+                    Text(" | ", style: {
                         font_size: 18px,
                         color: "#ffffff"
                     })
@@ -50,21 +49,20 @@ timeline ChatApp(background: "#ffffff") {
                 }
             }
 
-            // メッセージリスト（スクロール可能）
+            // メッセージリスト
             VStack(style: {
                 width: 100%,
-                height: 500px,
+                relative_height: 60%,
                 background: "#fff5f0",
                 padding: [20, 24],
-                rounded: 16px,
-                overflow: "scroll"
+                rounded: 16px
             }) {
                 if state.messages.len() == 0 {
                     VStack(style: {
                         padding: [80, 20],
                         align: "center",
                     }) {
-                        Text("💭", style: {
+                        Text("📭", style: {
                             font_size: 64px
                         })
                         Text("メッセージはまだありません", style: {
@@ -73,54 +71,35 @@ timeline ChatApp(background: "#ffffff") {
                             font_weight: "bold",
                             shadow: {blur: 4, offset: [0, 1], color: "#ff8c4220"}
                         })
-                        Text("下のフォームから最初のメッセージを送信しましょう", style: {
+                        Text("このフォームから最初のメッセージを送ってみてください", style: {
                             font_size: 16px,
                             color: "#666666"
                         })
                     }
                 }
-                
+
+                // シンプル表示
                 foreach msg in state.messages {
-                    // ★ HStackにスタイルを直接指定（foreachのバグ修正）
                     HStack(style: {
                         width: 100%,
                         background: "#ffffff",
-                        padding: [16, 20],
+                        padding: [14, 16],
                         rounded: 12px,
                         border_width: 2,
                         border_color: "#ff8c42",
                         shadow: {blur: 8, offset: [0, 4], color: "#ff8c4220"},
-                        gap: 16px
+                        margin_bottom: 12px
                     }) {
-                        // アバターアイコン
-                        VStack(style: {
-                            width: 48px,
-                            height: 48px,
-                            background: "#ff8c42",
-                            rounded: 24px,
-                            align: "center",
-                            justify: "center"
-                        }) {
-                            Text("👤", style: {
-                                font_size: 24px
-                            })
-                        }
-                        
-                        // メッセージ内容
-                        VStack(style: {
-                            width: 100%
-                        }) {
-                            Text("{}", msg, style: {
-                                font_size: 16px,
-                                color: "#333333",
-                                line_height: 1.6
-                            })
-                        }
+                        Text("{}", msg, style: {
+                            font_size: 16px,
+                            color: "#333333",
+                            line_height: 1.6
+                        })
                     }
                 }
             }
 
-            // 入力エリア（固定位置）
+            // 入力エリア
             VStack(style: {
                 width: 100%,
                 background: "#fff5f0",
@@ -129,12 +108,13 @@ timeline ChatApp(background: "#ffffff") {
                 shadow: {blur: 20, offset: [0, 10], color: "#ff8c4220"}
             }) {
                 HStack(style: {
-                    gap: 16px, 
-                    width: 100%, 
+                    gap: 16px,
+                    width: 100%,
                     align: "center"
                 }) {
                     TextInput(message_input, bind: state.input, placeholder: "メッセージを入力してください...", style: {
-                        width: 100%,
+                        relative_width: 70%,
+                        min_width: 320px,
                         height: 54px,
                         background: "#ffffff",
                         border_color: "#ff8c42",
@@ -145,16 +125,35 @@ timeline ChatApp(background: "#ffffff") {
                         color: "#333333",
                         shadow: {blur: 8, offset: [0, 2], color: "#ff8c4220"}
                     })
-                    
-                    Button(id: send_btn, label: "📤 送信", onclick: send_message(), style: {
-                        padding: [16, 32],
-                        background: "linear-gradient(135deg, #ff8c42 0%, #ff6b35 100%)",
-                        color: "#ffffff",
-                        rounded: 12px,
-                        font_size: 18px,
-                        font_weight: "bold",
-                        shadow: {blur: 16, offset: [0, 4], color: "#ff8c4250"}
-                    })
+
+                    if state.sending {
+                        Button(id: send_btn, label: "送信中...", onclick: send_message(), style: {
+                            min_width: 140px,
+                            height: 54px,
+                            padding: [0px, 24px],
+                            background: "linear-gradient(135deg, #ffb07a 0%, #ff8c42 100%)",
+                            color: "#ffffff",
+                            rounded: 12px,
+                            font_size: 18px,
+                            font_weight: "bold",
+                            shadow: {blur: 12, offset: [0, 4], color: "#ff8c4230"},
+                            align: "center",
+                            justify: "center"
+                        })
+                    } else {
+                        Button(id: send_btn, label: "送信", onclick: send_message(), style: {
+                            min_width: 140px,
+                            height: 54px,
+                            padding: [0px, 24px],
+                            background: "linear-gradient(135deg, #ff8c42 0%, #ff6b35 100%)",
+                            color: "#ffffff",
+                            rounded: 12px,
+                            font_size: 18px,
+                            font_weight: "bold",
+                            align: "center",
+                            justify: "center"
+                        })
+                    }
                 }
             }
         }

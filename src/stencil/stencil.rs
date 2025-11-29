@@ -61,11 +61,23 @@ pub enum Stencil {
         color: [f32; 4],
         scroll: bool,
         depth: f32, // ★ Z値追加
+    },    BoxShadow {
+        position: [f32; 2],
+        width: f32,
+        height: f32,
+        radius: f32,
+        color: [f32; 4],
+        blur: f32,
+        offset: [f32; 2],
+        scroll: bool,
+        depth: f32,
     },
+
+
 
     /// スクロールコンテナ（overflow: scroll対応）
     ScrollContainer {
-        id: String,  // ★ ScrollContainerの一意なID
+        id: String, // ★ ScrollContainerの一意なID
         position: [f32; 2],
         width: f32,
         height: f32,
@@ -365,6 +377,29 @@ pub fn stencil_to_wgpu_draw_list(stencils: &[Stencil]) -> DrawList {
                     depth: *depth,
                 });
             }
+            Stencil::BoxShadow {
+                position,
+                width,
+                height,
+                radius,
+                color,
+                blur,
+                offset,
+                scroll,
+                depth,
+            } => {
+                draw_list.push(DrawCommand::BoxShadow {
+                    position: *position,
+                    width: *width,
+                    height: *height,
+                    radius: *radius,
+                    color: *color,
+                    blur: *blur,
+                    offset: *offset,
+                    scroll: *scroll,
+                    depth: *depth,
+                });
+            }
             Stencil::ScrollContainer {
                 position,
                 width,
@@ -375,7 +410,7 @@ pub fn stencil_to_wgpu_draw_list(stencils: &[Stencil]) -> DrawList {
                 ..
             } => {
                 use crate::parser::ast::OverflowMode;
-                
+
                 // ★ ScrollContainerをDrawCommandとして出力
                 match overflow_mode {
                     OverflowMode::Visible => {
@@ -388,21 +423,22 @@ pub fn stencil_to_wgpu_draw_list(stencils: &[Stencil]) -> DrawList {
                         // ★ ScrollContainerとして出力（クリッピング有効）
                         let mut child_commands = Vec::new();
                         let mut temp_list = DrawList::new();
-                        
+
                         for child in children {
                             recurse(child, &mut temp_list);
                         }
-                        
+
                         child_commands.extend(temp_list.0);
-                        
+
                         // ★ IDを生成（position + size のハッシュから生成）
-                        let id = format!("scroll_{}_{}_{}_{}", 
+                        let id = format!(
+                            "scroll_{}_{}_{}_{}",
                             (position[0] * 10.0) as i32,
                             (position[1] * 10.0) as i32,
                             (*width * 10.0) as i32,
                             (*height * 10.0) as i32
                         );
-                        
+
                         draw_list.push(DrawCommand::ScrollContainer {
                             id,
                             position: *position,
@@ -435,6 +471,7 @@ fn get_stencil_depth(stencil: &Stencil) -> f32 {
         Stencil::Image { depth, .. } => *depth,
         Stencil::ScrollBar { depth, .. } => *depth,
         Stencil::RoundedRect { depth, .. } => *depth,
+        Stencil::BoxShadow { depth, .. } => *depth,
         Stencil::ScrollContainer { depth, .. } => *depth,
         Stencil::Group(_) => 0.5, // デフォルト値
     }
@@ -514,7 +551,7 @@ fn recurse_with_clipping(
             let max_x = p1[0].max(p2[0]).max(p3[0]);
             let min_y = p1[1].min(p2[1]).min(p3[1]);
             let max_y = p1[1].max(p2[1]).max(p3[1]);
-            
+
             if intersects([min_x, min_y], max_x - min_x, max_y - min_y) {
                 draw_list.push(DrawCommand::Triangle {
                     p1: *p1,
@@ -539,7 +576,7 @@ fn recurse_with_clipping(
             // テキストの概算サイズでチェック
             let text_height = size * 1.2;
             let text_width = max_width.unwrap_or(size * content.len() as f32 * 0.6);
-            
+
             if intersects(*position, text_width, text_height) {
                 draw_list.push(DrawCommand::Text {
                     content: content.clone(),
@@ -622,7 +659,7 @@ fn recurse_with_clipping(
                     scroll: *scroll,
                     depth: *depth,
                 });
-                
+
                 draw_list.push(DrawCommand::Rect {
                     position: [x + r, y + h - r],
                     width: w - 2.0 * r,
@@ -640,7 +677,7 @@ fn recurse_with_clipping(
                     scroll: *scroll,
                     depth: *depth,
                 });
-                
+
                 draw_list.push(DrawCommand::Rect {
                     position: [x + w - r, y + r],
                     width: r,
@@ -688,6 +725,35 @@ fn recurse_with_clipping(
                 });
             }
         }
+        Stencil::BoxShadow {
+            position,
+            width,
+            height,
+            radius,
+            color,
+            blur,
+            offset,
+            scroll,
+            depth,
+        } => {
+            let shadow_pos = [position[0] + offset[0] - blur, position[1] + offset[1] - blur];
+            let shadow_w = *width + blur * 2.0;
+            let shadow_h = *height + blur * 2.0;
+
+            if intersects(shadow_pos, shadow_w, shadow_h) {
+                draw_list.push(DrawCommand::BoxShadow {
+                    position: *position,
+                    width: *width,
+                    height: *height,
+                    radius: *radius,
+                    color: *color,
+                    blur: *blur,
+                    offset: *offset,
+                    scroll: *scroll,
+                    depth: *depth,
+                });
+            }
+        }
         Stencil::Group(children) => {
             for child in children {
                 recurse_with_clipping(child, draw_list, clip_pos, clip_width, clip_height);
@@ -703,7 +769,7 @@ fn recurse_with_clipping(
         } => {
             // ネストされたScrollContainer: 新しいクリッピング領域を使用
             use crate::parser::ast::OverflowMode;
-            
+
             match overflow_mode {
                 OverflowMode::Visible => {
                     for child in children {
@@ -716,11 +782,11 @@ fn recurse_with_clipping(
                     let new_clip_top = clip_pos[1].max(position[1]);
                     let new_clip_right = (clip_pos[0] + clip_width).min(position[0] + width);
                     let new_clip_bottom = (clip_pos[1] + clip_height).min(position[1] + height);
-                    
+
                     if new_clip_right > new_clip_left && new_clip_bottom > new_clip_top {
                         let new_clip_width = new_clip_right - new_clip_left;
                         let new_clip_height = new_clip_bottom - new_clip_top;
-                        
+
                         for child in children {
                             recurse_with_clipping(
                                 child,

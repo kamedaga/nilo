@@ -18,38 +18,61 @@ fn text_width_cached(text: &str, font_size: f32, font_family: &str) -> f32 {
     if text.is_empty() {
         return 0.0;
     }
-    
+
     let cache_key = format!("{}:{}:{}", text, font_size, font_family);
-    
+
     TEXT_WIDTH_CACHE.with(|cache| {
         let mut cache = cache.borrow_mut();
-        
+
         if let Some(&width) = cache.get(&cache_key) {
             return width;
         }
-        
+
         #[cfg(any(feature = "glyphon", target_arch = "wasm32"))]
         let width = {
-            let (w, _h) = crate::ui::text_measurement::measure_text_size(
-                text,
-                font_size,
-                font_family,
-                None,
-            );
+            let (w, _h) =
+                crate::ui::text_measurement::measure_text_size(text, font_size, font_family, None);
             w
         };
-        
+
         #[cfg(not(any(feature = "glyphon", target_arch = "wasm32")))]
         let width = font_size * 0.6 * text.chars().count() as f32;
-        
+
         // キャッシュサイズ制限（メモリリーク防止）
         if cache.len() > 500 {
             cache.clear();
         }
-        
+
         cache.insert(cache_key, width);
         width
     })
+}
+
+fn push_shadow_stencil(
+    stencils: &mut Vec<Stencil>,
+    position: [f32; 2],
+    size: [f32; 2],
+    radius: f32,
+    shadow: crate::parser::ast::Shadow,
+    depth_counter: &mut f32,
+) {
+    let (offset, color, blur) = shadow_to_params(&shadow);
+    if color[3] <= 0.0 || blur <= 0.0 {
+        return;
+    }
+
+    *depth_counter += 0.001;
+    stencils.push(Stencil::BoxShadow {
+        position,
+        width: size[0],
+        height: size[1],
+        radius,
+        color: [color[0], color[1], color[2], (color[3] * 0.9).min(1.0)],
+        blur,
+        offset,
+        scroll: true,
+        depth: (1.0 - *depth_counter).max(0.0),
+    });
 }
 
 /// 軽量化されたテキスト入力フィールド描画
@@ -63,7 +86,9 @@ pub fn render_text_input_lightweight<S>(
 ) where
     S: StateAccess + 'static,
 {
-    if let ViewNode::TextInput { id, placeholder, .. } = &lnode.node.node
+    if let ViewNode::TextInput {
+        id, placeholder, ..
+    } = &lnode.node.node
     {
         let style = lnode.node.style.clone().unwrap_or_default();
 
@@ -183,7 +208,8 @@ pub fn render_text_input_lightweight<S>(
 
         // 幅計算（キャッシュ利用）
         let pre_w = text_width_cached(&pre, font_size, &font_family);
-        let comp_w = ime_text.as_ref()
+        let comp_w = ime_text
+            .as_ref()
             .map(|t| text_width_cached(t, font_size, &font_family))
             .unwrap_or(0.0);
 
@@ -193,7 +219,7 @@ pub fn render_text_input_lightweight<S>(
             .max(text_width_cached("あ", font_size, &font_family))
             .max(1.0);
         let effective_width = (inner_width - one_char_px).max(1.0);
-        
+
         let scroll_x = if cursor_rel_x > effective_width {
             (cursor_rel_x - effective_width).max(0.0)
         } else {
@@ -219,10 +245,10 @@ pub fn render_text_input_lightweight<S>(
         };
 
         let pre_vis: String = pre.chars().skip(visible_start).collect();
-        
+
         // 描画（最小限の命令）
         let mut draw_x = base_x;
-        
+
         // Pre テキスト
         if !pre_vis.is_empty() {
             *depth_counter += 0.001;
@@ -243,7 +269,7 @@ pub fn render_text_input_lightweight<S>(
         if let Some(comp) = ime_text.as_ref() {
             if !comp.is_empty() {
                 let comp_width = text_width_cached(comp, font_size, &font_family).max(1.0);
-                
+
                 // 背景
                 *depth_counter += 0.001;
                 stencils.push(Stencil::RoundedRect {
@@ -255,7 +281,7 @@ pub fn render_text_input_lightweight<S>(
                     scroll: true,
                     depth: (1.0 - *depth_counter).max(0.0),
                 });
-                
+
                 // テキスト
                 *depth_counter += 0.001;
                 stencils.push(Stencil::Text {
@@ -362,27 +388,14 @@ pub fn render_button_lightweight(
             if bg_rgba[3] > 0.0 {
                 // 影の描画
                 if let Some(sh) = style.shadow.clone() {
-                    let (off, scol) = match sh {
-                        crate::parser::ast::Shadow::On => ([0.0, 2.0], [0.0, 0.0, 0.0, 0.25]),
-                        crate::parser::ast::Shadow::Spec { offset, color, .. } => {
-                            let scol = color
-                                .as_ref()
-                                .map(|c| convert_to_rgba(c))
-                                .unwrap_or([0.0, 0.0, 0.0, 0.25]);
-                            (offset, scol)
-                        }
-                    };
-
-                    *depth_counter += 0.001;
-                    stencils.push(Stencil::RoundedRect {
-                        position: [lnode.position[0] + off[0], lnode.position[1] + off[1]],
-                        width: lnode.size[0],
-                        height: lnode.size[1],
+                    push_shadow_stencil(
+                        stencils,
+                        lnode.position,
+                        lnode.size,
                         radius,
-                        color: [scol[0], scol[1], scol[2], (scol[3] * 0.9).min(1.0)],
-                        scroll: true,
-                        depth: (1.0 - *depth_counter).max(0.0),
-                    });
+                        sh,
+                        depth_counter,
+                    );
                 }
 
                 // 背景色の描画
@@ -771,10 +784,3 @@ pub fn render_substituted_node_to_stencil_with_context<S>(
         _ => {}
     }
 }
-
-
-
-
-
-
-

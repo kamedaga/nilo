@@ -117,7 +117,7 @@ impl DomRenderer {
     fn render_stencil(&mut self, stencil: &Stencil) {
         match stencil {
             Stencil::ScrollContainer {
-                id: _,  // ★ idフィールドを無視
+                id: _, // ★ idフィールドを無視
                 position,
                 width,
                 height,
@@ -141,7 +141,8 @@ impl DomRenderer {
             }
             _ => {
                 // 他のStencilは従来通りDrawCommandに変換してレンダリング
-                let draw_list = crate::stencil::stencil::stencil_to_wgpu_draw_list(&[stencil.clone()]);
+                let draw_list =
+                    crate::stencil::stencil::stencil_to_wgpu_draw_list(&[stencil.clone()]);
                 for command in draw_list.0.iter() {
                     self.render_command(command);
                 }
@@ -160,7 +161,7 @@ impl DomRenderer {
         depth: f32,
     ) {
         use crate::parser::ast::OverflowMode;
-        
+
         let pos = self.apply_transform(position, false);
         let overflow_css = match overflow_mode {
             OverflowMode::Visible => "visible",
@@ -182,11 +183,20 @@ impl DomRenderer {
                                 let _ = style.set_property("position", "absolute");
                                 let _ = style.set_property("left", &format!("{}px", pos[0]));
                                 let _ = style.set_property("top", &format!("{}px", pos[1]));
-                                let _ = style.set_property("width", &format!("{}px", width * self.scale_factor));
-                                let _ = style.set_property("height", &format!("{}px", height * self.scale_factor));
+                                let _ = style.set_property(
+                                    "width",
+                                    &format!("{}px", width * self.scale_factor),
+                                );
+                                let _ = style.set_property(
+                                    "height",
+                                    &format!("{}px", height * self.scale_factor),
+                                );
                                 let _ = style.set_property("overflow", overflow_css);
-                                let _ = style.set_property("z-index", &format!("{}", (1000.0 * (1.0 - depth)) as i32));
-                                
+                                let _ = style.set_property(
+                                    "z-index",
+                                    &format!("{}", (1000.0 * (1.0 - depth)) as i32),
+                                );
+
                                 // マウスイベントを受け取るように設定
                                 let _ = style.set_property("pointer-events", "auto");
                                 // クリッピングと正確なサイズ計算のため
@@ -195,9 +205,9 @@ impl DomRenderer {
                                 let _ = style.set_property("scroll-behavior", "smooth");
                                 // WebKitブラウザ用のスクロールバースタイル（オプション）
                                 let _ = style.set_property("-webkit-overflow-scrolling", "touch");
-                                
+
                                 let _ = container.append_child(&wrapper);
-                                
+
                                 // 子要素をこのwrapper内に直接レンダリング
                                 // 子要素の座標はwrapperからの相対位置として扱う
                                 for child in children {
@@ -222,11 +232,11 @@ impl DomRenderer {
                 (1000.0 * (1.0 - depth)) as i32
             );
             self.html_buffer.push(wrapper_start);
-            
+
             for child in children {
                 self.render_stencil(child);
             }
-            
+
             self.html_buffer.push("</div>".to_string());
         }
     }
@@ -240,16 +250,23 @@ impl DomRenderer {
         container_position: [f32; 2],
     ) {
         use web_sys::HtmlElement;
-        
+
         match stencil {
-            Stencil::Rect { position, width, height, color, depth, .. } => {
+            Stencil::Rect {
+                position,
+                width,
+                height,
+                color,
+                depth,
+                ..
+            } => {
                 // 相対位置に変換
                 let relative_pos = [
                     position[0] - container_position[0],
                     position[1] - container_position[1],
                 ];
                 let pos = self.apply_transform(relative_pos, false);
-                
+
                 let rgba = format!(
                     "rgba({}, {}, {}, {})",
                     (color[0] * 255.0) as u8,
@@ -265,23 +282,38 @@ impl DomRenderer {
                             let _ = style.set_property("position", "absolute");
                             let _ = style.set_property("left", &format!("{}px", pos[0]));
                             let _ = style.set_property("top", &format!("{}px", pos[1]));
-                            let _ = style.set_property("width", &format!("{}px", width * self.scale_factor));
-                            let _ = style.set_property("height", &format!("{}px", height * self.scale_factor));
+                            let _ = style
+                                .set_property("width", &format!("{}px", width * self.scale_factor));
+                            let _ = style.set_property(
+                                "height",
+                                &format!("{}px", height * self.scale_factor),
+                            );
                             let _ = style.set_property("background-color", &rgba);
-                            let _ = style.set_property("z-index", &format!("{}", (1000.0 * (1.0 - depth)) as i32));
+                            let _ = style.set_property(
+                                "z-index",
+                                &format!("{}", (1000.0 * (1.0 - depth)) as i32),
+                            );
                             let _ = container.append_child(&element);
                         }
                     }
                 }
             }
-            Stencil::RoundedRect { position, width, height, radius, color, depth, .. } => {
+            Stencil::RoundedRect {
+                position,
+                width,
+                height,
+                radius,
+                color,
+                depth,
+                ..
+            } => {
                 // 相対位置に変換
                 let relative_pos = [
                     position[0] - container_position[0],
                     position[1] - container_position[1],
                 ];
                 let pos = self.apply_transform(relative_pos, false);
-                
+
                 let rgba = format!(
                     "rgba({}, {}, {}, {})",
                     (color[0] * 255.0) as u8,
@@ -297,24 +329,43 @@ impl DomRenderer {
                             let _ = style.set_property("position", "absolute");
                             let _ = style.set_property("left", &format!("{}px", pos[0]));
                             let _ = style.set_property("top", &format!("{}px", pos[1]));
-                            let _ = style.set_property("width", &format!("{}px", width * self.scale_factor));
-                            let _ = style.set_property("height", &format!("{}px", height * self.scale_factor));
+                            let _ = style
+                                .set_property("width", &format!("{}px", width * self.scale_factor));
+                            let _ = style.set_property(
+                                "height",
+                                &format!("{}px", height * self.scale_factor),
+                            );
                             let _ = style.set_property("background-color", &rgba);
-                            let _ = style.set_property("border-radius", &format!("{}px", radius * self.scale_factor));
-                            let _ = style.set_property("z-index", &format!("{}", (1000.0 * (1.0 - depth)) as i32));
+                            let _ = style.set_property(
+                                "border-radius",
+                                &format!("{}px", radius * self.scale_factor),
+                            );
+                            let _ = style.set_property(
+                                "z-index",
+                                &format!("{}", (1000.0 * (1.0 - depth)) as i32),
+                            );
                             let _ = container.append_child(&element);
                         }
                     }
                 }
             }
-            Stencil::Text { content, position, size, color, font, max_width, depth, .. } => {
+            Stencil::Text {
+                content,
+                position,
+                size,
+                color,
+                font,
+                max_width,
+                depth,
+                ..
+            } => {
                 // 相対位置に変換
                 let relative_pos = [
                     position[0] - container_position[0],
                     position[1] - container_position[1],
                 ];
                 let pos = self.apply_transform(relative_pos, false);
-                
+
                 let rgba = format!(
                     "rgba({}, {}, {}, {})",
                     (color[0] * 255.0) as u8,
@@ -331,18 +382,27 @@ impl DomRenderer {
                             let _ = style.set_property("position", "absolute");
                             let _ = style.set_property("left", &format!("{}px", pos[0]));
                             let _ = style.set_property("top", &format!("{}px", pos[1]));
-                            let _ = style.set_property("font-size", &format!("{}px", size * self.scale_factor));
+                            let _ = style.set_property(
+                                "font-size",
+                                &format!("{}px", size * self.scale_factor),
+                            );
                             let _ = style.set_property("color", &rgba);
                             let _ = style.set_property("font-family", font);
                             let _ = style.set_property("white-space", "pre-wrap");
                             let _ = style.set_property("word-wrap", "break-word");
                             let _ = style.set_property("overflow-wrap", "break-word");
-                            
+
                             if let Some(max_w) = max_width {
-                                let _ = style.set_property("max-width", &format!("{}px", max_w * self.scale_factor));
+                                let _ = style.set_property(
+                                    "max-width",
+                                    &format!("{}px", max_w * self.scale_factor),
+                                );
                             }
-                            
-                            let _ = style.set_property("z-index", &format!("{}", (1000.0 * (1.0 - depth)) as i32));
+
+                            let _ = style.set_property(
+                                "z-index",
+                                &format!("{}", (1000.0 * (1.0 - depth)) as i32),
+                            );
                             let _ = container.append_child(&element);
                         }
                     }
@@ -357,18 +417,18 @@ impl DomRenderer {
                 // その他のStencilタイプも同様に処理
                 // 簡易実装として、従来のrender_stencilを使用
                 let original_container_id = self.container_id.clone();
-                if let Some(id) = container.id().as_string() {
-                    if !id.is_empty() {
-                        self.container_id = id;
-                        self.render_stencil(stencil);
-                        self.container_id = original_container_id;
-                    }
+                let current_id = container.id();
+                if !current_id.is_empty() {
+                    self.container_id = current_id;
+                    self.render_stencil(stencil);
+                    self.container_id = original_container_id;
                 }
             }
         }
     }
 
     /// コンテナをクリア
+    /// Container をクリア（DOM向け）
     fn clear_container(&mut self) {
         #[cfg(target_arch = "wasm32")]
         {
@@ -376,14 +436,33 @@ impl DomRenderer {
             if let Some(window) = window() {
                 if let Some(document) = window.document() {
                     if let Some(container) = document.get_element_by_id(&self.container_id) {
-                        // コンテナをクリア（スクロール位置はrun_nilo_code_from_browser側で管理）
-                        container.set_inner_html("");
+                        // 既存の DOM TextInput は残しつつ他を削除
+                        let children = container.child_nodes();
+                        let mut to_remove = Vec::new();
+                        for i in 0..children.length() {
+                            if let Some(node) = children.item(i) {
+                                let keep = node
+                                    .dyn_ref::<web_sys::HtmlElement>()
+                                    .map(|el| {
+                                        el.class_name()
+                                            .split_whitespace()
+                                            .any(|c| c == "nilo-dom-textinput")
+                                    })
+                                    .unwrap_or(false);
+                                if !keep {
+                                    to_remove.push(node);
+                                }
+                            }
+                        }
+                        for node in to_remove {
+                            let _ = container.remove_child(&node);
+                        }
                     }
                 }
             }
         }
 
-        // ネイティブ環境ではHTMLバッファをクリア
+        // 
         #[cfg(not(target_arch = "wasm32"))]
         {
             self.html_buffer.clear();
@@ -447,6 +526,29 @@ impl DomRenderer {
                 depth,
             } => {
                 self.render_image(*position, *width, *height, path, *scroll, *depth);
+            }
+            DrawCommand::BoxShadow {
+                position,
+                width,
+                height,
+                radius,
+                color,
+                blur,
+                offset,
+                scroll,
+                depth,
+            } => {
+                self.render_box_shadow(
+                    *position,
+                    *width,
+                    *height,
+                    *radius,
+                    *color,
+                    *blur,
+                    *offset,
+                    *scroll,
+                    *depth,
+                );
             }
             DrawCommand::ScrollContainer { .. } => {
                 // ScrollContainerはrender_stencilで直接処理されるため、ここには到達しない
@@ -813,6 +915,79 @@ impl DomRenderer {
     }
 
     /// スケールファクターを適用した座標変換（スクロールはブラウザが管理）
+    fn render_box_shadow(
+        &mut self,
+        position: [f32; 2],
+        width: f32,
+        height: f32,
+        radius: f32,
+        color: [f32; 4],
+        blur: f32,
+        offset: [f32; 2],
+        scroll: bool,
+        depth: f32,
+    ) {
+        let pos = self.apply_transform(position, scroll);
+        let blur_px = (blur * self.scale_factor).max(0.5);
+        let shadow_rgba = format!(
+            "rgba({}, {}, {}, {})",
+            (color[0] * 255.0) as u8,
+            (color[1] * 255.0) as u8,
+            (color[2] * 255.0) as u8,
+            color[3]
+        );
+        let shadow_css = format!(
+            "{}px {}px {}px {}",
+            offset[0] * self.scale_factor,
+            offset[1] * self.scale_factor,
+            blur_px,
+            shadow_rgba
+        );
+
+        #[cfg(target_arch = "wasm32")]
+        {
+            use web_sys::{HtmlElement, window};
+            if let Some(window) = window() {
+                if let Some(document) = window.document() {
+                    if let Some(container) = document.get_element_by_id(&self.container_id) {
+                        if let Ok(element) = document.create_element("div") {
+                            if let Ok(element) = element.dyn_into::<HtmlElement>() {
+                                let style = element.style();
+                                let _ = style.set_property("position", "absolute");
+                                let _ = style.set_property("left", &format!("{}px", pos[0]));
+                                let _ = style.set_property("top", &format!("{}px", pos[1]));
+                                let _ = style.set_property("width", &format!("{}px", width * self.scale_factor));
+                                let _ = style.set_property("height", &format!("{}px", height * self.scale_factor));
+                                let _ = style.set_property("border-radius", &format!("{}px", radius * self.scale_factor));
+                                let _ = style.set_property("box-shadow", &shadow_css);
+                                let _ = style.set_property("background", "transparent");
+                                let _ = style.set_property("pointer-events", "none");
+                                let _ = style.set_property("z-index", &format!("{}", (1000.0 * (1.0 - depth)) as i32));
+                                let _ = container.append_child(&element);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            let html = format!(
+                r#"<div style="position: absolute; left: {}px; top: {}px; width: {}px; height: {}px; border-radius: {}px; box-shadow: {}; background: transparent; pointer-events: none; z-index: {};"></div>"#,
+                pos[0],
+                pos[1],
+                width * self.scale_factor,
+                height * self.scale_factor,
+                radius * self.scale_factor,
+                shadow_css,
+                (1000.0 * (1.0 - depth)) as i32
+            );
+            self.html_buffer.push(html);
+        }
+    }
+
+
     fn apply_transform(&self, position: [f32; 2], _apply_scroll: bool) -> [f32; 2] {
         // スクロールはブラウザのネイティブスクロールで処理されるため、
         // ここではスケールファクターのみを適用
