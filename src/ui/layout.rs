@@ -768,8 +768,8 @@ impl LayoutEngine {
         for child in children.iter() {
             let child_size =
                 self.compute_node_size(child, &child_context, eval, get_image_size, app);
-            child_sizes.push(child_size.clone());
             max_width = max_width.max(child_size.width);
+            child_sizes.push(child_size);
         }
 
         // VStackの最終的な幅を決定
@@ -834,7 +834,7 @@ impl LayoutEngine {
 
         // ★ 新しいアプローチ：2パス計算
         // パス1: 固定幅の子要素のサイズを計算
-        let mut fixed_widths = Vec::new();
+        let mut fixed_sizes = Vec::new();
         let mut has_relative_width = Vec::new();
         let mut total_fixed_width = 0.0;
         let mut total_spacing = 0.0;
@@ -852,11 +852,11 @@ impl LayoutEngine {
             if (!child_has_relative) {
                 // 固定幅の子要素：現在のコンテキストでサイズ計算
                 let child_size = self.compute_node_size(child, context, eval, get_image_size, app);
-                fixed_widths.push(child_size.width);
                 total_fixed_width += child_size.width;
+                fixed_sizes.push(Some(child_size));
             } else {
                 // 相対幅の子要素：まだ計算しない
-                fixed_widths.push(0.0);
+                fixed_sizes.push(None);
             }
 
             // スペーシングを追加
@@ -883,20 +883,15 @@ impl LayoutEngine {
                     self.compute_node_size(child, &relative_context, eval, get_image_size, app)
                 } else {
                     // 固定幅の子要素：既に計算済み
-                    let width = fixed_widths[i];
-                    let temp_size =
-                        self.compute_node_size(child, context, eval, get_image_size, app);
-                    ComputedSize {
-                        width,
-                        height: temp_size.height,
-                        intrinsic_width: temp_size.intrinsic_width,
-                        intrinsic_height: temp_size.intrinsic_height,
-                        has_explicit_width: temp_size.has_explicit_width,
-                        has_explicit_height: temp_size.has_explicit_height,
-                    }
+                    fixed_sizes[i]
+                        .as_ref()
+                        .cloned()
+                        .unwrap_or_else(|| {
+                            self.compute_node_size(child, context, eval, get_image_size, app)
+                        })
                 };
 
-                child_sizes.push(child_size.clone());
+                child_sizes.push(child_size);
                 total_width += child_size.width;
                 max_height = max_height.max(child_size.height);
             }
@@ -907,7 +902,7 @@ impl LayoutEngine {
             // 親幅がない場合：通常通り計算
             for (i, child) in children.iter().enumerate() {
                 let child_size = self.compute_node_size(child, context, eval, get_image_size, app);
-                child_sizes.push(child_size.clone());
+                child_sizes.push(child_size);
                 total_width += child_size.width;
                 max_height = max_height.max(child_size.height);
             }
